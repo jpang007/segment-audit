@@ -54,11 +54,27 @@
                 </div>
             </div>
 
-            <!-- Source Status Chart -->
+            <!-- Charts Grid -->
+            <div class="grid-2">
+                <div class="chart-section">
+                    <h2>Source Status Distribution</h2>
+                    <div class="chart-container">
+                        <canvas id="sourceStatusChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-section">
+                    <h2>Source Type Distribution</h2>
+                    <div class="chart-container">
+                        <canvas id="sourceTypeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <div class="chart-section">
-                <h2>Source Status Distribution</h2>
+                <h2>Source Category Distribution</h2>
                 <div class="chart-container">
-                    <canvas id="sourceChart"></canvas>
+                    <canvas id="sourceCategoryChart"></canvas>
                 </div>
             </div>
 
@@ -242,21 +258,22 @@
                 });
             }
 
-            // Render chart and table
-            renderSourceChart(sources);
+            // Render charts and table
+            renderSourceCharts(sources, sourcesData.sources);
             renderSourcesTable(sourcesData.sources);
         }
 
-        function renderSourceChart(sources) {
-            const ctx = document.getElementById('sourceChart').getContext('2d');
-            new Chart(ctx, {
+        function renderSourceCharts(sourceSummary, sourcesList) {
+            // 1. Source Status Chart
+            const statusCtx = document.getElementById('sourceStatusChart').getContext('2d');
+            new Chart(statusCtx, {
                 type: 'doughnut',
                 data: {
                     labels: ['Enabled', 'Disabled'],
                     datasets: [{
                         data: [
-                            sources.enabled || 0,
-                            sources.disabled || 0
+                            sourceSummary.enabled || 0,
+                            sourceSummary.disabled || 0
                         ],
                         backgroundColor: [
                             '#4299e1',
@@ -270,6 +287,93 @@
                     plugins: {
                         legend: {
                             position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // 2. Source Type Chart
+            const typeCounts = {};
+            sourcesList.forEach(source => {
+                const type = source.Type || 'Unknown';
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+
+            const typeLabels = Object.keys(typeCounts).sort();
+            const typeData = typeLabels.map(label => typeCounts[label]);
+            const typeColors = [
+                '#667eea', '#764ba2', '#f093fb', '#4facfe',
+                '#43e97b', '#fa709a', '#fee140', '#30cfd0',
+                '#a8edea', '#fed6e3', '#c471f5', '#12c2e9'
+            ];
+
+            const typeCtx = document.getElementById('sourceTypeChart').getContext('2d');
+            new Chart(typeCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: typeLabels,
+                    datasets: [{
+                        data: typeData,
+                        backgroundColor: typeColors.slice(0, typeLabels.length)
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 8,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 3. Source Category Chart
+            const categoryCounts = {};
+            sourcesList.forEach(source => {
+                const categories = (source.Category || 'Unknown').split(',').map(c => c.trim());
+                categories.forEach(category => {
+                    if (category) {
+                        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+                    }
+                });
+            });
+
+            const categoryLabels = Object.keys(categoryCounts).sort();
+            const categoryData = categoryLabels.map(label => categoryCounts[label]);
+            const categoryColors = [
+                '#48bb78', '#ed8936', '#ecc94b', '#9f7aea',
+                '#ed64a6', '#38b2ac', '#f56565', '#4299e1',
+                '#805ad5', '#d69e2e', '#e53e3e', '#319795'
+            ];
+
+            const categoryCtx = document.getElementById('sourceCategoryChart').getContext('2d');
+            new Chart(categoryCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: categoryLabels,
+                    datasets: [{
+                        data: categoryData,
+                        backgroundColor: categoryColors.slice(0, categoryLabels.length)
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
                         }
                     }
                 }
