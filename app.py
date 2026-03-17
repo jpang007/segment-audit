@@ -122,6 +122,29 @@ class SegmentAuditor:
         url = f"{self.v1_base}/spaces/{self.space_id}/audiences"
         return self._paginate(url, 'data')
 
+    def get_event_volumes(self, start_time, end_time, granularity='DAY', group_by=None):
+        """Get event volumes for workspace"""
+        url = f"{self.v1_base}/events/volume"
+
+        params = {
+            'granularity': granularity,
+            'startTime': start_time,
+            'endTime': end_time
+        }
+
+        # Add groupBy if specified (e.g., ['eventType', 'sourceId'])
+        if group_by:
+            for i, group in enumerate(group_by):
+                params[f'groupBy.{i}'] = group
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30, verify=self.verify)
+            if response.status_code != 200:
+                raise Exception(f"API Error: {response.status_code} - {response.text}")
+            return response.json()
+        except Exception as e:
+            raise Exception(f"Error fetching event volumes: {str(e)}")
+
     def extract_events_and_traits(self, definition):
         """Extract event and trait names from audience definition"""
         import re
@@ -366,8 +389,11 @@ def run_audit_route():
     if not space_ids:
         return jsonify({'error': 'At least one space ID is required'}), 400
 
-    # Store customer name in session
+    # Store credentials in session for later use
     session['customer_name'] = customer_name
+    session['api_token'] = api_token
+    session['workspace_id'] = workspace_id
+    session['skip_ssl'] = skip_ssl
 
     # Reset status
     audit_status = {
@@ -409,6 +435,53 @@ def sources():
     """Sources view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('sources.html', customer_name=customer_name)
+
+@app.route('/observability')
+def observability():
+    """Observability view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('observability.html', customer_name=customer_name)
+
+@app.route('/api/event-volumes')
+def event_volumes():
+    """Get event volumes for workspace"""
+    from datetime import datetime, timedelta
+
+    # Get API token and workspace config from session or require re-entry
+    api_token = session.get('api_token')
+    workspace_id = session.get('workspace_id')
+    skip_ssl = session.get('skip_ssl', False)
+
+    if not api_token:
+        return jsonify({'error': 'API token not found. Please run audit first.'}), 400
+
+    try:
+        auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl)
+
+        # Calculate time ranges
+        now = datetime.utcnow()
+        seven_days_ago = now - timedelta(days=7)
+        fourteen_days_ago = now - timedelta(days=14)
+
+        # Format as ISO 8601
+        end_time = now.isoformat() + 'Z'
+        seven_day_start = seven_days_ago.isoformat() + 'Z'
+        fourteen_day_start = fourteen_days_ago.isoformat() + 'Z'
+
+        # Get total workspace volumes (no groupBy, just workspace totals)
+        seven_day_volume = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY')
+        fourteen_day_volume = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY')
+
+        # Get 7-day volume grouped by sourceId for the chart
+        seven_day_by_source = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY', group_by=['sourceId'])
+
+        return jsonify({
+            'seven_day': seven_day_volume,
+            'fourteen_day': fourteen_day_volume,
+            'seven_day_by_source': seven_day_by_source
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/audit_data/<path:filename>')
 def serve_data(filename):

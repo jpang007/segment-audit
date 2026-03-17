@@ -18,6 +18,9 @@
                 <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
                     🔌 Sources
                 </button>
+                <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
+                    📊 Observability
+                </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
                     ← New Audit
                 </button>
@@ -241,10 +244,6 @@
             document.getElementById('totalAudiences').textContent = audiences.total || 0;
             document.getElementById('audiencesBreakdown').textContent =
                 `${audiences.enabled || 0} enabled, ${audiences.disabled || 0} disabled`;
-
-            document.getElementById('totalSources').textContent = sources.total || 0;
-            document.getElementById('sourcesBreakdown').textContent =
-                `${sources.enabled || 0} enabled, ${sources.disabled || 0} disabled`;
 
             document.getElementById('eventsReferenced').textContent = coverage.unique_events_referenced || 0;
             document.getElementById('traitsReferenced').textContent = coverage.unique_traits_referenced || 0;

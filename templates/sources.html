@@ -18,6 +18,9 @@
                 <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
                     👥 Audiences
                 </button>
+                <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
+                    📊 Observability
+                </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
                     ← New Audit
                 </button>
@@ -240,27 +243,67 @@
                 });
             }
 
-            // Collect all unique labels (split by comma for sources with multiple labels)
+            // Collect all unique labels
             const labelsSet = new Set();
+            const labelsByKey = {};
+            let hasKeyValueLabels = false;
+
             sourcesData.sources.forEach(s => {
                 const labels = s.Labels || '';
                 if (labels) {
                     labels.split(',').forEach(label => {
                         const trimmed = label.trim();
-                        if (trimmed) labelsSet.add(trimmed);
+                        if (trimmed) {
+                            labelsSet.add(trimmed);
+                            if (trimmed.includes(':')) {
+                                hasKeyValueLabels = true;
+                                // Split only on first colon
+                                const colonIndex = trimmed.indexOf(':');
+                                const key = trimmed.substring(0, colonIndex).trim();
+                                const value = trimmed.substring(colonIndex + 1).trim();
+
+                                if (!labelsByKey[key]) {
+                                    labelsByKey[key] = new Set();
+                                }
+                                labelsByKey[key].add(value);
+                            }
+                        }
                     });
                 }
             });
 
             // Populate label filter
             const labelFilter = document.getElementById('labelFilter');
-            if (labelFilter.options.length === 1 && labelsSet.size > 0) {
-                [...labelsSet].sort().forEach(label => {
-                    const option = document.createElement('option');
-                    option.value = label;
-                    option.textContent = label;
-                    labelFilter.appendChild(option);
-                });
+            if (labelFilter.options.length === 1) {
+                if (hasKeyValueLabels && Object.keys(labelsByKey).length > 0) {
+                    // Use grouped options for key:value format
+                    const sortedKeys = Object.keys(labelsByKey).sort();
+
+                    sortedKeys.forEach(key => {
+                        const values = [...labelsByKey[key]].sort();
+
+                        // Add optgroup for each key
+                        const optgroup = document.createElement('optgroup');
+                        optgroup.label = key;
+
+                        values.forEach(value => {
+                            const option = document.createElement('option');
+                            option.value = `${key}:${value}`;
+                            option.textContent = value;
+                            optgroup.appendChild(option);
+                        });
+
+                        labelFilter.appendChild(optgroup);
+                    });
+                } else if (labelsSet.size > 0) {
+                    // Simple flat list for labels without colons
+                    [...labelsSet].sort().forEach(label => {
+                        const option = document.createElement('option');
+                        option.value = label;
+                        option.textContent = label;
+                        labelFilter.appendChild(option);
+                    });
+                }
             }
 
             // Render table (which will trigger chart updates)
@@ -412,12 +455,13 @@
                 const labelMatch = !selectedLabel ||
                     (source.Labels && source.Labels.split(',').map(l => l.trim()).includes(selectedLabel));
 
-                // Search filter (name, type, category, slug)
+                // Search filter (name, type, category, slug, labels)
                 const searchMatch = !searchTerm ||
                     (source['Source Name'] || '').toLowerCase().includes(searchTerm) ||
                     (source.Type || '').toLowerCase().includes(searchTerm) ||
                     (source.Category || '').toLowerCase().includes(searchTerm) ||
-                    (source.Slug || '').toLowerCase().includes(searchTerm);
+                    (source.Slug || '').toLowerCase().includes(searchTerm) ||
+                    (source.Labels || '').toLowerCase().includes(searchTerm);
 
                 return categoryMatch && statusMatch && labelMatch && searchMatch;
             });
@@ -441,7 +485,9 @@
                 const category = source.Category || 'Unknown';
                 const writeKeys = (source['Write Keys'] || '').substring(0, 30) +
                     (source['Write Keys'] && source['Write Keys'].length > 30 ? '...' : '');
-                const labels = source.Labels || '-';
+
+                // Parse and format labels (key:value pairs)
+                const labelsHtml = formatLabels(source.Labels || '');
 
                 return `
                     <tr>
@@ -450,7 +496,7 @@
                         <td>${type}</td>
                         <td>${category}</td>
                         <td style="font-size: 0.85rem; font-family: monospace;" title="${source['Write Keys'] || ''}">${writeKeys}</td>
-                        <td style="font-size: 0.85rem;">${labels}</td>
+                        <td style="font-size: 0.85rem;">${labelsHtml}</td>
                     </tr>
                 `;
             }).join('');
@@ -472,6 +518,55 @@
 
             // Update charts to reflect filtered data
             renderSourceCharts(filteredSources);
+        }
+
+        function formatLabels(labelsStr) {
+            if (!labelsStr || labelsStr === '-' || labelsStr.trim() === '') return '-';
+
+            // Parse labels
+            const labels = labelsStr.split(',').map(l => l.trim()).filter(l => l);
+            if (labels.length === 0) return '-';
+
+            // Check if any labels have the key:value format
+            const hasKeyValue = labels.some(l => l.includes(':'));
+
+            if (hasKeyValue) {
+                // Format key:value pairs
+                const grouped = {};
+
+                labels.forEach(label => {
+                    if (label.includes(':')) {
+                        // Split only on first colon
+                        const colonIndex = label.indexOf(':');
+                        const key = label.substring(0, colonIndex).trim();
+                        const value = label.substring(colonIndex + 1).trim();
+
+                        if (!grouped[key]) {
+                            grouped[key] = [];
+                        }
+                        grouped[key].push(value);
+                    } else {
+                        // Label without colon
+                        if (!grouped['other']) {
+                            grouped['other'] = [];
+                        }
+                        grouped['other'].push(label);
+                    }
+                });
+
+                // Format as key: value1, value2
+                const formatted = Object.entries(grouped).map(([key, values]) => {
+                    if (key === 'other') {
+                        return values.join(', ');
+                    }
+                    return `<strong>${key}:</strong> ${values.join(', ')}`;
+                }).join(' <span style="color: #cbd5e0;">|</span> ');
+
+                return formatted || '-';
+            } else {
+                // Just display labels as-is if no key:value format
+                return labels.join(', ');
+            }
         }
 
         function previousPage() {

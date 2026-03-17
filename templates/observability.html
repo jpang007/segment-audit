@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Observability</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Observability</h1>
+                <p class="subtitle" id="reportDate">Event Volume Metrics</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
+                    👥 Audiences
+                </button>
+                <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
+                    🔌 Sources
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading event volume data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">7-Day Total Events</div>
+                    <div class="value" id="sevenDayTotal">-</div>
+                    <div class="subtext" id="sevenDaySubtext">Last 7 days</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">14-Day Total Events</div>
+                    <div class="value" id="fourteenDayTotal">-</div>
+                    <div class="subtext" id="fourteenDaySubtext">Last 14 days</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Daily Average (7d)</div>
+                    <div class="value" id="sevenDayAvg">-</div>
+                    <div class="subtext">Events per day</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Daily Average (14d)</div>
+                    <div class="value" id="fourteenDayAvg">-</div>
+                    <div class="subtext">Events per day</div>
+                </div>
+            </div>
+
+            <!-- Daily Event Volume by Source Chart -->
+            <div class="chart-section">
+                <h2>Daily Event Volume by Source (Last 7 Days)</h2>
+                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;">Top sources by volume (≥1,000 events)</p>
+                <div class="chart-container" style="height: 400px;">
+                    <canvas id="dailyVolumeChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Low Volume Sources -->
+            <div class="chart-section" id="lowVolumeSection" style="display: none;">
+                <h2>Low Volume Sources</h2>
+                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;">Sources with &lt;1,000 events in the last 7 days</p>
+                <div id="lowVolumeList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let volumeData = {
+            seven_day: null,
+            fourteen_day: null,
+            seven_day_by_source: null
+        };
+
+        let sourcesMap = {}; // Map of sourceId to source name
+
+        async function loadData() {
+            try {
+                // Fetch event volumes
+                const response = await fetch('/api/event-volumes');
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to load event volumes');
+                }
+
+                volumeData = await response.json();
+
+                // Load sources to get source names
+                try {
+                    const sourcesResponse = await fetch('/audit_data/segment_sources_audit.csv');
+                    const sourcesText = await sourcesResponse.text();
+                    const sources = parseCSV(sourcesText);
+
+                    // Create map of source ID to source name
+                    sources.forEach(source => {
+                        sourcesMap[source['Source ID']] = source['Source Name'] || source['Source ID'];
+                    });
+                } catch (e) {
+                    console.warn('segment_sources_audit.csv not found, using source IDs');
+                }
+
+                renderPage();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+
+            return lines.slice(1).map(line => {
+                // Handle commas within quoted fields
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim().replace(/^"|"$/g, ''));
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim().replace(/^"|"$/g, ''));
+
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function renderPage() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            // Calculate totals
+            const sevenDayTotal = calculateTotal(volumeData.seven_day);
+            const fourteenDayTotal = calculateTotal(volumeData.fourteen_day);
+
+            // Update stats
+            document.getElementById('sevenDayTotal').textContent = formatNumber(sevenDayTotal);
+            document.getElementById('fourteenDayTotal').textContent = formatNumber(fourteenDayTotal);
+
+            const sevenDayAvg = Math.round(sevenDayTotal / 7);
+            const fourteenDayAvg = Math.round(fourteenDayTotal / 14);
+
+            document.getElementById('sevenDayAvg').textContent = formatNumber(sevenDayAvg);
+            document.getElementById('fourteenDayAvg').textContent = formatNumber(fourteenDayAvg);
+
+            // Render daily volume chart
+            renderDailyVolumeChart(volumeData.seven_day_by_source);
+        }
+
+        function renderDailyVolumeChart(volumeData) {
+            if (!volumeData || !volumeData.data || !volumeData.data.result) {
+                console.warn('No daily volume data available');
+                return;
+            }
+
+            // Parse the data structure - each result has a source object with id/name/slug
+            const sourceData = {};
+            const datesSet = new Set();
+            const lowVolumeSourcesData = [];
+
+            volumeData.data.result.forEach(resultItem => {
+                // Get source info from the source object
+                const sourceObj = resultItem.source || {};
+                const sourceId = sourceObj.id || 'Unknown';
+                const sourceName = sourceObj.name || sourceObj.slug || sourceId;
+                const total = resultItem.total || 0;
+
+                // Skip Personas sources entirely
+                if (sourceName.toLowerCase().includes('personas')) {
+                    return;
+                }
+
+                // Track low volume sources (less than 1000 events total)
+                if (total < 1000) {
+                    lowVolumeSourcesData.push({
+                        name: sourceName,
+                        total: total
+                    });
+                    return; // Skip low volume sources in chart
+                }
+
+                if (!sourceData[sourceName]) {
+                    sourceData[sourceName] = {
+                        total: total,
+                        dates: {}
+                    };
+                }
+
+                // Process series data
+                if (resultItem.series) {
+                    resultItem.series.forEach(seriesItem => {
+                        const date = new Date(seriesItem.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        datesSet.add(date);
+                        sourceData[sourceName].dates[date] = seriesItem.count || 0;
+                    });
+                }
+            });
+
+            // Display low volume sources
+            displayLowVolumeSources(lowVolumeSourcesData);
+
+            // Sort dates chronologically
+            const dates = Array.from(datesSet).sort((a, b) => {
+                return new Date(a + ', 2026') - new Date(b + ', 2026');
+            });
+
+            // Sort sources by total volume (descending) and take top 15
+            const sortedSources = Object.entries(sourceData)
+                .sort((a, b) => b[1].total - a[1].total)
+                .slice(0, 15);
+
+            // Prepare datasets for stacked bar chart
+            const colors = [
+                '#667eea', '#764ba2', '#f093fb', '#4facfe',
+                '#43e97b', '#fa709a', '#fee140', '#30cfd0',
+                '#a8edea', '#fed6e3', '#c471f5', '#12c2e9',
+                '#48bb78', '#ed8936', '#ecc94b', '#9f7aea'
+            ];
+
+            const datasets = sortedSources.map(([sourceName, sourceInfo], index) => {
+                return {
+                    label: sourceName,
+                    data: dates.map(date => sourceInfo.dates[date] || 0),
+                    backgroundColor: colors[index % colors.length]
+                };
+            });
+
+            const ctx = document.getElementById('dailyVolumeChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dates,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 8,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    label += formatNumber(context.parsed.y);
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    if (value >= 1000000) {
+                                        return (value / 1000000).toFixed(1) + 'M';
+                                    } else if (value >= 1000) {
+                                        return (value / 1000).toFixed(1) + 'K';
+                                    }
+                                    return value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function calculateTotal(volumeData) {
+            // Simple total from workspace-level query (no groupBy)
+            if (!volumeData || !volumeData.data || !volumeData.data.result || !volumeData.data.result[0]) {
+                return 0;
+            }
+
+            // Get the total from the first result item
+            return volumeData.data.result[0].total || 0;
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(2) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(2) + 'K';
+            }
+            return num.toLocaleString();
+        }
+
+        function displayLowVolumeSources(lowVolumeData) {
+            if (!lowVolumeData || lowVolumeData.length === 0) {
+                return;
+            }
+
+            const section = document.getElementById('lowVolumeSection');
+            const list = document.getElementById('lowVolumeList');
+
+            section.style.display = 'block';
+
+            // Sort by total descending
+            lowVolumeData.sort((a, b) => b.total - a.total);
+
+            list.innerHTML = lowVolumeData.map(source => {
+                return `
+                    <div style="padding: 10px; background: #f7fafc; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 0.9rem; color: #2d3748;">${source.name}</span>
+                        <span style="font-weight: 600; color: #667eea;">${formatNumber(source.total)}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
