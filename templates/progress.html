@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running Audit...</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="progress-page">
+    <div class="container">
+        <div class="progress-card">
+            <div class="progress-icon">
+                <div class="spinner-large"></div>
+            </div>
+
+            <h1 id="statusMessage">Initializing audit...</h1>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+                <div class="progress-text" id="progressText">0%</div>
+            </div>
+
+            <div class="progress-details">
+                <p id="detailMessage">Connecting to Segment API...</p>
+            </div>
+
+            <div id="errorSection" class="error-section" style="display: none;">
+                <h3>⚠️ Error Occurred</h3>
+                <p id="errorMessage"></p>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                    ← Back to Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pollInterval;
+
+        function pollStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update progress bar
+                    const progress = data.progress || 0;
+                    document.getElementById('progressFill').style.width = progress + '%';
+                    document.getElementById('progressText').textContent = Math.round(progress) + '%';
+
+                    // Update messages
+                    document.getElementById('statusMessage').textContent = data.message || 'Processing...';
+                    document.getElementById('detailMessage').textContent =
+                        data.running ? 'Please wait while we collect your data...' : 'Finalizing...';
+
+                    // Check if complete
+                    if (data.complete) {
+                        clearInterval(pollInterval);
+                        document.getElementById('statusMessage').textContent = '✅ Audit Complete!';
+                        document.getElementById('detailMessage').textContent = 'Redirecting to dashboard...';
+
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1500);
+                    }
+
+                    // Check for errors
+                    if (data.error) {
+                        clearInterval(pollInterval);
+                        document.getElementById('errorSection').style.display = 'block';
+                        document.getElementById('errorMessage').textContent = data.error;
+                        document.querySelector('.progress-icon').style.display = 'none';
+                        document.querySelector('.progress-bar-container').style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Polling error:', error);
+                });
+        }
+
+        // Start polling when page loads
+        window.addEventListener('DOMContentLoaded', function() {
+            pollStatus(); // Immediate first call
+            pollInterval = setInterval(pollStatus, 1000); // Then every second
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+        });
+    </script>
+</body>
+</html>

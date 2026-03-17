@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Source Audit</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Source Audit</h1>
+                <p class="subtitle" id="reportDate">Loading...</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
+                    👥 Audiences
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading sources data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Sources</div>
+                    <div class="value" id="totalSources">-</div>
+                    <div class="subtext" id="sourcesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Enabled Sources</div>
+                    <div class="value" id="enabledSources">-</div>
+                    <div class="subtext">Active data collection</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Disabled Sources</div>
+                    <div class="value" id="disabledSources">-</div>
+                    <div class="subtext">Inactive sources</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Categories</div>
+                    <div class="value" id="categoriesCount">-</div>
+                    <div class="subtext">Source types</div>
+                </div>
+            </div>
+
+            <!-- Source Status Chart -->
+            <div class="chart-section">
+                <h2>Source Status Distribution</h2>
+                <div class="chart-container">
+                    <canvas id="sourceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Sources Table -->
+            <div class="chart-section" id="sourcesTableSection">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">All Sources</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                        <select id="categoryFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Categories</option>
+                        </select>
+                        <select id="statusFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Status</option>
+                            <option value="enabled">Enabled</option>
+                            <option value="disabled">Disabled</option>
+                        </select>
+                        <select id="labelFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Labels</option>
+                        </select>
+                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="sourcesTable">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Write Keys</th>
+                                <th>Labels</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sourcesTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="margin-top: 20px; text-align: center; display: none;">
+                    <button onclick="previousPage()" class="btn btn-secondary btn-sm" id="prevBtn">← Previous</button>
+                    <span style="margin: 0 20px; color: #2d3748; font-weight: 600;" id="pageInfo">Page 1</span>
+                    <button onclick="nextPage()" class="btn btn-secondary btn-sm" id="nextBtn">Next →</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const DATA_PATH = '/audit_data/';
+
+        let sourcesData = {
+            summary: null,
+            sources: []
+        };
+
+        let currentPage = 1;
+        let pageSize = 20;
+        let filteredSources = [];
+
+        async function loadData() {
+            try {
+                // Load summary
+                const summaryResponse = await fetch(DATA_PATH + 'audit_summary.json');
+                if (!summaryResponse.ok) throw new Error('audit_summary.json not found');
+                sourcesData.summary = await summaryResponse.json();
+
+                // Load sources
+                try {
+                    const sourcesResponse = await fetch(DATA_PATH + 'segment_sources_audit.csv');
+                    const sourcesText = await sourcesResponse.text();
+                    sourcesData.sources = parseCSV(sourcesText);
+                } catch (e) {
+                    console.warn('segment_sources_audit.csv not found');
+                }
+
+                renderPage();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+
+            return lines.slice(1).map(line => {
+                // Handle commas within quoted fields
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim().replace(/^"|"$/g, ''));
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim().replace(/^"|"$/g, ''));
+
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function renderPage() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            const summary = sourcesData.summary;
+
+            // Update header
+            const reportDate = new Date(summary.audit_date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            document.getElementById('reportDate').textContent = `Report Date: ${reportDate}`;
+
+            // Update stats
+            const sources = summary.sources || {};
+            document.getElementById('totalSources').textContent = sources.total || 0;
+            document.getElementById('enabledSources').textContent = sources.enabled || 0;
+            document.getElementById('disabledSources').textContent = sources.disabled || 0;
+            document.getElementById('sourcesBreakdown').textContent =
+                `${sources.enabled || 0} enabled, ${sources.disabled || 0} disabled`;
+
+            // Count unique categories
+            const categories = new Set(sourcesData.sources.map(s => s.Category).filter(Boolean));
+            document.getElementById('categoriesCount').textContent = categories.size;
+
+            // Populate category filter
+            const categoryFilter = document.getElementById('categoryFilter');
+            if (categoryFilter.options.length === 1 && categories.size > 0) {
+                [...categories].sort().forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categoryFilter.appendChild(option);
+                });
+            }
+
+            // Collect all unique labels (split by comma for sources with multiple labels)
+            const labelsSet = new Set();
+            sourcesData.sources.forEach(s => {
+                const labels = s.Labels || '';
+                if (labels) {
+                    labels.split(',').forEach(label => {
+                        const trimmed = label.trim();
+                        if (trimmed) labelsSet.add(trimmed);
+                    });
+                }
+            });
+
+            // Populate label filter
+            const labelFilter = document.getElementById('labelFilter');
+            if (labelFilter.options.length === 1 && labelsSet.size > 0) {
+                [...labelsSet].sort().forEach(label => {
+                    const option = document.createElement('option');
+                    option.value = label;
+                    option.textContent = label;
+                    labelFilter.appendChild(option);
+                });
+            }
+
+            // Render chart and table
+            renderSourceChart(sources);
+            renderSourcesTable(sourcesData.sources);
+        }
+
+        function renderSourceChart(sources) {
+            const ctx = document.getElementById('sourceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Enabled', 'Disabled'],
+                    datasets: [{
+                        data: [
+                            sources.enabled || 0,
+                            sources.disabled || 0
+                        ],
+                        backgroundColor: [
+                            '#4299e1',
+                            '#ed8936'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderSourcesTable(sources) {
+            if (!sources.length) {
+                document.getElementById('sourcesTableSection').style.display = 'none';
+                return;
+            }
+
+            // Apply filters
+            const selectedCategory = document.getElementById('categoryFilter').value;
+            const selectedStatus = document.getElementById('statusFilter').value;
+            const selectedLabel = document.getElementById('labelFilter').value;
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
+
+            filteredSources = sources.filter(source => {
+                const categoryMatch = !selectedCategory || source.Category === selectedCategory;
+                const enabledStr = (source.Enabled || '').toString().toLowerCase();
+                const statusMatch = !selectedStatus ||
+                    (selectedStatus === 'enabled' && enabledStr === 'true') ||
+                    (selectedStatus === 'disabled' && enabledStr === 'false');
+                // Check if source has the selected label
+                const labelMatch = !selectedLabel ||
+                    (source.Labels && source.Labels.split(',').map(l => l.trim()).includes(selectedLabel));
+
+                // Search filter (name, type, category, slug)
+                const searchMatch = !searchTerm ||
+                    (source['Source Name'] || '').toLowerCase().includes(searchTerm) ||
+                    (source.Type || '').toLowerCase().includes(searchTerm) ||
+                    (source.Category || '').toLowerCase().includes(searchTerm) ||
+                    (source.Slug || '').toLowerCase().includes(searchTerm);
+
+                return categoryMatch && statusMatch && labelMatch && searchMatch;
+            });
+
+            // Calculate pagination
+            const totalPages = Math.ceil(filteredSources.length / pageSize);
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = startIdx + pageSize;
+            const pageSources = filteredSources.slice(startIdx, endIdx);
+
+            // Render table
+            const tbody = document.getElementById('sourcesTableBody');
+            tbody.innerHTML = pageSources.map(source => {
+                const enabled = (source.Enabled || '').toString().toLowerCase() === 'true';
+                const statusBadge = enabled
+                    ? '<span class="badge enabled">Enabled</span>'
+                    : '<span class="badge disabled">Disabled</span>';
+
+                const name = source['Source Name'] || '';
+                const type = source.Type || 'Unknown';
+                const category = source.Category || 'Unknown';
+                const writeKeys = (source['Write Keys'] || '').substring(0, 30) +
+                    (source['Write Keys'] && source['Write Keys'].length > 30 ? '...' : '');
+                const labels = source.Labels || '-';
+
+                return `
+                    <tr>
+                        <td>${statusBadge}</td>
+                        <td><strong>${name}</strong></td>
+                        <td>${type}</td>
+                        <td>${category}</td>
+                        <td style="font-size: 0.85rem; font-family: monospace;" title="${source['Write Keys'] || ''}">${writeKeys}</td>
+                        <td style="font-size: 0.85rem;">${labels}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update pagination controls
+            const paginationControls = document.getElementById('paginationControls');
+            const pageInfo = document.getElementById('pageInfo');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            if (totalPages > 1) {
+                paginationControls.style.display = 'block';
+                pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${filteredSources.length} sources)`;
+                prevBtn.disabled = currentPage === 1;
+                nextBtn.disabled = currentPage === totalPages;
+            } else {
+                paginationControls.style.display = 'none';
+            }
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderSourcesTable(sourcesData.sources);
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(filteredSources.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderSourcesTable(sourcesData.sources);
+            }
+        }
+
+        function exportToCSV() {
+            if (!filteredSources.length) {
+                alert('No data to export');
+                return;
+            }
+
+            // Create CSV content
+            const headers = ['Status', 'Name', 'Slug', 'Type', 'Category', 'Write Keys', 'Labels', 'Source ID'];
+            const csvRows = [headers.join(',')];
+
+            filteredSources.forEach(source => {
+                const enabled = (source.Enabled || '').toString().toLowerCase() === 'true' ? 'Enabled' : 'Disabled';
+                const name = `"${(source['Source Name'] || '').replace(/"/g, '""')}"`;
+                const slug = source.Slug || '';
+                const type = source.Type || '';
+                const category = source.Category || '';
+                const writeKeys = `"${(source['Write Keys'] || '').replace(/"/g, '""')}"`;
+                const labels = `"${(source.Labels || '').replace(/"/g, '""')}"`;
+                const sourceId = source['Source ID'] || '';
+
+                csvRows.push([enabled, name, slug, type, category, writeKeys, labels, sourceId].join(','));
+            });
+
+            // Download CSV
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `sources_export_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Add event listeners for filters
+        document.addEventListener('DOMContentLoaded', function() {
+            const categoryFilter = document.getElementById('categoryFilter');
+            const statusFilter = document.getElementById('statusFilter');
+            const labelFilter = document.getElementById('labelFilter');
+            const searchBox = document.getElementById('searchBox');
+
+            if (categoryFilter) {
+                categoryFilter.addEventListener('change', function() {
+                    currentPage = 1;
+                    renderSourcesTable(sourcesData.sources);
+                });
+            }
+
+            if (statusFilter) {
+                statusFilter.addEventListener('change', function() {
+                    currentPage = 1;
+                    renderSourcesTable(sourcesData.sources);
+                });
+            }
+
+            if (labelFilter) {
+                labelFilter.addEventListener('change', function() {
+                    currentPage = 1;
+                    renderSourcesTable(sourcesData.sources);
+                });
+            }
+
+            if (searchBox) {
+                searchBox.addEventListener('input', function() {
+                    currentPage = 1;
+                    renderSourcesTable(sourcesData.sources);
+                });
+            }
+
+            loadData();
+        });
+    </script>
+</body>
+</html>

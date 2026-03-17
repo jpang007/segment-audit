@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Segment Workspace Audit - Configuration</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="landing-page">
+    <div class="container">
+        <div class="form-card">
+            <div class="header">
+                <h1>🎯 Segment Workspace Audit</h1>
+                <p class="subtitle">Configure your audit parameters</p>
+            </div>
+
+            <form id="auditForm" method="POST" action="/run-audit">
+                <div class="form-group">
+                    <label for="customer_name">Customer/Company Name</label>
+                    <input
+                        type="text"
+                        id="customer_name"
+                        name="customer_name"
+                        placeholder="e.g., Acme Corp"
+                        value="Customer"
+                        required>
+                    <small>This will appear in your dashboard title</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="api_token">Segment API Token *</label>
+                    <input
+                        type="password"
+                        id="api_token"
+                        name="api_token"
+                        placeholder="spg_..."
+                        required>
+                    <small>Get your token from Segment: Settings → Access Management → Tokens</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="workspace_id">Workspace ID (Optional)</label>
+                    <input
+                        type="text"
+                        id="workspace_id"
+                        name="workspace_id"
+                        placeholder="">
+                    <small>Required for source data. Leave blank to skip sources.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="space_ids">Personas Space ID(s) *</label>
+                    <textarea
+                        id="space_ids"
+                        name="space_ids"
+                        rows="3"
+                        placeholder="spa_space1&#10;spa_space2, spa_space3"
+                        required></textarea>
+                    <small>Enter one or more space IDs (comma or newline separated)</small>
+                </div>
+
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="skip_ssl" name="skip_ssl" value="true" style="margin-right: 10px;">
+                        <span>Skip SSL Verification (for VPN users)</span>
+                    </label>
+                    <small>⚠️ Check this if you're behind a corporate VPN with SSL inspection. Less secure but allows connection.</small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                        <span class="btn-text">🚀 Run Audit</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> Running...
+                        </span>
+                    </button>
+                </div>
+
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+            </form>
+
+            <div class="help-section">
+                <h3>📚 Quick Help</h3>
+                <div class="help-grid">
+                    <div class="help-item">
+                        <strong>API Token:</strong>
+                        <p>Segment → Settings → Access Management → Tokens → Create Token</p>
+                    </div>
+                    <div class="help-item">
+                        <strong>Workspace ID:</strong>
+                        <p>Settings → Workspace Settings</p>
+                    </div>
+                    <div class="help-item">
+                        <strong>Space ID:</strong>
+                        <p>Unify → Unify Settings → API Access</p>
+                    </div>
+                    <div class="help-item">
+                        <strong>Multiple Spaces:</strong>
+                        <p>Separate with commas or newlines (e.g., LIV + Onnit)</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('auditForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            const btnText = submitBtn.querySelector('.btn-text');
+            const btnLoading = submitBtn.querySelector('.btn-loading');
+            const errorDiv = document.getElementById('errorMessage');
+
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-block';
+            submitBtn.disabled = true;
+            errorDiv.style.display = 'none';
+
+            // Submit form
+            const formData = new FormData(this);
+
+            fetch('/run-audit', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                // Redirect to progress page
+                window.location.href = '/progress';
+            })
+            .catch(error => {
+                errorDiv.textContent = error.message;
+                errorDiv.style.display = 'block';
+                btnText.style.display = 'inline-block';
+                btnLoading.style.display = 'none';
+                submitBtn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>

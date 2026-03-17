@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Audience Audit</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Audience Audit</h1>
+                <p class="subtitle" id="reportDate">Loading...</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
+                    🔌 Sources
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading audit data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Audiences</div>
+                    <div class="value" id="totalAudiences">-</div>
+                    <div class="subtext" id="audiencesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Sources</div>
+                    <div class="value" id="totalSources">-</div>
+                    <div class="subtext" id="sourcesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Events Referenced</div>
+                    <div class="value" id="eventsReferenced">-</div>
+                    <div class="subtext">Used in audiences</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Traits Referenced</div>
+                    <div class="value" id="traitsReferenced">-</div>
+                    <div class="subtext">Used in audiences</div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="chart-section">
+                <h2>Audience Distribution</h2>
+                <div class="chart-container">
+                    <canvas id="audienceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Events -->
+            <div class="chart-section">
+                <h2>Top Events Referenced in Audiences</h2>
+                <div class="chart-container">
+                    <canvas id="eventsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Traits -->
+            <div class="chart-section">
+                <h2>Top Traits Referenced in Audiences</h2>
+                <div class="chart-container">
+                    <canvas id="traitsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Audiences Table -->
+            <div class="chart-section" id="audiencesTableSection">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">All Audiences</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search audiences..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                        <select id="spaceFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <select id="sortBy" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">Default Sort</option>
+                            <option value="status-enabled">Status: Enabled First</option>
+                            <option value="status-disabled">Status: Disabled First</option>
+                            <option value="size-desc">Size: Largest First</option>
+                            <option value="size-asc">Size: Smallest First</option>
+                            <option value="name-asc">Name: A-Z</option>
+                            <option value="name-desc">Name: Z-A</option>
+                        </select>
+                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="audiencesTable">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Name</th>
+                                <th>Size</th>
+                                <th>Description</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audiencesTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="margin-top: 20px; text-align: center; display: none;">
+                    <button onclick="previousPage()" class="btn btn-secondary btn-sm" id="prevBtn">← Previous</button>
+                    <span style="margin: 0 20px; color: #2d3748; font-weight: 600;" id="pageInfo">Page 1</span>
+                    <button onclick="nextPage()" class="btn btn-secondary btn-sm" id="nextBtn">Next →</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const DATA_PATH = '/audit_data/';
+
+        let auditData = {
+            summary: null,
+            events: [],
+            traits: [],
+            audiences: []
+        };
+
+        let currentPage = 1;
+        let pageSize = 20;
+        let filteredAudiences = [];
+
+        async function loadData() {
+            try {
+                // Load summary
+                const summaryResponse = await fetch(DATA_PATH + 'audit_summary.json');
+                if (!summaryResponse.ok) throw new Error('audit_summary.json not found');
+                auditData.summary = await summaryResponse.json();
+
+                // Load events
+                try {
+                    const eventsResponse = await fetch(DATA_PATH + 'event_coverage.csv');
+                    const eventsText = await eventsResponse.text();
+                    auditData.events = parseCSV(eventsText);
+                } catch (e) {
+                    console.warn('event_coverage.csv not found');
+                }
+
+                // Load traits
+                try {
+                    const traitsResponse = await fetch(DATA_PATH + 'trait_coverage.csv');
+                    const traitsText = await traitsResponse.text();
+                    auditData.traits = parseCSV(traitsText);
+                } catch (e) {
+                    console.warn('trait_coverage.csv not found');
+                }
+
+                // Load audiences
+                try {
+                    const audiencesResponse = await fetch(DATA_PATH + 'segment_audiences_audit.csv');
+                    const audiencesText = await audiencesResponse.text();
+                    auditData.audiences = parseCSV(audiencesText);
+                } catch (e) {
+                    console.warn('segment_audiences_audit.csv not found');
+                }
+
+                renderDashboard();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+
+            // Parse CSV line respecting quoted fields
+            function parseLine(line) {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                return values;
+            }
+
+            const headers = parseLine(lines[0]);
+
+            return lines.slice(1).map(line => {
+                const values = parseLine(line);
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function renderDashboard() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            const summary = auditData.summary;
+
+            // Update header
+            const reportDate = new Date(summary.audit_date).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+            document.getElementById('reportDate').textContent = `Report Date: ${reportDate}`;
+
+            // Update stats
+            const audiences = summary.audiences || {};
+            const sources = summary.sources || {};
+            const coverage = summary.coverage || {};
+
+            document.getElementById('totalAudiences').textContent = audiences.total || 0;
+            document.getElementById('audiencesBreakdown').textContent =
+                `${audiences.enabled || 0} enabled, ${audiences.disabled || 0} disabled`;
+
+            document.getElementById('totalSources').textContent = sources.total || 0;
+            document.getElementById('sourcesBreakdown').textContent =
+                `${sources.enabled || 0} enabled, ${sources.disabled || 0} disabled`;
+
+            document.getElementById('eventsReferenced').textContent = coverage.unique_events_referenced || 0;
+            document.getElementById('traitsReferenced').textContent = coverage.unique_traits_referenced || 0;
+
+            // Render charts
+            renderAudienceChart(audiences);
+            renderEventsChart(auditData.events);
+            renderTraitsChart(auditData.traits);
+            renderAudiencesTable(auditData.audiences);
+        }
+
+        function renderAudienceChart(audiences) {
+            const ctx = document.getElementById('audienceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Enabled', 'Disabled', 'Empty'],
+                    datasets: [{
+                        data: [
+                            audiences.enabled || 0,
+                            audiences.disabled || 0,
+                            audiences.empty || 0
+                        ],
+                        backgroundColor: [
+                            '#48bb78',
+                            '#f56565',
+                            '#cbd5e0'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderEventsChart(events) {
+            const top10 = events.slice(0, 10);
+            const ctx = document.getElementById('eventsChart').getContext('2d');
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: top10.map(e => e.Event || e.event),
+                    datasets: [{
+                        label: 'Number of Audiences',
+                        data: top10.map(e => parseInt(e['Audience Uses'] || e.count || 0)),
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTraitsChart(traits) {
+            const top10 = traits.slice(0, 10);
+            const ctx = document.getElementById('traitsChart').getContext('2d');
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: top10.map(t => t.Trait || t.trait),
+                    datasets: [{
+                        label: 'Number of Audiences',
+                        data: top10.map(t => parseInt(t['Audience Uses'] || t.count || 0)),
+                        backgroundColor: '#764ba2'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderAudiencesTable(audiences) {
+            if (!audiences.length) {
+                document.getElementById('audiencesTableSection').style.display = 'none';
+                return;
+            }
+
+            // Setup space filter dropdown
+            const spaceFilter = document.getElementById('spaceFilter');
+            const uniqueSpaces = [...new Set(audiences.map(a => a['Space ID']).filter(Boolean))];
+
+            // Populate space filter if not already done (only once on first render)
+            if (spaceFilter.options.length === 1 && uniqueSpaces.length > 0) {
+                uniqueSpaces.sort().forEach(spaceId => {
+                    // Only add valid space IDs (should start with 'spa_')
+                    if (spaceId && typeof spaceId === 'string' && spaceId.startsWith('spa_')) {
+                        const option = document.createElement('option');
+                        option.value = spaceId;
+                        option.textContent = spaceId;
+                        spaceFilter.appendChild(option);
+                    }
+                });
+            }
+
+            // Apply space filter
+            const selectedSpace = spaceFilter.value;
+            filteredAudiences = selectedSpace
+                ? audiences.filter(a => a['Space ID'] === selectedSpace)
+                : audiences;
+
+            // Apply search filter
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
+            if (searchTerm) {
+                filteredAudiences = filteredAudiences.filter(a => {
+                    const name = (a.Name || '').toLowerCase();
+                    const description = (a.Description || '').toLowerCase();
+                    const key = (a.Key || '').toLowerCase();
+                    return name.includes(searchTerm) || description.includes(searchTerm) || key.includes(searchTerm);
+                });
+            }
+
+            // Apply sorting
+            const sortBy = document.getElementById('sortBy').value;
+            if (sortBy) {
+                filteredAudiences = [...filteredAudiences]; // Clone array for sorting
+                switch(sortBy) {
+                    case 'status-enabled':
+                        filteredAudiences.sort((a, b) => {
+                            const aEnabled = (a.Enabled || '').toString().toLowerCase() === 'true';
+                            const bEnabled = (b.Enabled || '').toString().toLowerCase() === 'true';
+                            return (bEnabled ? 1 : 0) - (aEnabled ? 1 : 0);
+                        });
+                        break;
+                    case 'status-disabled':
+                        filteredAudiences.sort((a, b) => {
+                            const aEnabled = (a.Enabled || '').toString().toLowerCase() === 'true';
+                            const bEnabled = (b.Enabled || '').toString().toLowerCase() === 'true';
+                            return (aEnabled ? 1 : 0) - (bEnabled ? 1 : 0);
+                        });
+                        break;
+                    case 'size-desc':
+                        filteredAudiences.sort((a, b) => {
+                            const aSize = parseInt(a.Size || 0);
+                            const bSize = parseInt(b.Size || 0);
+                            return bSize - aSize;
+                        });
+                        break;
+                    case 'size-asc':
+                        filteredAudiences.sort((a, b) => {
+                            const aSize = parseInt(a.Size || 0);
+                            const bSize = parseInt(b.Size || 0);
+                            return aSize - bSize;
+                        });
+                        break;
+                    case 'name-asc':
+                        filteredAudiences.sort((a, b) => {
+                            const aName = (a.Name || '').toLowerCase();
+                            const bName = (b.Name || '').toLowerCase();
+                            return aName.localeCompare(bName);
+                        });
+                        break;
+                    case 'name-desc':
+                        filteredAudiences.sort((a, b) => {
+                            const aName = (a.Name || '').toLowerCase();
+                            const bName = (b.Name || '').toLowerCase();
+                            return bName.localeCompare(aName);
+                        });
+                        break;
+                }
+            }
+
+            // Calculate pagination
+            const totalPages = Math.ceil(filteredAudiences.length / pageSize);
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = startIdx + pageSize;
+            const pageAudiences = filteredAudiences.slice(startIdx, endIdx);
+
+            // Render table
+            const tbody = document.getElementById('audiencesTableBody');
+            tbody.innerHTML = pageAudiences.map(aud => {
+                const enabled = (aud.Enabled || '').toLowerCase() === 'true';
+                const statusBadge = enabled
+                    ? '<span class="badge enabled">Enabled</span>'
+                    : '<span class="badge disabled">Disabled</span>';
+
+                const size = parseInt(aud.Size || 0).toLocaleString();
+                const name = aud.Name || '';
+                const description = (aud.Description || '').substring(0, 60) + (aud.Description && aud.Description.length > 60 ? '...' : '');
+
+                // Parse dates safely - check for valid date strings
+                let created = 'N/A';
+                if (aud['Created At'] && aud['Created At'].trim() !== '') {
+                    const createdDate = new Date(aud['Created At']);
+                    created = isNaN(createdDate.getTime()) ? 'N/A' : createdDate.toLocaleDateString();
+                }
+
+                let updated = 'N/A';
+                if (aud['Updated At'] && aud['Updated At'].trim() !== '') {
+                    const updatedDate = new Date(aud['Updated At']);
+                    updated = isNaN(updatedDate.getTime()) ? 'N/A' : updatedDate.toLocaleDateString();
+                }
+
+                return `
+                    <tr>
+                        <td>${statusBadge}</td>
+                        <td><strong>${name}</strong></td>
+                        <td>${size}</td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${aud.Description || ''}">${description}</td>
+                        <td>${created}</td>
+                        <td>${updated}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update pagination controls
+            const paginationControls = document.getElementById('paginationControls');
+            const pageInfo = document.getElementById('pageInfo');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            if (totalPages > 1) {
+                paginationControls.style.display = 'block';
+                pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${filteredAudiences.length} audiences)`;
+                prevBtn.disabled = currentPage === 1;
+                nextBtn.disabled = currentPage === totalPages;
+            } else {
+                paginationControls.style.display = 'none';
+            }
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderAudiencesTable(auditData.audiences);
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(filteredAudiences.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderAudiencesTable(auditData.audiences);
+            }
+        }
+
+        function exportToCSV() {
+            if (!filteredAudiences.length) {
+                alert('No data to export');
+                return;
+            }
+
+            // Create CSV content
+            const headers = ['Status', 'Name', 'Size', 'Description', 'Created', 'Updated', 'Space ID'];
+            const csvRows = [headers.join(',')];
+
+            filteredAudiences.forEach(aud => {
+                const enabled = (aud.Enabled || '').toLowerCase() === 'true' ? 'Enabled' : 'Disabled';
+                const name = `"${(aud.Name || '').replace(/"/g, '""')}"`;
+                const size = aud.Size || 0;
+                const description = `"${(aud.Description || '').replace(/"/g, '""')}"`;
+                const created = aud['Created At'] || '';
+                const updated = aud['Updated At'] || '';
+                const spaceId = aud['Space ID'] || '';
+
+                csvRows.push([enabled, name, size, description, created, updated, spaceId].join(','));
+            });
+
+            // Download CSV
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `audiences_export_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Add event listeners for filters and sorting
+        document.addEventListener('DOMContentLoaded', function() {
+            const spaceFilter = document.getElementById('spaceFilter');
+            const sortBy = document.getElementById('sortBy');
+            const searchBox = document.getElementById('searchBox');
+
+            if (spaceFilter) {
+                spaceFilter.addEventListener('change', function() {
+                    currentPage = 1; // Reset to first page when filtering
+                    renderAudiencesTable(auditData.audiences);
+                });
+            }
+
+            if (sortBy) {
+                sortBy.addEventListener('change', function() {
+                    currentPage = 1; // Reset to first page when sorting
+                    renderAudiencesTable(auditData.audiences);
+                });
+            }
+
+            if (searchBox) {
+                searchBox.addEventListener('input', function() {
+                    currentPage = 1; // Reset to first page when searching
+                    renderAudiencesTable(auditData.audiences);
+                });
+            }
+        });
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
