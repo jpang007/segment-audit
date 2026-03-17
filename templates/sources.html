@@ -145,6 +145,11 @@
         let pageSize = 20;
         let filteredSources = [];
 
+        // Chart instances for updating
+        let statusChart = null;
+        let typeChart = null;
+        let categoryChart = null;
+
         async function loadData() {
             try {
                 // Load summary
@@ -258,23 +263,28 @@
                 });
             }
 
-            // Render charts and table
-            renderSourceCharts(sources, sourcesData.sources);
+            // Render table (which will trigger chart updates)
             renderSourcesTable(sourcesData.sources);
         }
 
-        function renderSourceCharts(sourceSummary, sourcesList) {
+        function renderSourceCharts(sourcesList) {
+            // Destroy existing charts
+            if (statusChart) statusChart.destroy();
+            if (typeChart) typeChart.destroy();
+            if (categoryChart) categoryChart.destroy();
+
+            // Calculate stats from filtered sources
+            const enabledCount = sourcesList.filter(s => (s.Enabled || '').toString().toLowerCase() === 'true').length;
+            const disabledCount = sourcesList.length - enabledCount;
+
             // 1. Source Status Chart
             const statusCtx = document.getElementById('sourceStatusChart').getContext('2d');
-            new Chart(statusCtx, {
+            statusChart = new Chart(statusCtx, {
                 type: 'doughnut',
                 data: {
                     labels: ['Enabled', 'Disabled'],
                     datasets: [{
-                        data: [
-                            sourceSummary.enabled || 0,
-                            sourceSummary.disabled || 0
-                        ],
+                        data: [enabledCount, disabledCount],
                         backgroundColor: [
                             '#4299e1',
                             '#ed8936'
@@ -308,7 +318,7 @@
             ];
 
             const typeCtx = document.getElementById('sourceTypeChart').getContext('2d');
-            new Chart(typeCtx, {
+            typeChart = new Chart(typeCtx, {
                 type: 'doughnut',
                 data: {
                     labels: typeLabels,
@@ -355,7 +365,7 @@
             ];
 
             const categoryCtx = document.getElementById('sourceCategoryChart').getContext('2d');
-            new Chart(categoryCtx, {
+            categoryChart = new Chart(categoryCtx, {
                 type: 'doughnut',
                 data: {
                     labels: categoryLabels,
@@ -459,6 +469,9 @@
             } else {
                 paginationControls.style.display = 'none';
             }
+
+            // Update charts to reflect filtered data
+            renderSourceCharts(filteredSources);
         }
 
         function previousPage() {
