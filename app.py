@@ -978,6 +978,135 @@ def export_segment_tracking_plan_csv():
         }
     )
 
+@app.route('/export-crossover-analysis')
+def export_crossover_analysis():
+    """Export cross-source analysis (shared events and properties) to Excel"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+
+    project_name = session.get('project_name', 'Project')
+    upload_id = session.get('upload_id')
+    schema_filenames = session.get('schema_filenames', [])
+
+    if not upload_id or not schema_filenames:
+        return "No data to export", 404
+
+    upload_path = UPLOAD_DIR / upload_id
+
+    # Load files from disk
+    uploaded_schemas = []
+    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+
+    for filename in schema_filenames:
+        file_path = upload_path / filename
+        if not file_path.exists():
+            continue
+
+        content = None
+        with open(file_path, 'rb') as f:
+            raw_content = f.read()
+
+        for encoding in encodings:
+            try:
+                content = raw_content.decode(encoding)
+                break
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        if content:
+            uploaded_schemas.append({'filename': filename, 'content': content})
+
+    if not uploaded_schemas:
+        return "No data to export", 404
+
+    # Analyze schemas
+    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
+
+    # Create Excel workbook
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+
+    # Header styling
+    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    # Sheet 1: Shared Events
+    ws_events = wb.create_sheet("Shared Events")
+
+    # Headers
+    event_headers = ['Event Name', 'Source Count', 'Source Files', 'Event Volume', 'Property Count']
+    for col, header in enumerate(event_headers, 1):
+        cell = ws_events.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # Data
+    for row_idx, event in enumerate(crossover_analysis['shared_events'], 2):
+        ws_events.cell(row_idx, 1, event['event_name'])
+        ws_events.cell(row_idx, 2, event['source_count'])
+        ws_events.cell(row_idx, 3, ', '.join(event['sources']))
+        ws_events.cell(row_idx, 4, event['event_volume'])
+        ws_events.cell(row_idx, 5, event['property_count'])
+
+    # Auto-size columns
+    for col in ws_events.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 60)
+        ws_events.column_dimensions[column].width = adjusted_width
+
+    # Sheet 2: Shared Properties
+    ws_props = wb.create_sheet("Shared Properties")
+
+    # Headers
+    prop_headers = ['Property Name', 'Event Count', 'Events Using This Property']
+    for col, header in enumerate(prop_headers, 1):
+        cell = ws_props.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # Data
+    for row_idx, prop in enumerate(crossover_analysis['shared_properties'], 2):
+        ws_props.cell(row_idx, 1, prop['property_name'])
+        ws_props.cell(row_idx, 2, prop['event_count'])
+        # Join all events (not just the first 10 shown in UI)
+        ws_props.cell(row_idx, 3, ', '.join(prop['events']))
+
+    # Auto-size columns
+    for col in ws_props.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 60)
+        ws_props.column_dimensions[column].width = adjusted_width
+
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    from flask import send_file
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'{project_name}_crossover_analysis.xlsx'
+    )
+
 @app.route('/tracking-plan-results')
 def tracking_plan_results():
     """Display tracking plan generator results"""
