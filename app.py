@@ -118,6 +118,52 @@ class SegmentAuditor:
         url = f"{self.v1_base}/sources"
         return self._paginate(url, 'data')
 
+    def get_source_destinations(self, source_id):
+        """Get all destinations connected to a source"""
+        url = f"{self.v1_base}/sources/{source_id}/connected-destinations"
+        debug_file = Path('./audit_data/debug_destinations.txt')
+
+        try:
+            with open(debug_file, 'a') as f:
+                f.write(f"\n\n=== Fetching destinations for source: {source_id} ===\n")
+                f.write(f"URL: {url}\n")
+
+            response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
+
+            with open(debug_file, 'a') as f:
+                f.write(f"Response status: {response.status_code}\n")
+
+            if response.status_code != 200:
+                with open(debug_file, 'a') as f:
+                    f.write(f"Non-200 response: {response.text[:500]}\n")
+                return []
+
+            data = response.json()
+            with open(debug_file, 'a') as f:
+                f.write(f"Response keys: {list(data.keys())}\n")
+                f.write(f"Full response: {json.dumps(data, indent=2)[:1000]}\n")
+
+            # API returns destinations in data.destinations
+            destinations_wrapper = data.get('data', {})
+
+            with open(debug_file, 'a') as f:
+                f.write(f"destinations_wrapper type: {type(destinations_wrapper)}\n")
+                if isinstance(destinations_wrapper, dict):
+                    f.write(f"destinations_wrapper keys: {list(destinations_wrapper.keys())}\n")
+
+            if isinstance(destinations_wrapper, dict):
+                destinations = destinations_wrapper.get('destinations', [])
+                with open(debug_file, 'a') as f:
+                    f.write(f"Found {len(destinations)} destinations\n")
+                return destinations
+            return []
+        except Exception as e:
+            with open(debug_file, 'a') as f:
+                f.write(f"ERROR: Exception fetching destinations: {str(e)}\n")
+                import traceback
+                f.write(traceback.format_exc())
+            return []
+
     def get_audiences(self):
         """Get all audiences"""
         if not self.space_id:
@@ -220,7 +266,7 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
         auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
         sources = auditor.get_sources()
 
-        for source in sources:
+        for idx, source in enumerate(sources):
             metadata = source.get('metadata', {})
             source_type = metadata.get('name', 'Unknown')
 
@@ -232,6 +278,28 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
             write_keys = source.get('writeKeys', [])
             labels = source.get('labels', [])
 
+            # Get connected destinations for this source
+            audit_status['message'] = f'Collecting destinations for source {idx+1}/{len(sources)}...'
+            destinations_list = []
+            destination_logos = {}
+            try:
+                source_id = source.get('id')
+                destinations = auditor.get_source_destinations(source_id)
+
+                for dest in destinations:
+                    dest_name = dest.get('name', '')
+                    dest_metadata = dest.get('metadata', {})
+                    dest_slug = dest_metadata.get('slug', '')
+                    dest_logo = dest_metadata.get('logos', {}).get('default', '')
+
+                    if dest_slug:
+                        destinations_list.append(dest_slug)
+                        if dest_logo:
+                            destination_logos[dest_slug] = dest_logo
+            except Exception as e:
+                # If fetching destinations fails, continue with empty list
+                pass
+
             # Ensure all items are strings
             categories_str = ', '.join(str(c) for c in categories) if categories else 'Unknown'
             write_keys_str = ', '.join(str(w) for w in write_keys) if write_keys else ''
@@ -240,6 +308,7 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
                 label.get('key', str(label)) if isinstance(label, dict) else str(label)
                 for label in labels
             ) if labels else ''
+            destinations_str = ', '.join(destinations_list) if destinations_list else ''
 
             sources_data.append({
                 'Source ID': source.get('id'),
@@ -249,7 +318,9 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
                 'Type': source_type,
                 'Category': categories_str,
                 'Write Keys': write_keys_str,
-                'Labels': labels_str
+                'Labels': labels_str,
+                'Connected Destinations': destinations_str,
+                'Destination Count': len(destinations_list)
             })
 
         # Collect audiences from each space

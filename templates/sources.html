@@ -111,7 +111,7 @@
                                 <th>Name</th>
                                 <th>Type</th>
                                 <th>Category</th>
-                                <th>Write Keys</th>
+                                <th>Connected Destinations</th>
                                 <th>Labels</th>
                             </tr>
                         </thead>
@@ -483,11 +483,30 @@
                 const name = source['Source Name'] || '';
                 const type = source.Type || 'Unknown';
                 const category = source.Category || 'Unknown';
-                const writeKeys = (source['Write Keys'] || '').substring(0, 30) +
-                    (source['Write Keys'] && source['Write Keys'].length > 30 ? '...' : '');
+                const destinations = source['Connected Destinations'] || '';
+                const destCount = source['Destination Count'] || 0;
 
                 // Parse and format labels (key:value pairs)
                 const labelsHtml = formatLabels(source.Labels || '');
+
+                // Format destinations with count badge and deduplication
+                let destinationsHtml = '<span style="color: #a0aec0;">-</span>';
+                if (destinations) {
+                    // Split destinations and count occurrences
+                    const destList = destinations.split(',').map(d => d.trim()).filter(d => d);
+                    const destCounts = {};
+                    destList.forEach(dest => {
+                        destCounts[dest] = (destCounts[dest] || 0) + 1;
+                    });
+
+                    // Format with counts
+                    const uniqueDests = Object.keys(destCounts).map(dest => {
+                        const count = destCounts[dest];
+                        return count > 1 ? `${dest} (${count})` : dest;
+                    }).join(', ');
+
+                    destinationsHtml = `<span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-right: 5px;">${Object.keys(destCounts).length}</span><span style="font-size: 0.85rem;">${uniqueDests}</span>`;
+                }
 
                 return `
                     <tr>
@@ -495,7 +514,7 @@
                         <td><strong>${name}</strong></td>
                         <td>${type}</td>
                         <td>${category}</td>
-                        <td style="font-size: 0.85rem; font-family: monospace;" title="${source['Write Keys'] || ''}">${writeKeys}</td>
+                        <td style="max-width: 500px; min-width: 200px; word-wrap: break-word; word-break: break-word; white-space: normal; overflow-wrap: break-word;">${destinationsHtml}</td>
                         <td style="font-size: 0.85rem;">${labelsHtml}</td>
                     </tr>
                 `;
@@ -591,7 +610,7 @@
             }
 
             // Create CSV content
-            const headers = ['Status', 'Name', 'Slug', 'Type', 'Category', 'Write Keys', 'Labels', 'Source ID'];
+            const headers = ['Status', 'Name', 'Slug', 'Type', 'Category', 'Connected Destinations', 'Destination Count', 'Write Keys', 'Labels', 'Source ID'];
             const csvRows = [headers.join(',')];
 
             filteredSources.forEach(source => {
@@ -600,11 +619,13 @@
                 const slug = source.Slug || '';
                 const type = source.Type || '';
                 const category = source.Category || '';
+                const destinations = `"${(source['Connected Destinations'] || '').replace(/"/g, '""')}"`;
+                const destCount = source['Destination Count'] || 0;
                 const writeKeys = `"${(source['Write Keys'] || '').replace(/"/g, '""')}"`;
                 const labels = `"${(source.Labels || '').replace(/"/g, '""')}"`;
                 const sourceId = source['Source ID'] || '';
 
-                csvRows.push([enabled, name, slug, type, category, writeKeys, labels, sourceId].join(','));
+                csvRows.push([enabled, name, slug, type, category, destinations, destCount, writeKeys, labels, sourceId].join(','));
             });
 
             // Download CSV
