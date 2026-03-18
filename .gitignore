@@ -1,6 +1,9 @@
 # Audit data
 audit_data/
 
+# Uploaded schemas
+uploads/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -23,6 +23,9 @@ CORS(app)
 DATA_DIR = Path('./audit_data')
 DATA_DIR.mkdir(exist_ok=True)
 
+UPLOAD_DIR = Path('./uploads')
+UPLOAD_DIR.mkdir(exist_ok=True)
+
 # Global status for audit progress
 audit_status = {
     'running': False,
@@ -514,6 +517,528 @@ def reset():
         'error': None
     }
     return redirect(url_for('index'))
+
+@app.route('/upload-schemas', methods=['POST'])
+def upload_schemas():
+    """Handle CSV upload for tracking plan generator"""
+    import uuid
+    try:
+        project_name = request.form.get('project_name', 'Project').strip()
+        files = request.files.getlist('schema_files')
+
+        if not files or len(files) == 0:
+            return jsonify({'error': 'No files uploaded'}), 400
+
+        # Create unique upload session ID
+        upload_id = str(uuid.uuid4())
+        upload_path = UPLOAD_DIR / upload_id
+        upload_path.mkdir(exist_ok=True)
+
+        # Save uploaded files to disk
+        saved_files = []
+        for file in files:
+            if file.filename == '':
+                continue
+
+            if not file.filename.endswith('.csv'):
+                return jsonify({'error': f'Invalid file type: {file.filename}. Only CSV files are allowed.'}), 400
+
+            # Save file to disk
+            file_path = upload_path / file.filename
+            file.save(file_path)
+
+            saved_files.append(file.filename)
+
+        if len(saved_files) == 0:
+            return jsonify({'error': 'No valid CSV files found'}), 400
+
+        # Store only metadata in session
+        session['project_name'] = project_name
+        session['upload_id'] = upload_id
+        session['schema_filenames'] = saved_files
+
+        return jsonify({'success': True, 'redirect': '/tracking-plan-results'})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def analyze_tracking_plan(schemas_data):
+    """Analyze uploaded schemas and generate tracking plan recommendations"""
+    import csv
+    from io import StringIO
+    from collections import defaultdict, Counter
+
+    # Thresholds
+    MIN_EVENT_VOLUME = 1000
+    LOW_PROPERTY_VOLUME_THRESHOLD = 0.1  # 10% of event volume
+
+    events_data = defaultdict(lambda: {
+        'event_volume': 0,
+        'properties': {},
+        'last_seen': None,
+        'sources': []  # Track which files this event appears in
+    })
+
+    # Track cross-file analysis
+    event_sources = defaultdict(set)  # event_name -> set of source filenames
+    property_events = defaultdict(set)  # property_name -> set of event names it appears in
+
+    # Parse all uploaded CSVs
+    for schema in schemas_data:
+        source_name = schema['filename']
+        content = schema['content']
+        reader = csv.DictReader(StringIO(content))
+
+        for row in reader:
+            event_name = row.get('Event Name', '').strip()
+            property_name = row.get('Property Name', '').strip()
+            total_volume = int(row.get('Total', 0))
+            last_seen = row.get('Last Seen At (UTC)', '')
+            planned = row.get('Planned', 'unplanned')
+
+            if not event_name:
+                continue
+
+            # Track which source this event appears in
+            event_sources[event_name].add(source_name)
+
+            # Track event-level data
+            if property_name == ' ' or property_name == '':
+                # This is the event itself
+                events_data[event_name]['event_volume'] = total_volume
+                events_data[event_name]['last_seen'] = last_seen
+                if source_name not in events_data[event_name]['sources']:
+                    events_data[event_name]['sources'].append(source_name)
+            else:
+                # This is a property
+                events_data[event_name]['properties'][property_name] = {
+                    'volume': total_volume,
+                    'planned': planned
+                }
+                # Track property across events
+                property_events[property_name].add(event_name)
+
+    # Generate recommendations
+    results = []
+    discard_count = 0
+
+    for event_name, data in sorted(events_data.items(), key=lambda x: x[1]['event_volume'], reverse=True):
+        event_volume = data['event_volume']
+        properties = data['properties']
+        property_count = len(properties)
+
+        # Determine recommendation
+        if event_volume == 0:
+            # Track zero volume events but don't include in results
+            discard_count += 1
+            continue
+        elif event_volume < MIN_EVENT_VOLUME:
+            recommendation = 'Review'
+            flag = '🟡 Low Volume'
+            notes = f'Event volume below minimum threshold ({MIN_EVENT_VOLUME:,})'
+        else:
+            # Check property volumes
+            low_volume_props = []
+            zero_volume_props = []
+
+            for prop_name, prop_data in properties.items():
+                prop_volume = prop_data['volume']
+                if prop_volume == 0:
+                    zero_volume_props.append(prop_name)
+                elif event_volume > 0 and (prop_volume / event_volume) < LOW_PROPERTY_VOLUME_THRESHOLD:
+                    low_volume_props.append(prop_name)
+
+            if len(zero_volume_props) > 0 or len(low_volume_props) > 0:
+                recommendation = 'Review'
+                flag = '🟡 Property Issues'
+                notes = f'{len(zero_volume_props)} properties with zero volume, {len(low_volume_props)} with low volume (<10% of event)'
+            else:
+                recommendation = 'Include'
+                flag = '✅ Good'
+                notes = 'Event and properties have healthy volume'
+
+        results.append({
+            'event_name': event_name,
+            'event_volume': event_volume,
+            'property_count': property_count,
+            'recommendation': recommendation,
+            'flag': flag,
+            'notes': notes,
+            'last_seen': data['last_seen'],
+            'properties': properties,
+            'sources': data['sources']
+        })
+
+    # Generate crossover analysis
+    crossover_analysis = {
+        'shared_events': [],
+        'shared_properties': []
+    }
+
+    # Shared events (appear in multiple files)
+    if len(schemas_data) > 1:
+        for event_name, sources in event_sources.items():
+            if len(sources) > 1:
+                event_data = events_data[event_name]
+                crossover_analysis['shared_events'].append({
+                    'event_name': event_name,
+                    'source_count': len(sources),
+                    'sources': sorted(list(sources)),
+                    'event_volume': event_data['event_volume'],
+                    'property_count': len(event_data['properties'])
+                })
+
+        # Sort by source count (most shared first)
+        crossover_analysis['shared_events'].sort(key=lambda x: x['source_count'], reverse=True)
+
+        # Shared properties (appear in multiple events)
+        for property_name, events in property_events.items():
+            if len(events) > 1 and property_name.strip():  # Ignore empty property names
+                crossover_analysis['shared_properties'].append({
+                    'property_name': property_name,
+                    'event_count': len(events),
+                    'events': sorted(list(events))[:10]  # Show up to 10 events
+                })
+
+        # Sort by event count (most shared first)
+        crossover_analysis['shared_properties'].sort(key=lambda x: x['event_count'], reverse=True)
+
+    return results, crossover_analysis, discard_count
+
+@app.route('/export-tracking-plan-excel')
+def export_tracking_plan_excel():
+    """Export tracking plan as Excel with multiple sheets"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+
+    project_name = session.get('project_name', 'Project')
+    upload_id = session.get('upload_id')
+    schema_filenames = session.get('schema_filenames', [])
+
+    if not upload_id or not schema_filenames:
+        return "No data to export", 404
+
+    upload_path = UPLOAD_DIR / upload_id
+
+    # Load files from disk
+    uploaded_schemas = []
+    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+
+    for filename in schema_filenames:
+        file_path = upload_path / filename
+        if not file_path.exists():
+            continue
+
+        content = None
+        with open(file_path, 'rb') as f:
+            raw_content = f.read()
+
+        for encoding in encodings:
+            try:
+                content = raw_content.decode(encoding)
+                break
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        if content:
+            uploaded_schemas.append({'filename': filename, 'content': content})
+
+    if not uploaded_schemas:
+        return "No data to export", 404
+
+    # Analyze schemas
+    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
+
+    # Create Excel workbook
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove default sheet
+
+    # Create Summary sheet
+    ws_summary = wb.create_sheet("Summary")
+
+    # Header styling
+    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    # Summary headers
+    headers = ['Flag', 'Event Name', 'Event Volume', 'Properties', 'Recommendation', 'Notes']
+    for col, header in enumerate(headers, 1):
+        cell = ws_summary.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    # Summary data
+    for row_idx, event in enumerate(tracking_plan, 2):
+        ws_summary.cell(row_idx, 1, event['flag'])
+        ws_summary.cell(row_idx, 2, event['event_name'])
+        ws_summary.cell(row_idx, 3, event['event_volume'])
+        ws_summary.cell(row_idx, 4, event['property_count'])
+        ws_summary.cell(row_idx, 5, event['recommendation'])
+        ws_summary.cell(row_idx, 6, event['notes'])
+
+    # Auto-size columns
+    for col in ws_summary.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = min(max_length + 2, 50)
+        ws_summary.column_dimensions[column].width = adjusted_width
+
+    # Create individual event sheets with property details
+    for event in tracking_plan[:50]:  # Limit to 50 sheets (Excel limit is 255 but be reasonable)
+        # Sanitize sheet name (Excel has 31 char limit and doesn't allow certain chars)
+        sheet_name = event['event_name'][:31]
+        sheet_name = sheet_name.replace('/', '-').replace('\\', '-').replace('*', '').replace('?', '').replace(':', '-').replace('[', '').replace(']', '')
+
+        try:
+            ws_event = wb.create_sheet(sheet_name)
+        except:
+            continue  # Skip if sheet name is invalid
+
+        # Event details
+        ws_event.cell(1, 1, "Event Name").font = Font(bold=True)
+        ws_event.cell(1, 2, event['event_name'])
+        ws_event.cell(2, 1, "Event Volume").font = Font(bold=True)
+        ws_event.cell(2, 2, event['event_volume'])
+        ws_event.cell(3, 1, "Recommendation").font = Font(bold=True)
+        ws_event.cell(3, 2, event['recommendation'])
+
+        # Properties table
+        ws_event.cell(5, 1, "Property Name").font = header_font
+        ws_event.cell(5, 1).fill = header_fill
+        ws_event.cell(5, 2, "Volume").font = header_font
+        ws_event.cell(5, 2).fill = header_fill
+        ws_event.cell(5, 3, "Planned").font = header_font
+        ws_event.cell(5, 3).fill = header_fill
+
+        # Property data
+        properties = event.get('properties', {})
+        for prop_idx, (prop_name, prop_data) in enumerate(properties.items(), 6):
+            ws_event.cell(prop_idx, 1, prop_name)
+            ws_event.cell(prop_idx, 2, prop_data['volume'])
+            ws_event.cell(prop_idx, 3, prop_data['planned'])
+
+        # Auto-size columns
+        for col in ws_event.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws_event.column_dimensions[column].width = adjusted_width
+
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    from flask import send_file
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'{project_name}_tracking_plan.xlsx'
+    )
+
+@app.route('/export-segment-tracking-plan-csv')
+def export_segment_tracking_plan_csv():
+    """Export tracking plan as Segment-compatible CSV for direct import"""
+    import csv
+    from io import StringIO
+
+    project_name = session.get('project_name', 'Project')
+    upload_id = session.get('upload_id')
+    schema_filenames = session.get('schema_filenames', [])
+
+    if not upload_id or not schema_filenames:
+        return "No data to export", 404
+
+    upload_path = UPLOAD_DIR / upload_id
+
+    # Load files from disk
+    uploaded_schemas = []
+    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+
+    for filename in schema_filenames:
+        file_path = upload_path / filename
+        if not file_path.exists():
+            continue
+
+        content = None
+        with open(file_path, 'rb') as f:
+            raw_content = f.read()
+
+        for encoding in encodings:
+            try:
+                content = raw_content.decode(encoding)
+                break
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        if content:
+            uploaded_schemas.append({'filename': filename, 'content': content})
+
+    if not uploaded_schemas:
+        return "No data to export", 404
+
+    # Analyze schemas
+    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
+
+    # Generate Segment tracking plan CSV
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Header row
+    writer.writerow([
+        'Version',
+        'Event Type',
+        'Event Name',
+        'Property Name',
+        'Source',
+        'Description',
+        'Labels',
+        'Property Status',
+        'Property Data Type',
+        'Allowed Property Values',
+        'Enum Values'
+    ])
+
+    # Include all events that meet volume threshold (≥1,000)
+    MIN_EVENT_VOLUME = 1000
+    significant_events = [e for e in tracking_plan if e['event_volume'] >= MIN_EVENT_VOLUME]
+
+    for event in significant_events:
+        event_name = event['event_name']
+        properties = event.get('properties', {})
+        event_volume = event['event_volume']
+
+        # Event row (no property name)
+        writer.writerow([
+            '1',                        # Version
+            'Track',                    # Event Type
+            event_name,                 # Event Name
+            '',                         # Property Name (empty for event row)
+            'Schema Import',            # Source
+            '',                         # Description
+            '',                         # Labels
+            '',                         # Property Status
+            '',                         # Property Data Type
+            '',                         # Allowed Property Values
+            ''                          # Enum Values
+        ])
+
+        # Filter to only healthy properties (no zero volume, no low volume issues)
+        healthy_properties = []
+
+        for prop_name, prop_data in properties.items():
+            prop_volume = prop_data['volume']
+
+            # Include if property has volume and is at least 10% of event volume
+            if prop_volume > 0 and (prop_volume / event_volume) >= 0.1:
+                healthy_properties.append((prop_name, prop_data))
+
+        # Property rows
+        for prop_name, prop_data in healthy_properties:
+            # Determine property status based on planned field
+            prop_status = '' if prop_data['planned'] == 'unplanned' else ''
+
+            writer.writerow([
+                '1',                    # Version
+                'Track',                # Event Type
+                event_name,             # Event Name
+                prop_name,              # Property Name
+                'Schema Import',        # Source
+                '',                     # Description
+                '',                     # Labels
+                prop_status,            # Property Status
+                'string',               # Property Data Type (default to string)
+                '',                     # Allowed Property Values
+                ''                      # Enum Values
+            ])
+
+    # Return as downloadable CSV
+    from flask import Response
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={
+            'Content-Disposition': f'attachment; filename={project_name}_segment_import.csv'
+        }
+    )
+
+@app.route('/tracking-plan-results')
+def tracking_plan_results():
+    """Display tracking plan generator results"""
+    project_name = session.get('project_name', 'Project')
+    upload_id = session.get('upload_id')
+    schema_filenames = session.get('schema_filenames', [])
+
+    if not upload_id or not schema_filenames:
+        return redirect(url_for('index'))
+
+    upload_path = UPLOAD_DIR / upload_id
+
+    # Load files from disk with encoding detection
+    uploaded_schemas = []
+    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+
+    for filename in schema_filenames:
+        file_path = upload_path / filename
+        if not file_path.exists():
+            continue
+
+        # Try different encodings
+        content = None
+        with open(file_path, 'rb') as f:
+            raw_content = f.read()
+
+        for encoding in encodings:
+            try:
+                content = raw_content.decode(encoding)
+                break
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        if content:
+            uploaded_schemas.append({
+                'filename': filename,
+                'content': content
+            })
+
+    if not uploaded_schemas:
+        return redirect(url_for('index'))
+
+    # Analyze schemas
+    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
+
+    # Calculate stats (zero volume events are already filtered out)
+    total_events = len(tracking_plan)
+    include_count = len([e for e in tracking_plan if e['recommendation'] == 'Include'])
+    review_count = len([e for e in tracking_plan if e['recommendation'] == 'Review'])
+
+    return render_template('tracking_plan_results.html',
+                         project_name=project_name,
+                         schemas=uploaded_schemas,
+                         tracking_plan=tracking_plan,
+                         crossover_analysis=crossover_analysis,
+                         stats={
+                             'total': total_events,
+                             'include': include_count,
+                             'review': review_count,
+                             'discard': zero_volume_count
+                         })
 
 # ============================================================================
 # MAIN

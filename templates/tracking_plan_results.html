@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ project_name }} - Tracking Plan</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="projectName">{{ project_name }} - Unified Tracking Plan</h1>
+                <p class="subtitle" id="uploadDate">
+                    {% if schemas|length == 1 %}
+                    Single source analysis • {{ schemas[0].filename }}
+                    {% else %}
+                    Multi-source analysis • {{ schemas|length }} schema files combined
+                    {% endif %}
+                </p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/'" class="btn btn-secondary btn-sm">
+                    ← New Upload
+                </button>
+            </div>
+        </div>
+
+        <div id="content">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Events</div>
+                    <div class="value">{{ stats.total }}</div>
+                    <div class="subtext">Analyzed</div>
+                </div>
+                <div class="stat-card" style="background: #f0fdf4; border-left: 4px solid #48bb78;">
+                    <div class="label">✅ Include</div>
+                    <div class="value" style="color: #48bb78;">{{ stats.include }}</div>
+                    <div class="subtext">Healthy volume</div>
+                </div>
+                <div class="stat-card" style="background: #fffbeb; border-left: 4px solid #ecc94b;">
+                    <div class="label">🟡 Review</div>
+                    <div class="value" style="color: #d69e2e;">{{ stats.review }}</div>
+                    <div class="subtext">Low volume/issues</div>
+                </div>
+                <div class="stat-card" style="background: #fef2f2; border-left: 4px solid #f56565;">
+                    <div class="label">🔴 Zero Volume</div>
+                    <div class="value" style="color: #f56565;">{{ stats.discard }}</div>
+                    <div class="subtext">Filtered from table</div>
+                </div>
+            </div>
+
+            <!-- File Preview -->
+            <div class="chart-section">
+                <h2>Uploaded Schema Files</h2>
+                <div style="display: grid; gap: 15px;">
+                    {% for schema in schemas %}
+                    <div style="padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #667eea;">
+                        <h3 style="margin-bottom: 10px; color: #2d3748;">📄 {{ schema.filename }}</h3>
+                        <details>
+                            <summary style="cursor: pointer; color: #667eea; font-weight: 600; margin-bottom: 10px;">View Raw Content</summary>
+                            <pre style="background: white; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; max-height: 300px; overflow-y: auto;">{{ schema.content }}</pre>
+                        </details>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Crossover Analysis (only for multiple files) -->
+            {% if schemas|length > 1 and (crossover_analysis.shared_events|length > 0 or crossover_analysis.shared_properties|length > 0) %}
+            <div class="chart-section">
+                <h2>🔗 Cross-Source Standardization Opportunities</h2>
+                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 10px;">
+                    Identify events and properties appearing across multiple sources for a unified tracking plan
+                </p>
+                <div style="background: #f0fdf4; padding: 12px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #48bb78;">
+                    <strong style="color: #22543d;">💡 Standardization Benefits:</strong>
+                    <span style="color: #276749; font-size: 0.9rem;"> Shared events indicate opportunities for consistent naming conventions. Shared properties can become standard traits across your data sources.</span>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <!-- Shared Events -->
+                    <div>
+                        <h3 style="margin-bottom: 15px; color: #2d3748; font-size: 1.1rem;">🔗 Shared Events ({{ crossover_analysis.shared_events|length }})</h3>
+                        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            {% for event in crossover_analysis.shared_events[:20] %}
+                            <div style="padding: 12px; border-bottom: 1px solid #f7fafc; {% if loop.index % 2 == 0 %}background: #fafafa;{% endif %}">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                    <strong style="color: #2d3748;">{{ event.event_name }}</strong>
+                                    <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">{{ event.source_count }} files</span>
+                                </div>
+                                <div style="font-size: 0.8rem; color: #718096;">
+                                    Volume: {{ "{:,}".format(event.event_volume) }} | Properties: {{ event.property_count }}
+                                </div>
+                                <div style="font-size: 0.75rem; color: #a0aec0; margin-top: 3px;">
+                                    {% for source in event.sources %}
+                                    <span style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; margin-right: 4px;">{{ source }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Shared Properties -->
+                    <div>
+                        <h3 style="margin-bottom: 15px; color: #2d3748; font-size: 1.1rem;">📊 Shared Properties ({{ crossover_analysis.shared_properties|length }})</h3>
+                        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            {% for prop in crossover_analysis.shared_properties[:20] %}
+                            <div style="padding: 12px; border-bottom: 1px solid #f7fafc; {% if loop.index % 2 == 0 %}background: #fafafa;{% endif %}">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                    <strong style="color: #2d3748;">{{ prop.property_name }}</strong>
+                                    <span style="background: #48bb78; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">{{ prop.event_count }} events</span>
+                                </div>
+                                <details style="font-size: 0.8rem; color: #718096; cursor: pointer;">
+                                    <summary style="cursor: pointer;">View events using this property</summary>
+                                    <div style="margin-top: 5px; padding-left: 10px;">
+                                        {% for event in prop.events %}
+                                        <div style="padding: 2px 0; color: #4a5568;">• {{ event }}</div>
+                                        {% endfor %}
+                                        {% if prop.event_count > 10 %}
+                                        <div style="padding: 2px 0; color: #a0aec0; font-style: italic;">... and {{ prop.event_count - 10 }} more</div>
+                                        {% endif %}
+                                    </div>
+                                </details>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Export Options Info -->
+            <div style="background: #edf2f7; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
+                <strong style="color: #2d3748;">📥 Export Options:</strong>
+                <div style="margin-top: 8px; font-size: 0.9rem; color: #4a5568;">
+                    <div style="margin-bottom: 5px;">• <strong>Export Excel:</strong> Detailed workbook with property-level analysis (for team review)</div>
+                    <div>• <strong>Export for Segment Import:</strong> Ready-to-import CSV with all events ≥1,000 volume and healthy properties (upload directly to Segment)</div>
+                </div>
+            </div>
+
+            <!-- Tracking Plan Recommendations -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div>
+                        <h2 style="margin: 0;">📋 Unified Tracking Plan Recommendations</h2>
+                        <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;">
+                            {% if schemas|length > 1 %}
+                            Combined analysis from {{ schemas|length }} source schemas • Minimum recommended event volume: 1,000 • Zero volume events filtered
+                            {% else %}
+                            Volume-based recommendations • Minimum recommended event volume: 1,000 • Zero volume events filtered
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="searchEvents" placeholder="🔍 Search events..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                        <select id="filterRecommendation" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Recommendations</option>
+                            <option value="Include">✅ Include</option>
+                            <option value="Review">🟡 Review</option>
+                        </select>
+                        <a href="/export-tracking-plan-excel" class="btn btn-secondary btn-sm" style="text-decoration: none;">
+                            📥 Export Excel
+                        </a>
+                        <a href="/export-segment-tracking-plan-csv" class="btn btn-primary btn-sm" style="text-decoration: none;">
+                            🚀 Export for Segment Import
+                        </a>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table id="trackingPlanTable">
+                        <thead>
+                            <tr>
+                                <th>Flag</th>
+                                <th>Event Name</th>
+                                <th>Event Volume</th>
+                                <th>Properties</th>
+                                <th>Recommendation</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trackingPlanBody">
+                            {% for event in tracking_plan %}
+                            <tr class="event-row" data-recommendation="{{ event.recommendation }}" data-event-name="{{ event.event_name|lower }}">
+                                <td style="font-size: 1.2rem;">{{ event.flag }}</td>
+                                <td><strong>{{ event.event_name }}</strong></td>
+                                <td>{{ "{:,}".format(event.event_volume) }}</td>
+                                <td>{{ event.property_count }}</td>
+                                <td>
+                                    {% if event.recommendation == 'Include' %}
+                                    <span class="badge enabled">Include</span>
+                                    {% else %}
+                                    <span class="badge" style="background: #ecc94b; color: #744210;">Review</span>
+                                    {% endif %}
+                                </td>
+                                <td style="font-size: 0.85rem; color: #4a5568;">{{ event.notes }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const trackingPlanData = {{ tracking_plan|tojson }};
+
+        // Search and filter functionality
+        document.getElementById('searchEvents').addEventListener('input', filterTable);
+        document.getElementById('filterRecommendation').addEventListener('change', filterTable);
+
+        function filterTable() {
+            const searchTerm = document.getElementById('searchEvents').value.toLowerCase();
+            const filterValue = document.getElementById('filterRecommendation').value;
+            const rows = document.querySelectorAll('.event-row');
+
+            rows.forEach(row => {
+                const eventName = row.dataset.eventName;
+                const recommendation = row.dataset.recommendation;
+
+                const matchesSearch = !searchTerm || eventName.includes(searchTerm);
+                const matchesFilter = !filterValue || recommendation === filterValue;
+
+                if (matchesSearch && matchesFilter) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+    </script>
+</body>
+</html>

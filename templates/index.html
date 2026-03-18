@@ -10,11 +10,20 @@
     <div class="container">
         <div class="form-card">
             <div class="header">
-                <h1>🎯 Segment Workspace Audit</h1>
-                <p class="subtitle">Configure your audit parameters</p>
+                <h1>🎯 Segment Audit Dashboard</h1>
+                <p class="subtitle">Choose your tool</p>
             </div>
 
-            <form id="auditForm" method="POST" action="/run-audit">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-button active" onclick="switchTab('audit')">Workspace Audit</button>
+                <button class="tab-button" onclick="switchTab('tracking-plan')">Tracking Plan Generator</button>
+            </div>
+
+            <!-- Audit Tab -->
+            <div id="auditTab" class="tab-content active">
+                <h2 style="margin-bottom: 20px;">Workspace Audit</h2>
+                <form id="auditForm" method="POST" action="/run-audit">
                 <div class="form-group">
                     <label for="customer_name">Customer/Company Name</label>
                     <input
@@ -79,7 +88,7 @@
                 <div id="errorMessage" class="error-message" style="display: none;"></div>
             </form>
 
-            <div class="help-section">
+            <div class="help-section" id="auditHelp">
                 <h3>📚 Quick Help</h3>
                 <div class="help-grid">
                     <div class="help-item">
@@ -100,10 +109,253 @@
                     </div>
                 </div>
             </div>
+            </div>
+
+            <!-- Tracking Plan Generator Tab -->
+            <div id="trackingPlanTab" class="tab-content" style="display: none;">
+                <h2 style="margin-bottom: 15px;">Tracking Plan Generator</h2>
+                <p style="color: #718096; margin-bottom: 10px;">Upload event schema CSV files to generate a unified tracking plan with volume-based recommendations</p>
+                <div style="background: #edf2f7; padding: 15px; border-radius: 8px; margin-bottom: 25px; border-left: 4px solid #667eea;">
+                    <div style="font-weight: 600; color: #2d3748; margin-bottom: 5px;">💡 Pro Tip: Combine Multiple Sources</div>
+                    <p style="font-size: 0.9rem; color: #4a5568; margin: 0;">Upload schemas from different sources (web, mobile, server-side) to create a unified tracking plan and identify standardization opportunities across your data landscape.</p>
+                </div>
+
+                <form id="trackingPlanForm" method="POST" action="/upload-schemas" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="project_name">Project/Company Name</label>
+                        <input
+                            type="text"
+                            id="project_name"
+                            name="project_name"
+                            placeholder="e.g., Acme Corp Tracking Plan"
+                            required>
+                        <small>This will appear in your generated tracking plan</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="schema_files">Upload Source Schema CSV(s) *</label>
+                        <div style="border: 2px dashed #cbd5e0; border-radius: 8px; padding: 20px; background: #f7fafc; text-align: center;">
+                            <div style="margin-bottom: 15px;">
+                                <span style="font-size: 2rem;">📁</span>
+                                <p style="color: #4a5568; margin: 10px 0 5px 0; font-weight: 600;">Drag & drop CSV files here</p>
+                                <p style="color: #718096; font-size: 0.9rem; margin: 0;">or</p>
+                            </div>
+                            <input
+                                type="file"
+                                id="schema_files"
+                                name="schema_files"
+                                accept=".csv"
+                                multiple
+                                style="display: none;">
+                            <button type="button" id="chooseFilesBtn" class="btn btn-secondary btn-sm">
+                                Choose Files
+                            </button>
+                            <p style="font-size: 0.85rem; color: #718096; margin-top: 10px;">💡 Hold Ctrl (Cmd on Mac) to select multiple files at once</p>
+                        </div>
+                        <small style="display: block; margin-top: 10px;">📁 Upload one or multiple schema CSVs from different sources to create a unified tracking plan</small>
+                    </div>
+
+                    <div id="fileList" style="margin-top: 15px;"></div>
+
+                    <div id="addMoreSection" style="margin-top: 15px; display: none;">
+                        <button type="button" id="addMoreBtn" class="btn btn-secondary btn-sm" style="width: 100%;">
+                            ➕ Add More Files
+                        </button>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" id="uploadBtn">
+                            <span class="btn-text">📊 Generate Tracking Plan</span>
+                            <span class="btn-loading" style="display: none;">
+                                <span class="spinner"></span> Processing...
+                            </span>
+                        </button>
+                    </div>
+
+                    <div id="uploadErrorMessage" class="error-message" style="display: none;"></div>
+                </form>
+
+                <div class="help-section">
+                    <h3>📚 How to Get Schema CSVs from Segment</h3>
+                    <div style="background: #edf2f7; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #667eea;">
+                        <ol style="margin: 0; padding-left: 20px; color: #2d3748;">
+                            <li style="margin-bottom: 8px;">In Segment, navigate to <strong>Connections → Sources</strong></li>
+                            <li style="margin-bottom: 8px;">Select the source you want to analyze (e.g., JavaScript, iOS, Android)</li>
+                            <li style="margin-bottom: 8px;">Click the <strong>Schema</strong> tab</li>
+                            <li style="margin-bottom: 8px;">Click <strong>Download CSV</strong> button (top right)</li>
+                            <li>Repeat for each source you want to include in your unified tracking plan</li>
+                        </ol>
+                    </div>
+
+                    <h3>📊 What You'll Get</h3>
+                    <div class="help-grid">
+                        <div class="help-item">
+                            <strong>Single Source:</strong>
+                            <p>Volume-based recommendations for one data source (✅ Include, 🟡 Review, 🔴 Discard)</p>
+                        </div>
+                        <div class="help-item">
+                            <strong>Multiple Sources (Recommended):</strong>
+                            <p>Unified tracking plan across web, mobile, server-side with standardization opportunities</p>
+                        </div>
+                        <div class="help-item">
+                            <strong>Cross-Source Analysis:</strong>
+                            <p>Identify shared events and properties for consistent naming conventions</p>
+                        </div>
+                        <div class="help-item">
+                            <strong>Export Ready:</strong>
+                            <p>Download recommendations as CSV to share with your team or import to Segment</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
+        // Tab switching
+        function switchTab(tabName) {
+            const tabs = document.querySelectorAll('.tab-button');
+            const contents = document.querySelectorAll('.tab-content');
+
+            tabs.forEach(tab => tab.classList.remove('active'));
+            contents.forEach(content => content.classList.remove('active'));
+
+            if (tabName === 'audit') {
+                document.querySelector('.tab-button:first-child').classList.add('active');
+                document.getElementById('auditTab').classList.add('active');
+                document.getElementById('auditTab').style.display = 'block';
+                document.getElementById('trackingPlanTab').style.display = 'none';
+            } else {
+                document.querySelector('.tab-button:last-child').classList.add('active');
+                document.getElementById('trackingPlanTab').classList.add('active');
+                document.getElementById('auditTab').style.display = 'none';
+                document.getElementById('trackingPlanTab').style.display = 'block';
+            }
+        }
+
+        // Track selected files
+        let selectedFiles = [];
+
+        // Wait for DOM to be ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // File input handling
+            const fileInput = document.getElementById('schema_files');
+            const fileListDiv = document.getElementById('fileList');
+            const chooseBtn = document.getElementById('chooseFilesBtn');
+
+            if (!fileInput || !fileListDiv) {
+                console.error('File input elements not found');
+                return;
+            }
+
+            // Button click handler
+            chooseBtn.addEventListener('click', function() {
+                fileInput.click();
+            });
+
+            // Add more button handler
+            const addMoreBtn = document.getElementById('addMoreBtn');
+            if (addMoreBtn) {
+                addMoreBtn.addEventListener('click', function() {
+                    fileInput.click();
+                });
+            }
+
+            fileInput.addEventListener('change', function(e) {
+                const newFiles = Array.from(e.target.files);
+                console.log('Files selected:', newFiles.length);
+                newFiles.forEach(file => {
+                    // Check if file already added
+                    if (!selectedFiles.find(f => f.name === file.name)) {
+                        selectedFiles.push(file);
+                    }
+                });
+                updateFileList();
+                // Reset input so same file can be added again if removed
+                e.target.value = '';
+            });
+
+            // Drag and drop
+            const dropZone = fileInput.parentElement;
+            dropZone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.style.borderColor = '#667eea';
+            this.style.background = '#edf2f7';
+        });
+
+        dropZone.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.style.borderColor = '#cbd5e0';
+            this.style.background = '#f7fafc';
+        });
+
+        dropZone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.style.borderColor = '#cbd5e0';
+            this.style.background = '#f7fafc';
+
+            const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'));
+            files.forEach(file => {
+                if (!selectedFiles.find(f => f.name === file.name)) {
+                    selectedFiles.push(file);
+                }
+            });
+            updateFileList();
+        });
+        }); // End DOMContentLoaded
+
+        // Global functions for file management
+        function updateFileList() {
+            const fileListDiv = document.getElementById('fileList');
+            const addMoreSection = document.getElementById('addMoreSection');
+            if (!fileListDiv) return;
+
+            if (selectedFiles.length === 0) {
+                fileListDiv.innerHTML = '';
+                if (addMoreSection) addMoreSection.style.display = 'none';
+                return;
+            }
+
+            if (addMoreSection) addMoreSection.style.display = 'block';
+
+            fileListDiv.innerHTML = `
+                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; background: white;">
+                    <div style="font-weight: 600; color: #2d3748; margin-bottom: 10px;">Selected Files (${selectedFiles.length})</div>
+                    ${selectedFiles.map((file, index) => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f7fafc; border-radius: 6px; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 1.2rem;">📄</span>
+                                <div>
+                                    <div style="font-size: 0.9rem; color: #2d3748; font-weight: 500;">${file.name}</div>
+                                    <div style="font-size: 0.75rem; color: #718096;">${formatFileSize(file.size)}</div>
+                                </div>
+                            </div>
+                            <button type="button" onclick="removeFile(${index})" style="background: none; border: none; color: #e53e3e; cursor: pointer; font-size: 1.2rem; padding: 5px;" title="Remove file">
+                                ✕
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Audit form submission
         document.getElementById('auditForm').addEventListener('submit', function(e) {
             e.preventDefault();
 
@@ -139,6 +391,56 @@
                 btnText.style.display = 'inline-block';
                 btnLoading.style.display = 'none';
                 submitBtn.disabled = false;
+            });
+        });
+
+        // Tracking Plan form submission
+        document.getElementById('trackingPlanForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const uploadBtn = document.getElementById('uploadBtn');
+            const btnText = uploadBtn.querySelector('.btn-text');
+            const btnLoading = uploadBtn.querySelector('.btn-loading');
+            const errorDiv = document.getElementById('uploadErrorMessage');
+
+            // Validate files selected
+            if (selectedFiles.length === 0) {
+                errorDiv.textContent = 'Please select at least one CSV file';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Show loading state
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-block';
+            uploadBtn.disabled = true;
+            errorDiv.style.display = 'none';
+
+            // Create FormData with selected files
+            const formData = new FormData();
+            formData.append('project_name', document.getElementById('project_name').value);
+            selectedFiles.forEach(file => {
+                formData.append('schema_files', file);
+            });
+
+            fetch('/upload-schemas', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                // Redirect to tracking plan results
+                window.location.href = '/tracking-plan-results';
+            })
+            .catch(error => {
+                errorDiv.textContent = error.message;
+                errorDiv.style.display = 'block';
+                btnText.style.display = 'inline-block';
+                btnLoading.style.display = 'none';
+                uploadBtn.disabled = false;
             });
         });
     </script>

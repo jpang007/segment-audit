@@ -59,11 +59,23 @@
 
             <!-- Daily Event Volume by Source Chart -->
             <div class="chart-section">
-                <h2>Daily Event Volume by Source (Last 7 Days)</h2>
-                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;">Top sources by volume (≥1,000 events)</p>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h2 style="margin: 0;">Daily Event Volume by Source (Last 7 Days)</h2>
+                        <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;">Top sources by volume (≥1,000 events)</p>
+                    </div>
+                    <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 250px;">
+                </div>
                 <div class="chart-container" style="height: 400px;">
                     <canvas id="dailyVolumeChart"></canvas>
                 </div>
+            </div>
+
+            <!-- Source Volatility -->
+            <div class="chart-section" id="volatilitySection" style="display: none;">
+                <h2>Biggest Daily Swings</h2>
+                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;">Sources with highest day-to-day variability (% swing from average)</p>
+                <div id="volatilityList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 10px;"></div>
             </div>
 
             <!-- Low Volume Sources -->
@@ -91,6 +103,8 @@
         };
 
         let sourcesMap = {}; // Map of sourceId to source name
+        let allSourcesData = []; // Store all parsed source data for filtering
+        let currentChart = null; // Store chart instance
 
         async function loadData() {
             try {
@@ -176,66 +190,88 @@
             renderDailyVolumeChart(volumeData.seven_day_by_source);
         }
 
-        function renderDailyVolumeChart(volumeData) {
+        function renderDailyVolumeChart(volumeData, searchTerm = '') {
             if (!volumeData || !volumeData.data || !volumeData.data.result) {
                 console.warn('No daily volume data available');
                 return;
             }
 
-            // Parse the data structure - each result has a source object with id/name/slug
-            const sourceData = {};
-            const datesSet = new Set();
-            const lowVolumeSourcesData = [];
+            // Parse the data structure on first load
+            if (allSourcesData.length === 0) {
+                const datesSet = new Set();
+                const lowVolumeSourcesData = [];
+                let totalWorkspaceVolume = 0;
 
-            volumeData.data.result.forEach(resultItem => {
-                // Get source info from the source object
-                const sourceObj = resultItem.source || {};
-                const sourceId = sourceObj.id || 'Unknown';
-                const sourceName = sourceObj.name || sourceObj.slug || sourceId;
-                const total = resultItem.total || 0;
+                volumeData.data.result.forEach(resultItem => {
+                    // Get source info from the source object
+                    const sourceObj = resultItem.source || {};
+                    const sourceId = sourceObj.id || 'Unknown';
+                    const sourceName = sourceObj.name || sourceObj.slug || sourceId;
+                    const total = resultItem.total || 0;
 
-                // Skip Personas sources entirely
-                if (sourceName.toLowerCase().includes('personas')) {
-                    return;
-                }
+                    totalWorkspaceVolume += total;
 
-                // Track low volume sources (less than 1000 events total)
-                if (total < 1000) {
-                    lowVolumeSourcesData.push({
+                    // Skip Personas sources entirely
+                    if (sourceName.toLowerCase().includes('personas')) {
+                        return;
+                    }
+
+                    const sourceInfo = {
                         name: sourceName,
-                        total: total
-                    });
-                    return; // Skip low volume sources in chart
-                }
-
-                if (!sourceData[sourceName]) {
-                    sourceData[sourceName] = {
                         total: total,
-                        dates: {}
+                        dates: {},
+                        dailyCounts: []
                     };
-                }
 
-                // Process series data
-                if (resultItem.series) {
-                    resultItem.series.forEach(seriesItem => {
-                        const date = new Date(seriesItem.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                        datesSet.add(date);
-                        sourceData[sourceName].dates[date] = seriesItem.count || 0;
-                    });
-                }
+                    // Process series data
+                    if (resultItem.series) {
+                        resultItem.series.forEach(seriesItem => {
+                            const date = new Date(seriesItem.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            const count = seriesItem.count || 0;
+                            datesSet.add(date);
+                            sourceInfo.dates[date] = count;
+                            sourceInfo.dailyCounts.push(count);
+                        });
+                    }
+
+                    // Categorize sources
+                    if (total < 1000) {
+                        lowVolumeSourcesData.push({
+                            name: sourceName,
+                            total: total
+                        });
+                    } else {
+                        allSourcesData.push(sourceInfo);
+                    }
+                });
+
+                // Calculate and display volatility
+                displayVolatility(allSourcesData);
+
+                // Display low volume sources
+                displayLowVolumeSources(lowVolumeSourcesData, totalWorkspaceVolume);
+            }
+
+            // Apply search filter
+            const searchLower = searchTerm.toLowerCase().trim();
+            const filteredSources = searchLower
+                ? allSourcesData.filter(source => source.name.toLowerCase().includes(searchLower))
+                : allSourcesData;
+
+            // Get all unique dates from filtered sources
+            const datesSet = new Set();
+            filteredSources.forEach(source => {
+                Object.keys(source.dates).forEach(date => datesSet.add(date));
             });
-
-            // Display low volume sources
-            displayLowVolumeSources(lowVolumeSourcesData);
 
             // Sort dates chronologically
             const dates = Array.from(datesSet).sort((a, b) => {
                 return new Date(a + ', 2026') - new Date(b + ', 2026');
             });
 
-            // Sort sources by total volume (descending) and take top 15
-            const sortedSources = Object.entries(sourceData)
-                .sort((a, b) => b[1].total - a[1].total)
+            // Sort filtered sources by total volume (descending) and take top 15
+            const sortedSources = filteredSources
+                .sort((a, b) => b.total - a.total)
                 .slice(0, 15);
 
             // Prepare datasets for stacked bar chart
@@ -246,16 +282,21 @@
                 '#48bb78', '#ed8936', '#ecc94b', '#9f7aea'
             ];
 
-            const datasets = sortedSources.map(([sourceName, sourceInfo], index) => {
+            const datasets = sortedSources.map((sourceInfo, index) => {
                 return {
-                    label: sourceName,
+                    label: sourceInfo.name,
                     data: dates.map(date => sourceInfo.dates[date] || 0),
                     backgroundColor: colors[index % colors.length]
                 };
             });
 
+            // Destroy previous chart
+            if (currentChart) {
+                currentChart.destroy();
+            }
+
             const ctx = document.getElementById('dailyVolumeChart').getContext('2d');
-            new Chart(ctx, {
+            currentChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: dates,
@@ -330,7 +371,62 @@
             return num.toLocaleString();
         }
 
-        function displayLowVolumeSources(lowVolumeData) {
+        function displayVolatility(sourcesData) {
+            if (!sourcesData || sourcesData.length === 0) {
+                return;
+            }
+
+            // Calculate volatility for each source
+            const volatilityData = sourcesData.map(source => {
+                const counts = source.dailyCounts.filter(c => c > 0); // Exclude zero days
+                if (counts.length < 2) return null; // Need at least 2 days
+
+                const avg = counts.reduce((sum, c) => sum + c, 0) / counts.length;
+                const max = Math.max(...counts);
+                const min = Math.min(...counts);
+                const swingPercent = ((max - min) / avg * 100).toFixed(1);
+
+                return {
+                    name: source.name,
+                    total: source.total,
+                    avg: Math.round(avg),
+                    max: max,
+                    min: min,
+                    swingPercent: parseFloat(swingPercent)
+                };
+            }).filter(v => v !== null);
+
+            // Sort by swing percentage descending
+            volatilityData.sort((a, b) => b.swingPercent - a.swingPercent);
+
+            // Show top 10 most volatile sources
+            const topVolatile = volatilityData.slice(0, 10);
+
+            if (topVolatile.length === 0) return;
+
+            const section = document.getElementById('volatilitySection');
+            const list = document.getElementById('volatilityList');
+
+            section.style.display = 'block';
+
+            list.innerHTML = topVolatile.map(source => {
+                return `
+                    <div style="padding: 12px; background: #fffaf0; border-radius: 8px; border-left: 4px solid #ed8936;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 0.9rem; color: #2d3748; font-weight: 600;">${source.name}</span>
+                            <span style="font-weight: 700; color: #ed8936; font-size: 1.1rem;">${source.swingPercent}%</span>
+                        </div>
+                        <div style="display: flex; gap: 15px; font-size: 0.8rem; color: #718096;">
+                            <span>Avg: <strong>${formatNumber(source.avg)}/day</strong></span>
+                            <span>Max: <strong>${formatNumber(source.max)}</strong></span>
+                            <span>Min: <strong>${formatNumber(source.min)}</strong></span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function displayLowVolumeSources(lowVolumeData, totalWorkspaceVolume) {
             if (!lowVolumeData || lowVolumeData.length === 0) {
                 return;
             }
@@ -358,6 +454,17 @@
             document.getElementById('error').style.display = 'block';
             document.getElementById('errorMessage').textContent = message;
         }
+
+        // Add search event listener
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchBox = document.getElementById('sourceSearchBox');
+            if (searchBox) {
+                searchBox.addEventListener('input', function() {
+                    const searchTerm = searchBox.value;
+                    renderDailyVolumeChart(volumeData.seven_day_by_source, searchTerm);
+                });
+            }
+        });
 
         // Load data on page load
         window.addEventListener('DOMContentLoaded', loadData);
