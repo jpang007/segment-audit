@@ -238,7 +238,7 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
-def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify=False):
+def run_audit(api_token, workspace_id, workspace_slug, space_ids, customer_name, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
 
@@ -275,6 +275,8 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
                 continue
 
             categories = metadata.get('categories', [])
+            # Use first category as the type (e.g., "Website" instead of "Javascript")
+            category_type = categories[0] if categories and len(categories) > 0 else source_type
             write_keys = source.get('writeKeys', [])
             labels = source.get('labels', [])
 
@@ -315,7 +317,7 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
                 'Source Name': source.get('name'),
                 'Slug': source.get('slug'),
                 'Enabled': source.get('enabled', False),
-                'Type': source_type,
+                'Type': category_type,
                 'Category': categories_str,
                 'Write Keys': write_keys_str,
                 'Labels': labels_str,
@@ -364,10 +366,14 @@ def run_audit(api_token, workspace_id, space_ids, customer_name, skip_ssl_verify
         audit_status['progress'] = 80
 
         # Save summary
+        # Format workspace slug for display (convert slug to Title Case)
+        display_name = workspace_slug.replace('-', ' ').replace('_', ' ').title() if workspace_slug else customer_name
+
         summary = {
             'audit_date': datetime.now().isoformat(),
-            'customer_name': customer_name,
+            'customer_name': display_name,
             'workspace_id': workspace_id,
+            'workspace_slug': workspace_slug,
             'space_ids': space_list,
             'sources': {
                 'total': len(sources_data),
@@ -453,18 +459,24 @@ def run_audit_route():
     # Get form data
     api_token = request.form.get('api_token')
     workspace_id = request.form.get('workspace_id', '').strip()
+    workspace_slug = request.form.get('workspace_slug', '').strip()
     space_ids = request.form.get('space_ids', '').strip()
-    customer_name = request.form.get('customer_name', 'Customer').strip()
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
     if not api_token:
         return jsonify({'error': 'API token is required'}), 400
+    if not workspace_slug:
+        return jsonify({'error': 'Workspace slug is required'}), 400
     if not space_ids:
         return jsonify({'error': 'At least one space ID is required'}), 400
 
+    # Use workspace slug as display name (format it nicely for display)
+    customer_name = workspace_slug.replace('-', ' ').replace('_', ' ').title()
+
     # Store credentials in session for later use
     session['customer_name'] = customer_name
+    session['workspace_slug'] = workspace_slug
     session['api_token'] = api_token
     session['workspace_id'] = workspace_id
     session['skip_ssl'] = skip_ssl
@@ -481,7 +493,7 @@ def run_audit_route():
     # Run audit in background thread
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, workspace_id, space_ids, customer_name, skip_ssl)
+        args=(api_token, workspace_id, workspace_slug, space_ids, customer_name, skip_ssl)
     )
     thread.daemon = True
     thread.start()
@@ -515,6 +527,368 @@ def observability():
     """Observability view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('observability.html', customer_name=customer_name)
+
+@app.route('/connections')
+def connections():
+    """Connections view - Sankey diagram of source to destination flows"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('connections.html', customer_name=customer_name)
+
+@app.route('/export-workspace-markdown')
+def export_workspace_markdown():
+    """Export comprehensive workspace data as markdown for AI analysis"""
+    from io import BytesIO
+
+    workspace_slug = session.get('workspace_slug', 'workspace')
+    customer_name = session.get('customer_name', workspace_slug)
+
+    # Load all data files
+    summary_file = DATA_DIR / 'audit_summary.json'
+    sources_file = DATA_DIR / 'segment_sources_audit.csv'
+    audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
+
+    if not summary_file.exists():
+        return "No audit data found. Please run an audit first.", 404
+
+    # Load summary
+    with open(summary_file, 'r') as f:
+        summary = json.load(f)
+
+    # Load sources
+    import csv
+    sources = []
+    if sources_file.exists():
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sources = list(reader)
+
+    # Load audiences
+    audiences = []
+    if audiences_file.exists():
+        with open(audiences_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            audiences = list(reader)
+
+    # Build markdown content
+    audit_date = summary.get('audit_date', '')
+    if audit_date:
+        from datetime import datetime
+        audit_date_obj = datetime.fromisoformat(audit_date)
+        audit_date = audit_date_obj.strftime('%B %d, %Y at %I:%M %p')
+
+    md_content = f"""# {customer_name} - Segment Workspace Analysis
+
+## Executive Summary
+
+**Audit Date:** {audit_date}
+**Workspace:** {workspace_slug}
+**Total Sources:** {summary.get('sources', {}).get('total', 0)} ({summary.get('sources', {}).get('enabled', 0)} enabled)
+**Total Audiences:** {summary.get('audiences', {}).get('total', 0)} ({summary.get('audiences', {}).get('enabled', 0)} enabled)
+**Unique Events Referenced:** {summary.get('coverage', {}).get('unique_events_referenced', 0)}
+**Unique Traits Referenced:** {summary.get('coverage', {}).get('unique_traits_referenced', 0)}
+
+---
+
+## Workspace Overview
+
+This workspace contains **{len(sources)} data sources** collecting customer data and sending it to various destinations. The workspace is configured with **{len(audiences)} audiences** for customer segmentation and targeting.
+
+### Key Metrics
+- **Active Sources:** {summary.get('sources', {}).get('enabled', 0)} sources actively collecting data
+- **Inactive Sources:** {summary.get('sources', {}).get('disabled', 0)} sources currently disabled
+- **Active Audiences:** {summary.get('audiences', {}).get('enabled', 0)} audiences currently enabled
+- **Empty Audiences:** {summary.get('audiences', {}).get('empty', 0)} audiences with no users
+
+---
+
+## Data Sources
+
+### Sources by Type
+"""
+
+    # Group sources by type
+    from collections import Counter
+    source_types = Counter()
+    source_categories = Counter()
+    enabled_by_type = Counter()
+
+    for source in sources:
+        source_type = source.get('Type', 'Unknown')
+        enabled = source.get('Enabled', '').lower() == 'true'
+        source_types[source_type] += 1
+        if enabled:
+            enabled_by_type[source_type] += 1
+
+    for source_type, count in source_types.most_common():
+        enabled_count = enabled_by_type.get(source_type, 0)
+        md_content += f"\n- **{source_type}:** {count} total ({enabled_count} enabled)"
+
+    md_content += "\n\n### Active Data Collection Sources\n"
+    md_content += "\nThese sources are actively collecting customer data:\n\n"
+
+    enabled_sources = [s for s in sources if s.get('Enabled', '').lower() == 'true']
+    for source in enabled_sources:
+        source_name = source.get('Source Name', '')
+        source_type = source.get('Type', '')
+        destinations = source.get('Connected Destinations', 'None')
+        dest_count = source.get('Destination Count', '0')
+
+        md_content += f"#### {source_name}\n"
+        md_content += f"- **Type:** {source_type}\n"
+        md_content += f"- **Connected Destinations ({dest_count}):** {destinations}\n"
+
+        # Add source link if available
+        source_slug = source.get('Slug', '')
+        if workspace_slug and source_slug:
+            md_content += f"- **Schema Link:** https://app.segment.com/{workspace_slug}/sources/{source_slug}/schema\n"
+
+        md_content += "\n"
+
+    md_content += "\n---\n\n## Destination Connections\n\n"
+    md_content += "### Data Flow Summary\n\n"
+
+    # Collect all unique destinations
+    all_destinations = Counter()
+    for source in sources:
+        destinations = source.get('Connected Destinations', '').split(',')
+        for dest in destinations:
+            dest = dest.strip()
+            if dest:
+                all_destinations[dest] += 1
+
+    md_content += "The following destinations are receiving data from this workspace:\n\n"
+    for dest, count in all_destinations.most_common():
+        md_content += f"- **{dest}:** Connected to {count} source(s)\n"
+
+    md_content += "\n---\n\n## Audience Segments\n\n"
+    md_content += f"This workspace has **{len(audiences)} audience segments** defined for user targeting and personalization.\n\n"
+
+    # Group audiences by status
+    enabled_audiences = [a for a in audiences if a.get('Enabled', '').lower() == 'true']
+
+    md_content += f"### Active Audiences ({len(enabled_audiences)})\n\n"
+
+    for audience in sorted(enabled_audiences, key=lambda x: int(x.get('Size', 0) or 0), reverse=True)[:20]:
+        aud_name = audience.get('Name', '')
+        aud_size = audience.get('Size', '0')
+        aud_desc = audience.get('Description', 'No description')
+
+        md_content += f"#### {aud_name}\n"
+        md_content += f"- **Size:** {int(aud_size):,} users\n"
+        md_content += f"- **Description:** {aud_desc}\n"
+        md_content += "\n"
+
+    if len(enabled_audiences) > 20:
+        md_content += f"\n_...and {len(enabled_audiences) - 20} more active audiences_\n"
+
+    md_content += "\n---\n\n## Event & Trait Coverage\n\n"
+    md_content += "### Top Events Referenced in Audiences\n\n"
+
+    top_events = summary.get('coverage', {}).get('top_events', {})
+    if top_events:
+        for event, count in list(top_events.items())[:10]:
+            md_content += f"- **{event}:** Used in {count} audience(s)\n"
+
+    md_content += "\n### Top Traits Referenced in Audiences\n\n"
+
+    top_traits = summary.get('coverage', {}).get('top_traits', {})
+    if top_traits:
+        for trait, count in list(top_traits.items())[:10]:
+            md_content += f"- **{trait}:** Used in {count} audience(s)\n"
+
+    md_content += "\n---\n\n## Use Case Analysis\n\n"
+    md_content += "### Inferred Use Cases\n\n"
+
+    # Infer use cases based on destinations
+    use_cases = []
+
+    if any('amplitude' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Product Analytics:** Using Amplitude for product usage analysis and user behavior tracking")
+
+    if any('google-analytics' in d.lower() or 'ga4' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Web Analytics:** Using Google Analytics for website traffic and conversion tracking")
+
+    if any('hubspot' in d.lower() or 'salesforce' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**CRM Integration:** Syncing customer data to CRM systems for sales and marketing")
+
+    if any('klaviyo' in d.lower() or 'braze' in d.lower() or 'iterable' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Email Marketing:** Powering personalized email campaigns and lifecycle messaging")
+
+    if any('facebook' in d.lower() or 'google-ads' in d.lower() or 'adwords' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Paid Advertising:** Syncing audiences to advertising platforms for targeted campaigns")
+
+    if any('redshift' in d.lower() or 'bigquery' in d.lower() or 'snowflake' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Data Warehousing:** Storing raw event data for custom analysis and reporting")
+
+    if any('s3' in d.lower() or 'gcs' in d.lower() for d in all_destinations.keys()):
+        use_cases.append("**Data Lake:** Archiving raw data for long-term storage and compliance")
+
+    for use_case in use_cases:
+        md_content += f"- {use_case}\n"
+
+    if not use_cases:
+        md_content += "- Based on destination configuration, this workspace appears to be used for general customer data collection and routing.\n"
+
+    md_content += "\n### Data Collection Strategy\n\n"
+
+    website_sources = len([s for s in sources if s.get('Type') == 'Website'])
+    server_sources = len([s for s in sources if s.get('Type') == 'Server'])
+    mobile_sources = len([s for s in sources if 'mobile' in s.get('Type', '').lower() or 'ios' in s.get('Type', '').lower() or 'android' in s.get('Type', '').lower()])
+
+    if website_sources > 0:
+        md_content += f"- **Web Tracking:** {website_sources} website source(s) tracking user behavior on web properties\n"
+    if server_sources > 0:
+        md_content += f"- **Server-Side Tracking:** {server_sources} server source(s) for backend event collection\n"
+    if mobile_sources > 0:
+        md_content += f"- **Mobile Tracking:** {mobile_sources} mobile app source(s) for iOS/Android tracking\n"
+
+    md_content += "\n---\n\n## Recommendations for AI Analysis\n\n"
+    md_content += """When analyzing this workspace, consider:
+
+1. **Data Flow Patterns:** Examine which sources feed into which destinations to understand data routing
+2. **Audience Strategy:** Review audience definitions and sizes to understand segmentation approach
+3. **Event Coverage:** Look at which events are most frequently used in audiences to identify key behaviors
+4. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
+5. **Data Quality:** Check for empty audiences, disabled sources, or unused connections that may indicate data quality issues
+6. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
+
+---
+
+## Additional Context
+
+This markdown file was generated from a Segment workspace audit and is optimized for AI analysis. You can use this data to:
+
+- Understand the current state of data collection and routing
+- Identify optimization opportunities
+- Plan migrations or architecture changes
+- Document the workspace for stakeholders
+- Generate insights about user behavior and segmentation strategies
+
+For more detailed analysis, consider reviewing the source schemas directly in Segment or examining raw event data in your data warehouse.
+"""
+
+    # Create response
+    output = BytesIO(md_content.encode('utf-8'))
+    output.seek(0)
+
+    from flask import send_file
+    return send_file(
+        output,
+        mimetype='text/markdown',
+        as_attachment=True,
+        download_name=f'{customer_name}_workspace_analysis.md'
+    )
+
+@app.route('/export-workspace-analysis')
+def export_workspace_analysis():
+    """Export sources data in Workspace Analysis format (Excel)"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, colors
+    from openpyxl.styles.borders import Border, Side
+    from io import BytesIO
+
+    workspace_slug = session.get('workspace_slug', 'workspace')
+    customer_name = session.get('customer_name', workspace_slug)
+
+    # Load sources data
+    sources_file = DATA_DIR / 'segment_sources_audit.csv'
+    if not sources_file.exists():
+        return "No sources data found. Please run an audit first.", 404
+
+    import csv
+    sources = []
+    with open(sources_file, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        sources = list(reader)
+
+    # Create workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Workspace Analysis"
+
+    # Header styling
+    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+
+    # Define headers matching template
+    headers = [
+        'Event Source Name',
+        'Type',
+        'Connection',
+        'DEV / PROD',
+        'Destinations Receiving',
+        'Event Descriptions (Brief Summary) / Source Schema Link',
+        'Use Case Notes'
+    ]
+
+    # Write headers
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+
+    # Write data rows
+    for row_idx, source in enumerate(sources, 2):
+        # Event Source Name (with hyperlink if workspace slug available)
+        source_name = source.get('Source Name', '')
+        source_slug = source.get('Slug', '')
+        cell = ws.cell(row_idx, 1, source_name)
+
+        if workspace_slug and source_slug:
+            source_url = f'https://app.segment.com/{workspace_slug}/sources/{source_slug}/schema'
+            cell.hyperlink = source_url
+            cell.font = Font(color=colors.BLUE, underline='single')
+
+        # Type
+        ws.cell(row_idx, 2, source.get('Type', ''))
+
+        # Connection (Enabled/Disabled)
+        enabled = source.get('Enabled', '').lower() == 'true'
+        ws.cell(row_idx, 3, 'Enabled' if enabled else 'Disabled')
+
+        # DEV / PROD (left blank as requested)
+        ws.cell(row_idx, 4, '')
+
+        # Destinations Receiving
+        destinations = source.get('Connected Destinations', '')
+        ws.cell(row_idx, 5, destinations)
+
+        # Event Descriptions (left blank - no event data available)
+        ws.cell(row_idx, 6, '')
+
+        # Use Case Notes (left blank)
+        ws.cell(row_idx, 7, '')
+
+    # Auto-size columns
+    column_widths = {
+        1: 40,  # Event Source Name (with link)
+        2: 20,  # Type
+        3: 12,  # Connection
+        4: 12,  # DEV / PROD
+        5: 60,  # Destinations Receiving
+        6: 50,  # Event Descriptions
+        7: 30   # Use Case Notes
+    }
+
+    for col, width in column_widths.items():
+        ws.column_dimensions[ws.cell(1, col).column_letter].width = width
+
+    # Set row height for header
+    ws.row_dimensions[1].height = 30
+
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    from flask import send_file
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'{customer_name}_Workspace_Analysis.xlsx'
+    )
 
 @app.route('/api/event-volumes')
 def event_volumes():

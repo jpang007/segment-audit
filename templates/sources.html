@@ -18,6 +18,9 @@
                 <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
                     👥 Audiences
                 </button>
+                <button onclick="window.location.href='/connections'" class="btn btn-secondary btn-sm">
+                    🔗 Connections
+                </button>
                 <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
                     📊 Observability
                 </button>
@@ -98,8 +101,14 @@
                         <select id="labelFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
                             <option value="">All Labels</option>
                         </select>
+                        <button onclick="window.location.href='/export-workspace-markdown'" class="btn btn-ai" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; border: none; box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4); font-weight: 600; transition: all 0.3s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(167, 139, 250, 0.6)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='0 4px 12px rgba(167, 139, 250, 0.4)'; this.style.transform='translateY(0)'">
+                            ✨ AI Analysis Export
+                        </button>
                         <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
                             📥 Export CSV
+                        </button>
+                        <button onclick="window.location.href='/export-workspace-analysis'" class="btn btn-secondary btn-sm">
+                            📊 Workspace Analysis
                         </button>
                     </div>
                 </div>

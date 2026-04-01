@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Source Connections</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>{{ customer_name }} - Source Connections</h1>
+                <p class="subtitle">Source to Destination Flow</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/export-workspace-markdown'" class="btn btn-ai" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; border: none; box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4); font-weight: 600; transition: all 0.3s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(167, 139, 250, 0.6)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='0 4px 12px rgba(167, 139, 250, 0.4)'; this.style.transform='translateY(0)'">
+                    ✨ AI Export
+                </button>
+                <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
+                    👥 Audiences
+                </button>
+                <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
+                    🔌 Sources
+                </button>
+                <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
+                    📊 Observability
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading connection data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Sources</div>
+                    <div class="value" id="totalSources">-</div>
+                    <div class="subtext" id="sourcesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Destinations</div>
+                    <div class="value" id="totalDestinations">-</div>
+                    <div class="subtext" id="destinationsBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Connections</div>
+                    <div class="value" id="totalConnections">-</div>
+                    <div class="subtext">Source-to-destination links</div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
+                    <h2 style="margin: 0;">Connection Flow</h2>
+                    <div style="display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap;">
+                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." oninput="updateDiagram()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
+                            <input type="checkbox" id="showEnabledOnly" onchange="updateDiagram()">
+                            <span>Show enabled sources only</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
+                            <input type="checkbox" id="hideEmpty" onchange="updateDiagram()">
+                            <span>Hide sources with no destinations</span>
+                        </label>
+                        <div style="position: relative;">
+                            <button id="destinationFilterBtn" onclick="toggleDestinationFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.9rem; color: #4a5568;">
+                                🎯 Filter Destinations (<span id="selectedCount">0</span>)
+                            </button>
+                            <div id="destinationFilterMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 15px; min-width: 300px; max-height: 400px; overflow-y: auto; z-index: 1000;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0;">
+                                    <strong style="font-size: 0.95rem; color: #2d3748;">Select Destinations</strong>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button onclick="selectAllDestinations()" style="font-size: 0.75rem; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer;">All</button>
+                                        <button onclick="deselectAllDestinations()" style="font-size: 0.75rem; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer;">None</button>
+                                    </div>
+                                </div>
+                                <div id="destinationCheckboxes" style="display: flex; flex-direction: column; gap: 8px;">
+                                    <!-- Checkboxes will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="sankeyDiagram" style="width: 100%; height: 800px;"></div>
+            </div>
+
+            <!-- Connection Details Table -->
+            <div class="chart-section">
+                <h2>Connection Details</h2>
+                <div class="table-container">
+                    <table id="connectionsTable">
+                        <thead>
+                            <tr>
+                                <th>Source Name</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Connected Destinations</th>
+                                <th>Count</th>
+                            </tr>
+                        </thead>
+                        <tbody id="connectionsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let sourcesData = [];
+        let allDestinations = new Set();
+        let selectedDestinations = new Set();
+
+        async function loadData() {
+            try {
+                const response = await fetch('/audit_data/segment_sources_audit.csv');
+                if (!response.ok) throw new Error('segment_sources_audit.csv not found');
+                const text = await response.text();
+                sourcesData = parseCSV(text);
+
+                // Extract all unique destinations
+                sourcesData.forEach(source => {
+                    const destinations = (source['Connected Destinations'] || '').split(',')
+                        .map(d => d.trim())
+                        .filter(d => d);
+                    destinations.forEach(d => allDestinations.add(d));
+                });
+
+                // Initially select all destinations
+                selectedDestinations = new Set(allDestinations);
+
+                renderDashboard();
+                buildDestinationFilter();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function buildDestinationFilter() {
+            const container = document.getElementById('destinationCheckboxes');
+            const sortedDestinations = Array.from(allDestinations).sort();
+
+            container.innerHTML = sortedDestinations.map(dest => `
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">
+                    <input type="checkbox" value="${dest}" checked onchange="toggleDestination('${dest}')" style="cursor: pointer;">
+                    <span style="font-size: 0.9rem; color: #2d3748;">${dest}</span>
+                </label>
+            `).join('');
+
+            updateSelectedCount();
+        }
+
+        function toggleDestination(destination) {
+            if (selectedDestinations.has(destination)) {
+                selectedDestinations.delete(destination);
+            } else {
+                selectedDestinations.add(destination);
+            }
+            updateSelectedCount();
+            updateDiagram();
+        }
+
+        function selectAllDestinations() {
+            selectedDestinations = new Set(allDestinations);
+            document.querySelectorAll('#destinationCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = true;
+            });
+            updateSelectedCount();
+            updateDiagram();
+        }
+
+        function deselectAllDestinations() {
+            selectedDestinations.clear();
+            document.querySelectorAll('#destinationCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectedCount();
+            updateDiagram();
+        }
+
+        function updateSelectedCount() {
+            document.getElementById('selectedCount').textContent = selectedDestinations.size;
+        }
+
+        function toggleDestinationFilter() {
+            const menu = document.getElementById('destinationFilterMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const btn = document.getElementById('destinationFilterBtn');
+            const menu = document.getElementById('destinationFilterMenu');
+            if (btn && menu && !btn.contains(event.target) && !menu.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+
+            function parseLine(line) {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                return values;
+            }
+
+            const headers = parseLine(lines[0]);
+
+            return lines.slice(1).map(line => {
+                const values = parseLine(line);
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function renderDashboard() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            updateStats();
+            updateDiagram();
+            renderConnectionsTable();
+        }
+
+        function updateStats() {
+            const enabledSources = sourcesData.filter(s => s.Enabled.toLowerCase() === 'true').length;
+            const totalSources = sourcesData.length;
+
+            // Count unique destinations
+            const allDestinations = new Set();
+            sourcesData.forEach(source => {
+                const destinations = (source['Connected Destinations'] || '').split(',')
+                    .map(d => d.trim())
+                    .filter(d => d);
+                destinations.forEach(d => allDestinations.add(d));
+            });
+
+            // Count total connections
+            const totalConnections = sourcesData.reduce((sum, source) => {
+                return sum + parseInt(source['Destination Count'] || 0);
+            }, 0);
+
+            document.getElementById('totalSources').textContent = totalSources;
+            document.getElementById('sourcesBreakdown').textContent =
+                `${enabledSources} enabled, ${totalSources - enabledSources} disabled`;
+
+            document.getElementById('totalDestinations').textContent = allDestinations.size;
+            document.getElementById('destinationsBreakdown').textContent = 'Unique destinations';
+
+            document.getElementById('totalConnections').textContent = totalConnections;
+        }
+
+        // Generate distinct colors for destinations
+        function generateDestinationColors(destinations) {
+            const colors = [
+                '#667eea', '#764ba2', '#f093fb', '#4facfe',
+                '#43e97b', '#fa709a', '#fee140', '#30cfd0',
+                '#a8edea', '#fed6e3', '#c471f5', '#12c2e9',
+                '#f77062', '#fe5196', '#fbc2eb', '#a6c1ee',
+                '#ffecd2', '#fcb69f', '#ff9a9e', '#fecfef',
+                '#ffeaa7', '#fdcb6e', '#e17055', '#d63031',
+                '#6c5ce7', '#a29bfe', '#fd79a8', '#fdcb6e'
+            ];
+
+            const colorMap = {};
+            const destArray = Array.from(destinations);
+            destArray.forEach((dest, i) => {
+                colorMap[dest] = colors[i % colors.length];
+            });
+            return colorMap;
+        }
+
+        function updateDiagram() {
+            const showEnabledOnly = document.getElementById('showEnabledOnly').checked;
+            const hideEmpty = document.getElementById('hideEmpty').checked;
+            const sourceSearchTerm = document.getElementById('sourceSearchBox').value.toLowerCase().trim();
+
+            // Filter data
+            let filteredSources = sourcesData;
+
+            // Apply search filter
+            if (sourceSearchTerm) {
+                filteredSources = filteredSources.filter(s => {
+                    const sourceName = (s['Source Name'] || '').toLowerCase();
+                    const sourceType = (s.Type || '').toLowerCase();
+                    const sourceSlug = (s.Slug || '').toLowerCase();
+                    return sourceName.includes(sourceSearchTerm) ||
+                           sourceType.includes(sourceSearchTerm) ||
+                           sourceSlug.includes(sourceSearchTerm);
+                });
+            }
+
+            if (showEnabledOnly) {
+                filteredSources = filteredSources.filter(s => s.Enabled.toLowerCase() === 'true');
+            }
+
+            if (hideEmpty) {
+                filteredSources = filteredSources.filter(s => parseInt(s['Destination Count'] || 0) > 0);
+            }
+
+            // Build Sankey diagram data
+            const nodes = [];
+            const links = [];
+            const nodeMap = new Map();
+            const destinationColorMap = generateDestinationColors(selectedDestinations);
+
+            // Add source nodes
+            filteredSources.forEach(source => {
+                const sourceName = source['Source Name'];
+                if (!nodeMap.has(sourceName)) {
+                    nodeMap.set(sourceName, nodes.length);
+                    nodes.push({
+                        label: sourceName,
+                        color: '#9ca3af',
+                        type: 'source'
+                    });
+                }
+            });
+
+            // Track destination nodes
+            const destinationNodes = new Set();
+
+            // Add links and destination nodes (only for selected destinations)
+            filteredSources.forEach(source => {
+                const sourceName = source['Source Name'];
+                const sourceIdx = nodeMap.get(sourceName);
+                const destinations = (source['Connected Destinations'] || '').split(',')
+                    .map(d => d.trim())
+                    .filter(d => d);
+
+                destinations.forEach(dest => {
+                    // Only add if destination is selected
+                    if (!selectedDestinations.has(dest)) {
+                        return;
+                    }
+
+                    // Add destination node if not exists
+                    if (!nodeMap.has(dest)) {
+                        const destColor = destinationColorMap[dest] || '#48bb78';
+                        nodeMap.set(dest, nodes.length);
+                        nodes.push({
+                            label: dest,
+                            color: destColor,
+                            type: 'destination'
+                        });
+                        destinationNodes.add(dest);
+                    }
+
+                    const destIdx = nodeMap.get(dest);
+                    const destColor = destinationColorMap[dest] || '#48bb78';
+                    links.push({
+                        source: sourceIdx,
+                        target: destIdx,
+                        value: 1,
+                        color: destColor + '66' // Add transparency (40% opacity)
+                    });
+                });
+            });
+
+            // Create Plotly Sankey diagram
+            const data = [{
+                type: 'sankey',
+                orientation: 'h',
+                node: {
+                    pad: 15,
+                    thickness: 20,
+                    line: {
+                        color: 'white',
+                        width: 1
+                    },
+                    label: nodes.map(n => n.label),
+                    color: nodes.map(n => n.color)
+                },
+                link: {
+                    source: links.map(l => l.source),
+                    target: links.map(l => l.target),
+                    value: links.map(l => l.value),
+                    color: links.map(l => l.color)
+                }
+            }];
+
+            const layout = {
+                font: {
+                    size: 12,
+                    family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                },
+                margin: {
+                    l: 10,
+                    r: 10,
+                    t: 10,
+                    b: 10
+                }
+            };
+
+            const config = {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            };
+
+            Plotly.newPlot('sankeyDiagram', data, layout, config);
+        }
+
+        function renderConnectionsTable() {
+            const tbody = document.getElementById('connectionsTableBody');
+
+            // Sort by destination count descending
+            const sortedSources = [...sourcesData].sort((a, b) => {
+                return parseInt(b['Destination Count'] || 0) - parseInt(a['Destination Count'] || 0);
+            });
+
+            tbody.innerHTML = sortedSources.map(source => {
+                const enabled = source.Enabled.toLowerCase() === 'true';
+                const statusBadge = enabled
+                    ? '<span class="badge enabled">Enabled</span>'
+                    : '<span class="badge disabled">Disabled</span>';
+
+                const destinations = source['Connected Destinations'] || 'None';
+                const count = source['Destination Count'] || 0;
+
+                return `
+                    <tr>
+                        <td><strong>${source['Source Name']}</strong></td>
+                        <td>${source.Type}</td>
+                        <td>${statusBadge}</td>
+                        <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${destinations}">${destinations}</td>
+                        <td>${count}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

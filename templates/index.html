@@ -17,9 +17,9 @@
             <!-- Tabs -->
             <div class="tabs">
                 <button class="tab-button active" onclick="switchTab('audit')">Workspace Audit</button>
-                <button class="tab-button" id="trackingPlanTabBtn" onclick="showComingSoon()" style="opacity: 0.5; cursor: not-allowed; position: relative;">
+                <button class="tab-button" id="trackingPlanTabBtn" onclick="showComingSoon()" style="opacity: 0.5; cursor: not-allowed; position: relative; white-space: nowrap;">
                     Tracking Plan Generator
-                    <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; margin-left: 8px; font-weight: 600;">COMING SOON</span>
+                    <span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; margin-left: 8px; font-weight: 600; white-space: nowrap;">COMING SOON</span>
                 </button>
             </div>
 
@@ -28,15 +28,14 @@
                 <h2 style="margin-bottom: 20px;">Workspace Audit</h2>
                 <form id="auditForm" method="POST" action="/run-audit">
                 <div class="form-group">
-                    <label for="customer_name">Customer/Company Name</label>
+                    <label for="workspace_slug">Workspace Slug *</label>
                     <input
                         type="text"
-                        id="customer_name"
-                        name="customer_name"
-                        placeholder="e.g., Acme Corp"
-                        value="Customer"
+                        id="workspace_slug"
+                        name="workspace_slug"
+                        placeholder="e.g., my-company"
                         required>
-                    <small>This will appear in your dashboard title</small>
+                    <small>Find in your Segment URL: app.segment.com/<strong>{workspace-slug}</strong>/sources (used for dashboard title and source links)</small>
                 </div>
 
                 <div class="form-group">
@@ -125,7 +124,7 @@
 
                 <form id="trackingPlanForm" method="POST" action="/upload-schemas" enctype="multipart/form-data">
                     <div class="form-group">
-                        <label for="project_name">Project/Company Name</label>
+                        <label for="project_name">Project Name</label>
                         <input
                             type="text"
                             id="project_name"
