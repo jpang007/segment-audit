@@ -261,6 +261,9 @@ def run_audit(api_token, workspace_id, workspace_slug, customer_name, skip_ssl_v
         spaces = auditor.get_spaces()
         space_list = [space.get('id') for space in spaces if space.get('id')]
 
+        # Create space mapping (ID -> Name) for better readability
+        space_mapping = {space.get('id'): space.get('name', space.get('id')) for space in spaces if space.get('id')}
+
         if not space_list:
             raise Exception("No spaces found in workspace. Make sure your workspace has the Spaces feature enabled.")
 
@@ -388,6 +391,7 @@ def run_audit(api_token, workspace_id, workspace_slug, customer_name, skip_ssl_v
             'workspace_id': workspace_id,
             'workspace_slug': workspace_slug,
             'space_ids': space_list,
+            'space_mapping': space_mapping,  # ID -> Name mapping
             'sources': {
                 'total': len(sources_data),
                 'enabled': len([s for s in sources_data if s['Enabled']]),

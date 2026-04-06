@@ -88,9 +88,21 @@
                     <h2 style="margin: 0;">All Audiences</h2>
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="text" id="searchBox" placeholder="🔍 Search audiences..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
-                        <select id="spaceFilter" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
-                            <option value="">All Spaces</option>
-                        </select>
+                        <div style="position: relative;">
+                            <button id="spaceFilterBtn" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; cursor: pointer; min-width: 150px; text-align: left; display: flex; justify-content: space-between; align-items: center;">
+                                <span id="spaceFilterLabel">All Spaces</span>
+                                <span>▼</span>
+                            </button>
+                            <div id="spaceFilterDropdown" style="display: none; position: absolute; top: 100%; right: 0; background: white; border: 2px solid #e2e8f0; border-radius: 8px; margin-top: 4px; min-width: 250px; max-height: 300px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 1000; padding: 8px;">
+                                <div style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px;">
+                                    <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600;">
+                                        <input type="checkbox" id="selectAllSpaces" checked style="margin-right: 8px;">
+                                        Select All
+                                    </label>
+                                </div>
+                                <div id="spaceCheckboxes"></div>
+                            </div>
+                        </div>
                         <select id="sortBy" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
                             <option value="">Default Sort</option>
                             <option value="status-enabled">Status: Enabled First</option>
@@ -362,27 +374,57 @@
                 return;
             }
 
-            // Setup space filter dropdown
-            const spaceFilter = document.getElementById('spaceFilter');
+            // Setup space filter checkboxes
+            const spaceCheckboxesDiv = document.getElementById('spaceCheckboxes');
             const uniqueSpaces = [...new Set(audiences.map(a => a['Space ID']).filter(Boolean))];
 
-            // Populate space filter if not already done (only once on first render)
-            if (spaceFilter.options.length === 1 && uniqueSpaces.length > 0) {
+            // Populate space checkboxes if not already done (only once on first render)
+            if (spaceCheckboxesDiv.children.length === 0 && uniqueSpaces.length > 0) {
+                // Get space mapping from summary for display names
+                const spaceMapping = auditData.summary.space_mapping || {};
+
                 uniqueSpaces.sort().forEach(spaceId => {
                     // Only add valid space IDs (should start with 'spa_')
                     if (spaceId && typeof spaceId === 'string' && spaceId.startsWith('spa_')) {
-                        const option = document.createElement('option');
-                        option.value = spaceId;
-                        option.textContent = spaceId;
-                        spaceFilter.appendChild(option);
+                        const spaceName = spaceMapping[spaceId] || spaceId;
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display: flex; align-items: center; padding: 6px 12px; cursor: pointer; border-radius: 4px; transition: background 0.2s;';
+                        label.onmouseover = function() { this.style.background = '#f7fafc'; };
+                        label.onmouseout = function() { this.style.background = 'transparent'; };
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'space-checkbox';
+                        checkbox.value = spaceId;
+                        checkbox.checked = true;
+                        checkbox.style.marginRight = '8px';
+                        checkbox.addEventListener('change', function() {
+                            updateSpaceFilterLabel();
+                            renderAudiencesTable(auditData.audiences);
+                        });
+
+                        const text = document.createElement('span');
+                        text.textContent = spaceName;
+
+                        label.appendChild(checkbox);
+                        label.appendChild(text);
+                        spaceCheckboxesDiv.appendChild(label);
                     }
+                });
+
+                // Setup Select All checkbox
+                document.getElementById('selectAllSpaces').addEventListener('change', function() {
+                    const checkboxes = document.querySelectorAll('.space-checkbox');
+                    checkboxes.forEach(cb => cb.checked = this.checked);
+                    updateSpaceFilterLabel();
+                    renderAudiencesTable(auditData.audiences);
                 });
             }
 
-            // Apply space filter
-            const selectedSpace = spaceFilter.value;
-            filteredAudiences = selectedSpace
-                ? audiences.filter(a => a['Space ID'] === selectedSpace)
+            // Apply space filter (multiple selections)
+            const selectedSpaces = Array.from(document.querySelectorAll('.space-checkbox:checked')).map(cb => cb.value);
+            filteredAudiences = selectedSpaces.length > 0
+                ? audiences.filter(a => selectedSpaces.includes(a['Space ID']))
                 : audiences;
 
             // Apply search filter
@@ -556,16 +598,45 @@
             document.body.removeChild(link);
         }
 
+        // Toggle space filter dropdown
+        function updateSpaceFilterLabel() {
+            const checkboxes = document.querySelectorAll('.space-checkbox');
+            const checked = document.querySelectorAll('.space-checkbox:checked');
+            const label = document.getElementById('spaceFilterLabel');
+
+            if (checked.length === 0) {
+                label.textContent = 'No Spaces';
+            } else if (checked.length === checkboxes.length) {
+                label.textContent = 'All Spaces';
+            } else {
+                label.textContent = `${checked.length} Space${checked.length > 1 ? 's' : ''}`;
+            }
+
+            // Update Select All checkbox state
+            const selectAll = document.getElementById('selectAllSpaces');
+            selectAll.checked = checked.length === checkboxes.length;
+        }
+
         // Add event listeners for filters and sorting
         document.addEventListener('DOMContentLoaded', function() {
-            const spaceFilter = document.getElementById('spaceFilter');
+            const spaceFilterBtn = document.getElementById('spaceFilterBtn');
+            const spaceFilterDropdown = document.getElementById('spaceFilterDropdown');
             const sortBy = document.getElementById('sortBy');
             const searchBox = document.getElementById('searchBox');
 
-            if (spaceFilter) {
-                spaceFilter.addEventListener('change', function() {
-                    currentPage = 1; // Reset to first page when filtering
-                    renderAudiencesTable(auditData.audiences);
+            // Toggle space filter dropdown
+            if (spaceFilterBtn) {
+                spaceFilterBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const isVisible = spaceFilterDropdown.style.display === 'block';
+                    spaceFilterDropdown.style.display = isVisible ? 'none' : 'block';
+                });
+
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!spaceFilterBtn.contains(e.target) && !spaceFilterDropdown.contains(e.target)) {
+                        spaceFilterDropdown.style.display = 'none';
+                    }
                 });
             }
 
