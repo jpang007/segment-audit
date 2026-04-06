@@ -166,16 +166,34 @@ class SegmentAuditor:
 
     def get_workspace(self):
         """Get workspace information from token"""
-        url = f"{self.v1_base}/workspace"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
-            if response.status_code != 200:
-                raise Exception(f"API Error: {response.status_code} - {response.text}")
-            data = response.json()
-            workspace = data.get('data', {}).get('workspace', {})
-            return workspace
-        except Exception as e:
-            raise Exception(f"Error fetching workspace: {str(e)}")
+        # Try multiple possible endpoints
+        possible_endpoints = [
+            f"{self.v1_base}/workspace",
+            f"{self.v1_base}/workspaces",
+            f"{self.v1_base}",
+            f"{self.v1_base}/"
+        ]
+
+        last_error = None
+        for url in possible_endpoints:
+            try:
+                response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
+                if response.status_code == 200:
+                    data = response.json()
+                    # Try different response structures
+                    workspace = data.get('data', {}).get('workspace', {})
+                    if not workspace:
+                        workspace = data.get('workspace', {})
+                    if not workspace and 'id' in data:
+                        workspace = data
+                    if workspace and 'id' in workspace:
+                        return workspace
+                last_error = f"{response.status_code} - {response.text[:200]}"
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        raise Exception(f"Could not fetch workspace info. Last error: {last_error}")
 
     def get_spaces(self):
         """Get all spaces in the workspace"""
@@ -256,7 +274,7 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
-def run_audit(api_token, skip_ssl_verify=False):
+def run_audit(api_token, workspace_slug_fallback=None, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
 
@@ -269,16 +287,27 @@ def run_audit(api_token, skip_ssl_verify=False):
             'error': None
         }
 
-        # Fetch workspace info from token
+        # Try to fetch workspace info from token
         auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
-        workspace = auditor.get_workspace()
 
-        workspace_id = workspace.get('id')
-        workspace_slug = workspace.get('slug', workspace.get('name', 'workspace'))
-        workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
+        try:
+            workspace = auditor.get_workspace()
+            workspace_id = workspace.get('id')
+            workspace_slug = workspace.get('slug', workspace.get('name'))
+            workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
 
-        audit_status['progress'] = 5
-        audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
+            audit_status['progress'] = 5
+            audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
+        except Exception as e:
+            # Fallback to manual slug if provided
+            if workspace_slug_fallback:
+                workspace_id = None
+                workspace_slug = workspace_slug_fallback
+                workspace_name = workspace_slug.replace('-', ' ').replace('_', ' ').title()
+                audit_status['progress'] = 5
+                audit_status['message'] = f'Using workspace: {workspace_name} (manual). Fetching spaces...'
+            else:
+                raise Exception(f"Could not fetch workspace info and no workspace slug provided. Error: {str(e)}")
 
         # Fetch all spaces automatically
         spaces = auditor.get_spaces()
@@ -506,6 +535,7 @@ def run_audit_route():
 
     # Get form data
     api_token = request.form.get('api_token')
+    workspace_slug = request.form.get('workspace_slug', '').strip()
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
@@ -528,7 +558,7 @@ def run_audit_route():
     # Run audit in background thread (everything will be fetched automatically from token)
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, skip_ssl)
+        args=(api_token, workspace_slug if workspace_slug else None, skip_ssl)
     )
     thread.daemon = True
     thread.start()
