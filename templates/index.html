@@ -28,17 +28,6 @@
                 <h2 style="margin-bottom: 20px;">Workspace Audit</h2>
                 <form id="auditForm" method="POST" action="/run-audit">
                 <div class="form-group">
-                    <label for="workspace_slug">Workspace Slug *</label>
-                    <input
-                        type="text"
-                        id="workspace_slug"
-                        name="workspace_slug"
-                        placeholder="e.g., my-company"
-                        required>
-                    <small>Find in your Segment URL: app.segment.com/<strong>{workspace-slug}</strong>/sources (used for dashboard title and source links)</small>
-                </div>
-
-                <div class="form-group">
                     <label for="api_token">Segment API Token *</label>
                     <input
                         type="password"
@@ -46,17 +35,7 @@
                         name="api_token"
                         placeholder="spg_..."
                         required>
-                    <small>Get your token from Segment: Settings → Access Management → Tokens. We'll automatically fetch all spaces in your workspace.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="workspace_id">Workspace ID (Optional)</label>
-                    <input
-                        type="text"
-                        id="workspace_id"
-                        name="workspace_id"
-                        placeholder="">
-                    <small>Required for source data. Leave blank to skip sources.</small>
+                    <small>Get your token from Segment: Settings → Access Management → Tokens. We'll automatically fetch your workspace and all spaces.</small>
                 </div>
 
                 <div class="form-group">
@@ -83,20 +62,20 @@
                 <h3>📚 Quick Help</h3>
                 <div class="help-grid">
                     <div class="help-item">
-                        <strong>API Token:</strong>
+                        <strong>Get API Token:</strong>
                         <p>Segment → Settings → Access Management → Tokens → Create Token</p>
                     </div>
                     <div class="help-item">
-                        <strong>Workspace ID:</strong>
-                        <p>Settings → Workspace Settings</p>
+                        <strong>What's Audited:</strong>
+                        <p>Automatically fetches all spaces, sources, audiences, and connections</p>
                     </div>
                     <div class="help-item">
-                        <strong>Space ID:</strong>
-                        <p>Unify → Unify Settings → API Access</p>
+                        <strong>One-Click Audit:</strong>
+                        <p>Just paste your token - workspace details are auto-discovered</p>
                     </div>
                     <div class="help-item">
-                        <strong>Multiple Spaces:</strong>
-                        <p>Separate with commas or newlines (e.g., LIV + Onnit)</p>
+                        <strong>VPN Users:</strong>
+                        <p>Check "Skip SSL Verification" if behind corporate VPN</p>
                     </div>
                 </div>
             </div>

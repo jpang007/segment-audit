@@ -164,6 +164,19 @@ class SegmentAuditor:
                 f.write(traceback.format_exc())
             return []
 
+    def get_workspace(self):
+        """Get workspace information from token"""
+        url = f"{self.v1_base}/workspace"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
+            if response.status_code != 200:
+                raise Exception(f"API Error: {response.status_code} - {response.text}")
+            data = response.json()
+            workspace = data.get('data', {}).get('workspace', {})
+            return workspace
+        except Exception as e:
+            raise Exception(f"Error fetching workspace: {str(e)}")
+
     def get_spaces(self):
         """Get all spaces in the workspace"""
         url = f"{self.v1_base}/spaces"
@@ -243,21 +256,31 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
-def run_audit(api_token, workspace_id, workspace_slug, customer_name, skip_ssl_verify=False):
+def run_audit(api_token, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
 
     try:
         audit_status = {
             'running': True,
-            'progress': 5,
-            'message': 'Fetching spaces from workspace...',
+            'progress': 3,
+            'message': 'Fetching workspace information...',
             'complete': False,
             'error': None
         }
 
-        # Fetch all spaces automatically
+        # Fetch workspace info from token
         auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
+        workspace = auditor.get_workspace()
+
+        workspace_id = workspace.get('id')
+        workspace_slug = workspace.get('slug', workspace.get('name', 'workspace'))
+        workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
+
+        audit_status['progress'] = 5
+        audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
+
+        # Fetch all spaces automatically
         spaces = auditor.get_spaces()
         space_list = [space.get('id') for space in spaces if space.get('id')]
 
@@ -382,8 +405,16 @@ def run_audit(api_token, workspace_id, workspace_slug, customer_name, skip_ssl_v
         audit_status['progress'] = 80
 
         # Save summary
-        # Format workspace slug for display (convert slug to Title Case)
-        display_name = workspace_slug.replace('-', ' ').replace('_', ' ').title() if workspace_slug else customer_name
+        # Use workspace display name (already formatted nicely from API)
+        display_name = workspace_name
+
+        # Store workspace info in session for dashboard views
+        # Note: session updates must happen in request context, so we'll update via global
+        audit_status['workspace_info'] = {
+            'customer_name': display_name,
+            'workspace_slug': workspace_slug,
+            'workspace_id': workspace_id
+        }
 
         summary = {
             'audit_date': datetime.now().isoformat(),
@@ -475,24 +506,14 @@ def run_audit_route():
 
     # Get form data
     api_token = request.form.get('api_token')
-    workspace_id = request.form.get('workspace_id', '').strip()
-    workspace_slug = request.form.get('workspace_slug', '').strip()
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
     if not api_token:
         return jsonify({'error': 'API token is required'}), 400
-    if not workspace_slug:
-        return jsonify({'error': 'Workspace slug is required'}), 400
 
-    # Use workspace slug as display name (format it nicely for display)
-    customer_name = workspace_slug.replace('-', ' ').replace('_', ' ').title()
-
-    # Store credentials in session for later use
-    session['customer_name'] = customer_name
-    session['workspace_slug'] = workspace_slug
+    # Store credentials in session for later use (workspace details will be fetched during audit)
     session['api_token'] = api_token
-    session['workspace_id'] = workspace_id
     session['skip_ssl'] = skip_ssl
 
     # Reset status
@@ -504,10 +525,10 @@ def run_audit_route():
         'error': None
     }
 
-    # Run audit in background thread (space_ids will be fetched automatically)
+    # Run audit in background thread (everything will be fetched automatically from token)
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, workspace_id, workspace_slug, customer_name, skip_ssl)
+        args=(api_token, skip_ssl)
     )
     thread.daemon = True
     thread.start()
@@ -522,6 +543,13 @@ def progress():
 @app.route('/api/status')
 def status():
     """API endpoint for audit status"""
+    # If audit is complete and workspace info is available, update session
+    if audit_status.get('complete') and 'workspace_info' in audit_status:
+        workspace_info = audit_status['workspace_info']
+        session['customer_name'] = workspace_info['customer_name']
+        session['workspace_slug'] = workspace_info['workspace_slug']
+        session['workspace_id'] = workspace_info['workspace_id']
+
     return jsonify(audit_status)
 
 @app.route('/api/list-spaces', methods=['POST'])
