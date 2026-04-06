@@ -337,6 +337,9 @@ def run_audit(api_token, skip_ssl_verify=False):
             write_keys = source.get('writeKeys', [])
             labels = source.get('labels', [])
 
+            # Get source logo URL
+            source_logo = metadata.get('logos', {}).get('default', '')
+
             # Get connected destinations for this source
             audit_status['message'] = f'Collecting destinations for source {idx+1}/{len(sources)}...'
             destinations_list = []
@@ -379,7 +382,8 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'Write Keys': write_keys_str,
                 'Labels': labels_str,
                 'Connected Destinations': destinations_str,
-                'Destination Count': len(destinations_list)
+                'Destination Count': len(destinations_list),
+                'Logo URL': source_logo
             })
 
         # Collect audiences from each space
