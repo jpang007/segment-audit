@@ -58,6 +58,14 @@
                 </div>
             </div>
 
+            <!-- Source Legend -->
+            <div id="sourceLegend" style="display: none; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; border: 2px solid #e2e8f0;">
+                <div style="font-weight: 600; margin-bottom: 10px; color: #2d3748; font-size: 0.95rem;">📊 Sources in Diagram</div>
+                <div id="sourceLegendContent" style="display: flex; flex-wrap: wrap; gap: 12px;">
+                    <!-- Legend items will be populated here -->
+                </div>
+            </div>
+
             <!-- Filters -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
@@ -101,7 +109,7 @@
                     <table id="connectionsTable">
                         <thead>
                             <tr>
-                                <th>Source Name</th>
+                                <th>Source</th>
                                 <th>Type</th>
                                 <th>Status</th>
                                 <th>Connected Destinations</th>
@@ -339,6 +347,7 @@
             const links = [];
             const nodeMap = new Map();
             const destinationColorMap = generateDestinationColors(selectedDestinations);
+            const sourcesWithLogos = [];
 
             // Add source nodes
             filteredSources.forEach(source => {
@@ -349,6 +358,12 @@
                         label: sourceName,
                         color: '#9ca3af',
                         type: 'source'
+                    });
+                    // Store source info for legend
+                    sourcesWithLogos.push({
+                        name: sourceName,
+                        logo: source['Logo URL'] || '',
+                        type: source.Type || ''
                     });
                 }
             });
@@ -436,6 +451,40 @@
             };
 
             Plotly.newPlot('sankeyDiagram', data, layout, config);
+
+            // Update source legend
+            updateSourceLegend(sourcesWithLogos);
+        }
+
+        function updateSourceLegend(sources) {
+            const legendContainer = document.getElementById('sourceLegend');
+            const legendContent = document.getElementById('sourceLegendContent');
+
+            if (sources.length === 0) {
+                legendContainer.style.display = 'none';
+                return;
+            }
+
+            legendContainer.style.display = 'block';
+
+            // Sort sources alphabetically
+            const sortedSources = [...sources].sort((a, b) => a.name.localeCompare(b.name));
+
+            legendContent.innerHTML = sortedSources.map(source => {
+                const logoDisplay = source.logo
+                    ? `<img src="${source.logo}" alt="${source.name}" style="width: 28px; height: 28px; object-fit: contain; border-radius: 6px; background: white; padding: 2px;" onerror="this.style.display='none'">`
+                    : `<div style="width: 28px; height: 28px; background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.75rem;">${source.name.charAt(0)}</div>`;
+
+                return `
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        ${logoDisplay}
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
+                            <span style="font-size: 0.85rem; font-weight: 600; color: #2d3748;">${source.name}</span>
+                            <span style="font-size: 0.75rem; color: #718096;">${source.type}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function renderConnectionsTable() {
@@ -454,10 +503,16 @@
 
                 const destinations = source['Connected Destinations'] || 'None';
                 const count = source['Destination Count'] || 0;
+                const logoUrl = source['Logo URL'] || '';
+
+                // Create logo display
+                const logoDisplay = logoUrl
+                    ? `<img src="${logoUrl}" alt="${source['Source Name']}" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle; border-radius: 4px;" onerror="this.style.display='none'">`
+                    : '';
 
                 return `
                     <tr>
-                        <td><strong>${source['Source Name']}</strong></td>
+                        <td><div style="display: flex; align-items: center;">${logoDisplay}<strong>${source['Source Name']}</strong></div></td>
                         <td>${source.Type}</td>
                         <td>${statusBadge}</td>
                         <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${destinations}">${destinations}</td>
