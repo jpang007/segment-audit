@@ -46,13 +46,7 @@
                         name="api_token"
                         placeholder="spg_..."
                         required>
-                    <small>Get your token from Segment: Settings → Access Management → Tokens</small>
-                    <button type="button" class="btn btn-secondary" id="fetchSpacesBtn" style="margin-top: 10px;" onclick="fetchSpaces()">
-                        <span id="fetchSpacesBtnText">📡 Fetch Spaces</span>
-                        <span id="fetchSpacesBtnLoading" style="display: none;">
-                            <span class="spinner"></span> Fetching...
-                        </span>
-                    </button>
+                    <small>Get your token from Segment: Settings → Access Management → Tokens. We'll automatically fetch all spaces in your workspace.</small>
                 </div>
 
                 <div class="form-group">
@@ -64,17 +58,6 @@
                         placeholder="">
                     <small>Required for source data. Leave blank to skip sources.</small>
                 </div>
-
-                <div class="form-group" id="spacesContainer" style="display: none;">
-                    <label>Select Spaces to Audit *</label>
-                    <div id="spacesList" style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background: #f9f9f9;">
-                        <!-- Spaces will be populated here -->
-                    </div>
-                    <small>Select one or more spaces to audit</small>
-                    <input type="hidden" id="space_ids" name="space_ids" required>
-                </div>
-
-                <div id="spacesError" class="error-message" style="display: none; margin-top: 10px;"></div>
 
                 <div class="form-group">
                     <label style="display: flex; align-items: center; cursor: pointer;">
@@ -431,97 +414,6 @@
             const sizes = ['Bytes', 'KB', 'MB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        }
-
-        // Fetch spaces from Segment API
-        function fetchSpaces() {
-            const apiToken = document.getElementById('api_token').value;
-            const skipSsl = document.getElementById('skip_ssl').checked;
-            const fetchBtn = document.getElementById('fetchSpacesBtn');
-            const btnText = document.getElementById('fetchSpacesBtnText');
-            const btnLoading = document.getElementById('fetchSpacesBtnLoading');
-            const spacesContainer = document.getElementById('spacesContainer');
-            const spacesList = document.getElementById('spacesList');
-            const spacesError = document.getElementById('spacesError');
-
-            if (!apiToken) {
-                spacesError.textContent = 'Please enter an API token first';
-                spacesError.style.display = 'block';
-                return;
-            }
-
-            // Show loading
-            btnText.style.display = 'none';
-            btnLoading.style.display = 'inline-block';
-            fetchBtn.disabled = true;
-            spacesError.style.display = 'none';
-
-            fetch('/api/list-spaces', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    api_token: apiToken,
-                    skip_ssl: skipSsl
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-
-                const spaces = data.spaces;
-                if (spaces.length === 0) {
-                    spacesError.textContent = 'No spaces found for this workspace';
-                    spacesError.style.display = 'block';
-                    return;
-                }
-
-                // Display spaces as checkboxes
-                spacesList.innerHTML = '';
-                spaces.forEach(space => {
-                    const checkbox = document.createElement('div');
-                    checkbox.style.marginBottom = '8px';
-                    checkbox.innerHTML = `
-                        <label style="display: flex; align-items: center; cursor: pointer;">
-                            <input type="checkbox" class="space-checkbox" value="${space.id}"
-                                   style="margin-right: 10px;" checked>
-                            <span><strong>${space.name}</strong> <small style="color: #666;">(${space.id})</small></span>
-                        </label>
-                    `;
-                    spacesList.appendChild(checkbox);
-                });
-
-                // Show container
-                spacesContainer.style.display = 'block';
-
-                // Add event listener to update hidden input
-                document.querySelectorAll('.space-checkbox').forEach(cb => {
-                    cb.addEventListener('change', updateSelectedSpaces);
-                });
-                updateSelectedSpaces();
-
-                // Reset button
-                btnText.style.display = 'inline-block';
-                btnLoading.style.display = 'none';
-                fetchBtn.disabled = false';
-            })
-            .catch(error => {
-                spacesError.textContent = error.message;
-                spacesError.style.display = 'block';
-                btnText.style.display = 'inline-block';
-                btnLoading.style.display = 'none';
-                fetchBtn.disabled = false;
-            });
-        }
-
-        // Update hidden input with selected space IDs
-        function updateSelectedSpaces() {
-            const checkboxes = document.querySelectorAll('.space-checkbox:checked');
-            const spaceIds = Array.from(checkboxes).map(cb => cb.value).join(',');
-            document.getElementById('space_ids').value = spaceIds;
         }
 
         // Audit form submission

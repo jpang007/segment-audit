@@ -243,21 +243,29 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
-def run_audit(api_token, workspace_id, workspace_slug, space_ids, customer_name, skip_ssl_verify=False):
+def run_audit(api_token, workspace_id, workspace_slug, customer_name, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
 
     try:
         audit_status = {
             'running': True,
-            'progress': 10,
-            'message': 'Connecting to Segment API...',
+            'progress': 5,
+            'message': 'Fetching spaces from workspace...',
             'complete': False,
             'error': None
         }
 
-        # Parse space IDs (comma separated)
-        space_list = [s.strip() for s in space_ids.split(',') if s.strip()]
+        # Fetch all spaces automatically
+        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
+        spaces = auditor.get_spaces()
+        space_list = [space.get('id') for space in spaces if space.get('id')]
+
+        if not space_list:
+            raise Exception("No spaces found in workspace. Make sure your workspace has the Spaces feature enabled.")
+
+        audit_status['progress'] = 10
+        audit_status['message'] = f'Found {len(space_list)} space(s). Connecting to Segment API...'
 
         all_audiences = []
         all_events = Counter()
@@ -465,7 +473,6 @@ def run_audit_route():
     api_token = request.form.get('api_token')
     workspace_id = request.form.get('workspace_id', '').strip()
     workspace_slug = request.form.get('workspace_slug', '').strip()
-    space_ids = request.form.get('space_ids', '').strip()
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
@@ -473,8 +480,6 @@ def run_audit_route():
         return jsonify({'error': 'API token is required'}), 400
     if not workspace_slug:
         return jsonify({'error': 'Workspace slug is required'}), 400
-    if not space_ids:
-        return jsonify({'error': 'At least one space ID is required'}), 400
 
     # Use workspace slug as display name (format it nicely for display)
     customer_name = workspace_slug.replace('-', ' ').replace('_', ' ').title()
@@ -495,10 +500,10 @@ def run_audit_route():
         'error': None
     }
 
-    # Run audit in background thread
+    # Run audit in background thread (space_ids will be fetched automatically)
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, workspace_id, workspace_slug, space_ids, customer_name, skip_ssl)
+        args=(api_token, workspace_id, workspace_slug, customer_name, skip_ssl)
     )
     thread.daemon = True
     thread.start()
