@@ -274,7 +274,7 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
-def run_audit(api_token, workspace_slug_fallback=None, skip_ssl_verify=False):
+def run_audit(api_token, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
 
@@ -287,27 +287,16 @@ def run_audit(api_token, workspace_slug_fallback=None, skip_ssl_verify=False):
             'error': None
         }
 
-        # Try to fetch workspace info from token
+        # Fetch workspace info from token
         auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
+        workspace = auditor.get_workspace()
 
-        try:
-            workspace = auditor.get_workspace()
-            workspace_id = workspace.get('id')
-            workspace_slug = workspace.get('slug', workspace.get('name'))
-            workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
+        workspace_id = workspace.get('id')
+        workspace_slug = workspace.get('slug', workspace.get('name'))
+        workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
 
-            audit_status['progress'] = 5
-            audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
-        except Exception as e:
-            # Fallback to manual slug if provided
-            if workspace_slug_fallback:
-                workspace_id = None
-                workspace_slug = workspace_slug_fallback
-                workspace_name = workspace_slug.replace('-', ' ').replace('_', ' ').title()
-                audit_status['progress'] = 5
-                audit_status['message'] = f'Using workspace: {workspace_name} (manual). Fetching spaces...'
-            else:
-                raise Exception(f"Could not fetch workspace info and no workspace slug provided. Error: {str(e)}")
+        audit_status['progress'] = 5
+        audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
 
         # Fetch all spaces automatically
         spaces = auditor.get_spaces()
@@ -535,7 +524,6 @@ def run_audit_route():
 
     # Get form data
     api_token = request.form.get('api_token')
-    workspace_slug = request.form.get('workspace_slug', '').strip()
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
@@ -558,7 +546,7 @@ def run_audit_route():
     # Run audit in background thread (everything will be fetched automatically from token)
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, workspace_slug if workspace_slug else None, skip_ssl)
+        args=(api_token, skip_ssl)
     )
     thread.daemon = True
     thread.start()
