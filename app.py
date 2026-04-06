@@ -164,6 +164,11 @@ class SegmentAuditor:
                 f.write(traceback.format_exc())
             return []
 
+    def get_spaces(self):
+        """Get all spaces in the workspace"""
+        url = f"{self.v1_base}/spaces"
+        return self._paginate(url, 'data')
+
     def get_audiences(self):
         """Get all audiences"""
         if not self.space_id:
@@ -509,6 +514,33 @@ def progress():
 def status():
     """API endpoint for audit status"""
     return jsonify(audit_status)
+
+@app.route('/api/list-spaces', methods=['POST'])
+def list_spaces():
+    """Fetch all spaces for a given API token"""
+    try:
+        data = request.get_json()
+        api_token = data.get('api_token')
+        skip_ssl = data.get('skip_ssl', False)
+
+        if not api_token:
+            return jsonify({'error': 'API token is required'}), 400
+
+        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl)
+        spaces = auditor.get_spaces()
+
+        # Format spaces for response
+        spaces_list = []
+        for space in spaces:
+            spaces_list.append({
+                'id': space.get('id'),
+                'name': space.get('name'),
+                'slug': space.get('slug', '')
+            })
+
+        return jsonify({'spaces': spaces_list})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/dashboard')
 def dashboard():
