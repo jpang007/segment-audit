@@ -337,8 +337,10 @@ def run_audit(api_token, skip_ssl_verify=False):
             write_keys = source.get('writeKeys', [])
             labels = source.get('labels', [])
 
-            # Get source logo URL
+            # Get source logo URL (only if it's a valid URL)
             source_logo = metadata.get('logos', {}).get('default', '')
+            if source_logo and not source_logo.startswith('http'):
+                source_logo = ''  # Clear non-URL values
 
             # Get connected destinations for this source
             audit_status['message'] = f'Collecting destinations for source {idx+1}/{len(sources)}...'
