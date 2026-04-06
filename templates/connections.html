@@ -59,8 +59,11 @@
             </div>
 
             <!-- Source Legend -->
-            <div id="sourceLegend" style="display: none; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 12px; border: 2px solid #e2e8f0;">
-                <div style="font-weight: 600; margin-bottom: 10px; color: #2d3748; font-size: 0.95rem;">📊 Sources in Diagram</div>
+            <div id="sourceLegend" style="display: none; margin-bottom: 20px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);">
+                <div style="font-weight: 700; margin-bottom: 15px; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.5rem;">🔌</span>
+                    <span>Active Sources</span>
+                </div>
                 <div id="sourceLegendContent" style="display: flex; flex-wrap: wrap; gap: 12px;">
                     <!-- Legend items will be populated here -->
                 </div>
@@ -349,14 +352,22 @@
             const destinationColorMap = generateDestinationColors(selectedDestinations);
             const sourcesWithLogos = [];
 
+            // Generate gradient colors for sources
+            const sourceColors = [
+                '#667eea', '#764ba2', '#f093fb', '#4facfe',
+                '#43e97b', '#fa709a', '#fee140', '#30cfd0',
+                '#a8edea', '#fed6e3', '#c471f5', '#12c2e9'
+            ];
+
             // Add source nodes
-            filteredSources.forEach(source => {
+            filteredSources.forEach((source, idx) => {
                 const sourceName = source['Source Name'];
                 if (!nodeMap.has(sourceName)) {
+                    const sourceColor = sourceColors[idx % sourceColors.length];
                     nodeMap.set(sourceName, nodes.length);
                     nodes.push({
                         label: sourceName,
-                        color: '#9ca3af',
+                        color: sourceColor,
                         type: 'source'
                     });
                     // Store source info for legend
@@ -413,20 +424,22 @@
                 type: 'sankey',
                 orientation: 'h',
                 node: {
-                    pad: 15,
-                    thickness: 20,
+                    pad: 20,
+                    thickness: 30,
                     line: {
                         color: 'white',
-                        width: 1
+                        width: 2
                     },
                     label: nodes.map(n => n.label),
-                    color: nodes.map(n => n.color)
+                    color: nodes.map(n => n.color),
+                    hovertemplate: '<b>%{label}</b><br>%{value} connection(s)<extra></extra>'
                 },
                 link: {
                     source: links.map(l => l.source),
                     target: links.map(l => l.target),
                     value: links.map(l => l.value),
-                    color: links.map(l => l.color)
+                    color: links.map(l => l.color),
+                    hovertemplate: '%{source.label} → %{target.label}<extra></extra>'
                 }
             }];
 
@@ -472,15 +485,20 @@
 
             legendContent.innerHTML = sortedSources.map(source => {
                 const logoDisplay = source.logo
-                    ? `<img src="${source.logo}" alt="${source.name}" style="width: 28px; height: 28px; object-fit: contain; border-radius: 6px; background: white; padding: 2px;" onerror="this.style.display='none'">`
-                    : `<div style="width: 28px; height: 28px; background: linear-gradient(135deg, #9ca3af 0%, #6b7280 100%); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.75rem;">${source.name.charAt(0)}</div>`;
+                    ? `<img src="${source.logo}" alt="${source.name}" style="width: 36px; height: 36px; object-fit: contain; border-radius: 8px; background: white; padding: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);" onerror="this.parentElement.querySelector('.logo-fallback').style.display='flex'; this.style.display='none'">`
+                    : '';
+
+                const fallbackDisplay = `<div class="logo-fallback" style="${source.logo ? 'display: none;' : 'display: flex;'} width: 36px; height: 36px; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); border-radius: 8px; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.95rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">${source.name.charAt(0).toUpperCase()}</div>`;
 
                 return `
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        ${logoDisplay}
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.8); box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'">
+                        <div style="position: relative; width: 36px; height: 36px;">
+                            ${logoDisplay}
+                            ${fallbackDisplay}
+                        </div>
                         <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <span style="font-size: 0.85rem; font-weight: 600; color: #2d3748;">${source.name}</span>
-                            <span style="font-size: 0.75rem; color: #718096;">${source.type}</span>
+                            <span style="font-size: 0.9rem; font-weight: 700; color: #1a202c; line-height: 1.2;">${source.name}</span>
+                            <span style="font-size: 0.75rem; color: #718096; font-weight: 500;">${source.type}</span>
                         </div>
                     </div>
                 `;
