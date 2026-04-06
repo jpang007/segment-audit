@@ -58,17 +58,6 @@
                 </div>
             </div>
 
-            <!-- Source Legend -->
-            <div id="sourceLegend" style="display: none; margin-bottom: 20px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);">
-                <div style="font-weight: 700; margin-bottom: 15px; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 1.5rem;">🔌</span>
-                    <span>Active Sources</span>
-                </div>
-                <div id="sourceLegendContent" style="display: flex; flex-wrap: wrap; gap: 12px;">
-                    <!-- Legend items will be populated here -->
-                </div>
-            </div>
-
             <!-- Filters -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
@@ -350,7 +339,6 @@
             const links = [];
             const nodeMap = new Map();
             const destinationColorMap = generateDestinationColors(selectedDestinations);
-            const sourcesWithLogos = [];
 
             // Generate gradient colors for sources
             const sourceColors = [
@@ -369,12 +357,6 @@
                         label: sourceName,
                         color: sourceColor,
                         type: 'source'
-                    });
-                    // Store source info for legend
-                    sourcesWithLogos.push({
-                        name: sourceName,
-                        logo: source['Logo URL'] || '',
-                        type: source.Type || ''
                     });
                 }
             });
@@ -464,45 +446,6 @@
             };
 
             Plotly.newPlot('sankeyDiagram', data, layout, config);
-
-            // Update source legend
-            updateSourceLegend(sourcesWithLogos);
-        }
-
-        function updateSourceLegend(sources) {
-            const legendContainer = document.getElementById('sourceLegend');
-            const legendContent = document.getElementById('sourceLegendContent');
-
-            if (sources.length === 0) {
-                legendContainer.style.display = 'none';
-                return;
-            }
-
-            legendContainer.style.display = 'block';
-
-            // Sort sources alphabetically
-            const sortedSources = [...sources].sort((a, b) => a.name.localeCompare(b.name));
-
-            legendContent.innerHTML = sortedSources.map(source => {
-                const logoDisplay = source.logo
-                    ? `<img src="${source.logo}" alt="${source.name}" style="width: 36px; height: 36px; object-fit: contain; border-radius: 8px; background: white; padding: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);" onerror="this.parentElement.querySelector('.logo-fallback').style.display='flex'; this.style.display='none'">`
-                    : '';
-
-                const fallbackDisplay = `<div class="logo-fallback" style="${source.logo ? 'display: none;' : 'display: flex;'} width: 36px; height: 36px; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); border-radius: 8px; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 0.95rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15);">${source.name.charAt(0).toUpperCase()}</div>`;
-
-                return `
-                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.8); box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.15)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'">
-                        <div style="position: relative; width: 36px; height: 36px;">
-                            ${logoDisplay}
-                            ${fallbackDisplay}
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <span style="font-size: 0.9rem; font-weight: 700; color: #1a202c; line-height: 1.2;">${source.name}</span>
-                            <span style="font-size: 0.75rem; color: #718096; font-weight: 500;">${source.type}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('');
         }
 
         function renderConnectionsTable() {
