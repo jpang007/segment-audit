@@ -207,6 +207,11 @@ class SegmentAuditor:
         url = f"{self.v1_base}/spaces/{self.space_id}/audiences"
         return self._paginate(url, 'data')
 
+    def get_reverse_etl_models(self):
+        """Get all Reverse ETL models"""
+        url = f"{self.v1_base}/reverse-etl-models"
+        return self._paginate(url, 'data')
+
     def get_event_volumes(self, start_time, end_time, granularity='DAY', group_by=None):
         """Get event volumes for workspace"""
         url = f"{self.v1_base}/events/volume"
@@ -315,6 +320,7 @@ def run_audit(api_token, skip_ssl_verify=False):
         all_events = Counter()
         all_traits = Counter()
         sources_data = []
+        retl_models_data = []
 
         # Collect sources (always - API token is workspace-scoped)
         audit_status['message'] = 'Collecting source data...'
@@ -322,6 +328,23 @@ def run_audit(api_token, skip_ssl_verify=False):
 
         auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
         sources = auditor.get_sources()
+
+        # Collect Reverse ETL models
+        audit_status['message'] = 'Collecting Reverse ETL models...'
+        try:
+            retl_models = auditor.get_reverse_etl_models()
+            for model in retl_models:
+                retl_models_data.append({
+                    'ID': model.get('id', ''),
+                    'Name': model.get('name', ''),
+                    'Source ID': model.get('sourceId', ''),
+                    'Enabled': model.get('enabled', False),
+                    'Query': model.get('query', ''),
+                    'Query Identifier Column': model.get('queryIdentifierColumn', '')
+                })
+        except Exception as e:
+            # If RETL models API fails, continue without them
+            print(f"Warning: Could not fetch Reverse ETL models: {e}")
 
         for idx, source in enumerate(sources):
             metadata = source.get('metadata', {})
@@ -402,12 +425,17 @@ def run_audit(api_token, skip_ssl_verify=False):
                 size_obj = audience.get('size', {})
                 size_count = size_obj.get('count', 0) if isinstance(size_obj, dict) else size_obj
 
+                # Get definition and extract query
+                definition = audience.get('definition', {})
+                definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
+
                 audience_data = {
                     'Enabled': audience.get('enabled', False),
                     'Name': audience.get('name'),
                     'Key': audience.get('key'),
                     'Size': size_count,
                     'Description': audience.get('description', ''),
+                    'Definition Query': definition_query,
                     'Created By': audience.get('createdBy', ''),
                     'Created At': audience.get('createdAt', ''),
                     'Updated At': audience.get('updatedAt', ''),
@@ -416,7 +444,6 @@ def run_audit(api_token, skip_ssl_verify=False):
                 all_audiences.append(audience_data)
 
                 # Extract events and traits
-                definition = audience.get('definition', {})
                 events, traits = auditor.extract_events_and_traits(definition)
 
                 for event in events:
@@ -499,6 +526,11 @@ def run_audit(api_token, skip_ssl_verify=False):
                 writer = csv.DictWriter(f, fieldnames=sources_data[0].keys())
                 writer.writeheader()
                 writer.writerows(sources_data)
+
+        # Reverse ETL Models (save as JSON to preserve multi-line queries)
+        if retl_models_data:
+            with open(DATA_DIR / 'segment_retl_models.json', 'w', encoding='utf-8') as f:
+                json.dump(retl_models_data, f, indent=2)
 
         audit_status['message'] = 'Audit complete!'
         audit_status['progress'] = 100
@@ -627,6 +659,12 @@ def connections():
     customer_name = session.get('customer_name', 'Customer')
     return render_template('connections.html', customer_name=customer_name)
 
+@app.route('/retl-models')
+def retl_models():
+    """Reverse ETL models view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('retl_models.html', customer_name=customer_name)
+
 @app.route('/api/test-csv-data')
 def test_csv_data():
     """Test endpoint to see parsed CSV data"""
@@ -717,6 +755,13 @@ def export_workspace_markdown():
             reader = csv.DictReader(f)
             audiences = list(reader)
 
+    # Load RETL models
+    retl_models = []
+    retl_file = DATA_DIR / 'segment_retl_models.json'
+    if retl_file.exists():
+        with open(retl_file, 'r', encoding='utf-8') as f:
+            retl_models = json.load(f)
+
     # Build markdown content
     audit_date = summary.get('audit_date', '')
     if audit_date:
@@ -732,6 +777,7 @@ def export_workspace_markdown():
 **Workspace:** {workspace_slug}
 **Total Sources:** {summary.get('sources', {}).get('total', 0)} ({summary.get('sources', {}).get('enabled', 0)} enabled)
 **Total Audiences:** {summary.get('audiences', {}).get('total', 0)} ({summary.get('audiences', {}).get('enabled', 0)} enabled)
+**Reverse ETL Models:** {len(retl_models)} ({len([m for m in retl_models if m.get('Enabled')])} enabled)
 **Unique Events Referenced:** {summary.get('coverage', {}).get('unique_events_referenced', 0)}
 **Unique Traits Referenced:** {summary.get('coverage', {}).get('unique_traits_referenced', 0)}
 
@@ -807,6 +853,67 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     md_content += "The following destinations are receiving data from this workspace:\n\n"
     for dest, count in all_destinations.most_common():
         md_content += f"- **{dest}:** Connected to {count} source(s)\n"
+
+    md_content += "\n---\n\n## Reverse ETL Models\n\n"
+
+    if retl_models:
+        enabled_retl = [m for m in retl_models if m.get('Enabled')]
+        disabled_retl = [m for m in retl_models if not m.get('Enabled')]
+
+        md_content += f"This workspace has **{len(retl_models)} Reverse ETL models** configured to sync data from warehouses to downstream destinations.\n\n"
+        md_content += f"- **Active Models:** {len(enabled_retl)} models currently syncing data\n"
+        md_content += f"- **Inactive Models:** {len(disabled_retl)} models currently disabled\n\n"
+
+        # Group by source
+        retl_by_source = {}
+        for model in retl_models:
+            source_id = model.get('Source ID', '')
+            if source_id not in retl_by_source:
+                retl_by_source[source_id] = []
+            retl_by_source[source_id].append(model)
+
+        md_content += f"### Reverse ETL by Source\n\n"
+        md_content += f"Models are distributed across **{len(retl_by_source)} warehouse source(s)**:\n\n"
+
+        for source_id, models in retl_by_source.items():
+            # Find source name
+            source = next((s for s in sources if s.get('Source ID') == source_id), None)
+            source_name = source.get('Source Name', source_id) if source else source_id
+
+            enabled_count = len([m for m in models if m.get('Enabled')])
+            md_content += f"- **{source_name}:** {len(models)} model(s) ({enabled_count} enabled)\n"
+
+        md_content += f"\n### Active Reverse ETL Models\n\n"
+
+        if enabled_retl:
+            md_content += "The following models are actively syncing data:\n\n"
+            for model in enabled_retl[:10]:  # Show top 10
+                model_name = model.get('Name', 'Unnamed Model')
+                source_id = model.get('Source ID', '')
+                source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                source_name = source.get('Source Name', source_id) if source else source_id
+                identifier = model.get('Query Identifier Column', 'N/A')
+
+                md_content += f"#### {model_name}\n"
+                md_content += f"- **Source:** {source_name}\n"
+                md_content += f"- **Identifier Column:** `{identifier}`\n"
+
+                # Add snippet of query (first 200 chars)
+                query = model.get('Query', '')
+                if query:
+                    query_snippet = query[:200].replace('\n', ' ')
+                    if len(query) > 200:
+                        query_snippet += '...'
+                    md_content += f"- **Query Preview:** `{query_snippet}`\n"
+
+                md_content += "\n"
+
+            if len(enabled_retl) > 10:
+                md_content += f"\n_...and {len(enabled_retl) - 10} more active models_\n"
+        else:
+            md_content += "No active Reverse ETL models found.\n"
+    else:
+        md_content += "No Reverse ETL models configured in this workspace.\n"
 
     md_content += "\n---\n\n## Audience Segments\n\n"
     md_content += f"This workspace has **{len(audiences)} audience segments** defined for user targeting and personalization.\n\n"

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Reverse ETL Models</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>{{ customer_name }} - Reverse ETL Models</h1>
+                <p class="subtitle">Syncing data from warehouses to destinations</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/export-workspace-markdown'" class="btn btn-ai" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; border: none; box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4); font-weight: 600; transition: all 0.3s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(167, 139, 250, 0.6)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='0 4px 12px rgba(167, 139, 250, 0.4)'; this.style.transform='translateY(0)'">
+                    ✨ AI Export
+                </button>
+                <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
+                    👥 Audiences
+                </button>
+                <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
+                    🔌 Sources
+                </button>
+                <button onclick="window.location.href='/connections'" class="btn btn-secondary btn-sm">
+                    🔗 Connections
+                </button>
+                <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
+                    📊 Observability
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading Reverse ETL models...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Models</div>
+                    <div class="value" id="totalModels">-</div>
+                    <div class="subtext" id="modelsBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Enabled Models</div>
+                    <div class="value" id="enabledModels">-</div>
+                    <div class="subtext">Active syncs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Disabled Models</div>
+                    <div class="value" id="disabledModels">-</div>
+                    <div class="subtext">Inactive syncs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Unique Sources</div>
+                    <div class="value" id="uniqueSources">-</div>
+                    <div class="subtext">Warehouse sources</div>
+                </div>
+            </div>
+
+            <!-- Models Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">All Reverse ETL Models</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search models..." oninput="filterModels()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                        <select id="statusFilter" onchange="filterModels()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                            <option value="">All Status</option>
+                            <option value="enabled">Enabled</option>
+                            <option value="disabled">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="modelsTable">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Model Name</th>
+                                <th>Source</th>
+                                <th>Query Identifier</th>
+                            </tr>
+                        </thead>
+                        <tbody id="modelsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal for Query Details -->
+    <div id="queryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; overflow-y: auto;">
+        <div style="background: white; margin: 50px auto; max-width: 900px; border-radius: 12px; padding: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0; color: #2d3748;" id="modalTitle">Model Details</h2>
+                <button onclick="closeModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #a0aec0; line-height: 1;">&times;</button>
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #667eea; margin-bottom: 10px;">Query Identifier Column</h3>
+                <div style="background: #f7fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #667eea;">
+                    <code style="color: #2d3748; font-size: 14px;" id="modalIdentifier">-</code>
+                </div>
+            </div>
+
+            <div>
+                <h3 style="color: #667eea; margin-bottom: 10px;">SQL Query</h3>
+                <div style="background: #1a202c; padding: 20px; border-radius: 8px; overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                    <pre style="margin: 0; color: #e2e8f0; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; line-height: 1.5;" id="modalQuery">-</pre>
+                </div>
+            </div>
+
+            <div style="margin-top: 25px; text-align: right;">
+                <button onclick="closeModal()" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let modelsData = [];
+        let sourcesData = [];
+        let filteredModels = [];
+
+        async function loadData() {
+            try {
+                // Load models (JSON format to preserve multi-line queries)
+                const modelsResponse = await fetch('/audit_data/segment_retl_models.json');
+                if (!modelsResponse.ok) throw new Error('No Reverse ETL models found');
+                modelsData = await modelsResponse.json();
+
+                // Load sources to map source IDs to names
+                const sourcesResponse = await fetch('/audit_data/segment_sources_audit.csv');
+                if (sourcesResponse.ok) {
+                    const sourcesText = await sourcesResponse.text();
+                    sourcesData = parseCSV(sourcesText);
+                }
+
+                renderDashboard();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+
+            function parseLine(line) {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                return values;
+            }
+
+            const headers = parseLine(lines[0]);
+
+            return lines.slice(1).map(line => {
+                const values = parseLine(line);
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function getSourceName(sourceId) {
+            if (!sourceId) return 'Unknown';
+            const source = sourcesData.find(s => s['Source ID'] === sourceId);
+            return source ? source['Source Name'] : sourceId;
+        }
+
+        function renderDashboard() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            updateStats();
+            filterModels();
+        }
+
+        function updateStats() {
+            const totalModels = modelsData.length;
+            const enabledModels = modelsData.filter(m => m.Enabled === true || m.Enabled === 'true').length;
+            const disabledModels = totalModels - enabledModels;
+            const uniqueSourceIds = new Set(modelsData.map(m => m['Source ID']).filter(id => id));
+
+            document.getElementById('totalModels').textContent = totalModels;
+            document.getElementById('modelsBreakdown').textContent =
+                `${enabledModels} enabled, ${disabledModels} disabled`;
+
+            document.getElementById('enabledModels').textContent = enabledModels;
+            document.getElementById('disabledModels').textContent = disabledModels;
+            document.getElementById('uniqueSources').textContent = uniqueSourceIds.size;
+        }
+
+        function filterModels() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const statusFilter = document.getElementById('statusFilter').value;
+
+            filteredModels = modelsData.filter(model => {
+                const isEnabled = model.Enabled === true || model.Enabled === 'true';
+                const statusMatch = !statusFilter ||
+                    (statusFilter === 'enabled' && isEnabled) ||
+                    (statusFilter === 'disabled' && !isEnabled);
+
+                const searchMatch = !searchTerm ||
+                    (model.Name || '').toLowerCase().includes(searchTerm) ||
+                    getSourceName(model['Source ID']).toLowerCase().includes(searchTerm) ||
+                    (model['Query Identifier Column'] || '').toLowerCase().includes(searchTerm);
+
+                return statusMatch && searchMatch;
+            });
+
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('modelsTableBody');
+
+            if (filteredModels.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px; color: #a0aec0;">No models found</td></tr>';
+                return;
+            }
+
+            // Clear existing content
+            tbody.innerHTML = '';
+
+            filteredModels.forEach((model, index) => {
+                const enabled = model.Enabled === true || model.Enabled === 'true';
+                const sourceName = getSourceName(model['Source ID']);
+                const modelName = model.Name || 'Unnamed Model';
+                const identifier = model['Query Identifier Column'] || '-';
+
+                // Create row
+                const row = document.createElement('tr');
+
+                // Status column
+                const statusCell = document.createElement('td');
+                const statusBadge = document.createElement('span');
+                statusBadge.className = enabled ? 'badge enabled' : 'badge disabled';
+                statusBadge.textContent = enabled ? 'Enabled' : 'Disabled';
+                statusCell.appendChild(statusBadge);
+                row.appendChild(statusCell);
+
+                // Model name column (clickable)
+                const nameCell = document.createElement('td');
+                const nameLink = document.createElement('a');
+                nameLink.href = '#';
+                nameLink.textContent = modelName;
+                nameLink.style.cssText = 'color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;';
+                nameLink.dataset.index = index;
+                nameLink.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const idx = parseInt(this.dataset.index);
+                    console.log('Link clicked, index:', idx, 'model name:', modelName);
+                    showQueryModal(idx);
+                });
+                nameCell.appendChild(nameLink);
+                row.appendChild(nameCell);
+
+                // Source column
+                const sourceCell = document.createElement('td');
+                const sourceStrong = document.createElement('strong');
+                sourceStrong.textContent = sourceName;
+                sourceCell.appendChild(sourceStrong);
+                row.appendChild(sourceCell);
+
+                // Identifier column
+                const identifierCell = document.createElement('td');
+                const identifierCode = document.createElement('code');
+                identifierCode.style.cssText = 'background: #f7fafc; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;';
+                identifierCode.textContent = identifier;
+                identifierCell.appendChild(identifierCode);
+                row.appendChild(identifierCell);
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showQueryModal(index) {
+            console.log('showQueryModal called with index:', index);
+            console.log('filteredModels length:', filteredModels.length);
+            console.log('Attempting to get model at index:', index);
+
+            const model = filteredModels[index];
+            console.log('Model found:', model);
+
+            if (!model) {
+                console.error('No model found at index:', index);
+                return;
+            }
+
+            const modelName = model.Name || 'Unnamed Model';
+            const query = model.Query || 'No query available';
+            const identifier = model['Query Identifier Column'] || 'Not specified';
+
+            console.log('Opening modal for:', modelName);
+
+            document.getElementById('modalTitle').textContent = modelName;
+            document.getElementById('modalQuery').textContent = query;
+            document.getElementById('modalIdentifier').textContent = identifier;
+            document.getElementById('queryModal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('queryModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.getElementById('queryModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeModal();
+            }
+        });
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

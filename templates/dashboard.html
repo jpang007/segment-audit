@@ -24,6 +24,9 @@
                 <button onclick="window.location.href='/connections'" class="btn btn-secondary btn-sm">
                     🔗 Connections
                 </button>
+                <button onclick="window.location.href='/retl-models'" class="btn btn-secondary btn-sm">
+                    🔄 RETL Models
+                </button>
                 <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
                     📊 Observability
                 </button>
@@ -569,7 +572,7 @@
             }
 
             // Create CSV content
-            const headers = ['Status', 'Name', 'Size', 'Description', 'Created', 'Updated', 'Space ID'];
+            const headers = ['Status', 'Name', 'Size', 'Description', 'Definition Query', 'Created', 'Updated', 'Space ID'];
             const csvRows = [headers.join(',')];
 
             filteredAudiences.forEach(aud => {
@@ -577,11 +580,12 @@
                 const name = `"${(aud.Name || '').replace(/"/g, '""')}"`;
                 const size = aud.Size || 0;
                 const description = `"${(aud.Description || '').replace(/"/g, '""')}"`;
+                const query = `"${(aud['Definition Query'] || '').replace(/"/g, '""')}"`;
                 const created = aud['Created At'] || '';
                 const updated = aud['Updated At'] || '';
                 const spaceId = aud['Space ID'] || '';
 
-                csvRows.push([enabled, name, size, description, created, updated, spaceId].join(','));
+                csvRows.push([enabled, name, size, description, query, created, updated, spaceId].join(','));
             });
 
             // Download CSV
