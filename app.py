@@ -627,6 +627,61 @@ def connections():
     customer_name = session.get('customer_name', 'Customer')
     return render_template('connections.html', customer_name=customer_name)
 
+@app.route('/api/test-csv-data')
+def test_csv_data():
+    """Test endpoint to see parsed CSV data"""
+    import csv
+    sources_file = DATA_DIR / 'segment_sources_audit.csv'
+    if not sources_file.exists():
+        return jsonify({'error': 'CSV not found'}), 404
+
+    with open(sources_file, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        sources = list(reader)
+
+    return jsonify({
+        'total_sources': len(sources),
+        'first_source': sources[0] if sources else None,
+        'headers': list(sources[0].keys()) if sources else []
+    })
+
+@app.route('/proxy-logo')
+def proxy_logo():
+    """Proxy logos through our server to avoid CORS issues"""
+    logo_url = request.args.get('url')
+    if not logo_url:
+        return "No URL provided", 400
+
+    try:
+        # Fetch the logo from the CDN
+        # Disable SSL verification for logos as some CDNs have certificate issues
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        response = requests.get(
+            logo_url,
+            timeout=5,
+            verify=False,  # Disable SSL verification for logo CDNs
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+            }
+        )
+
+        if response.status_code == 200:
+            from flask import Response
+            return Response(
+                response.content,
+                mimetype=response.headers.get('Content-Type', 'image/svg+xml'),
+                headers={
+                    'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+                    'Access-Control-Allow-Origin': '*'
+                }
+            )
+        else:
+            return f"Failed to fetch logo: {response.status_code}", 500
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
 @app.route('/export-workspace-markdown')
 def export_workspace_markdown():
     """Export comprehensive workspace data as markdown for AI analysis"""

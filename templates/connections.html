@@ -466,9 +466,9 @@
                 const count = source['Destination Count'] || 0;
                 const logoUrl = source['Logo URL'] || '';
 
-                // Create logo display
+                // Create logo display using proxy with fallback
                 const logoDisplay = logoUrl
-                    ? `<img src="${logoUrl}" alt="${source['Source Name']}" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle; border-radius: 4px;" onerror="this.style.display='none'">`
+                    ? `<img src="/proxy-logo?url=${encodeURIComponent(logoUrl)}" alt="${source['Source Name']}" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle; border-radius: 4px;" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22%23cbd5e0%22/><text x=%2212%22 y=%2216%22 text-anchor=%22middle%22 font-size=%2212%22 fill=%22%23fff%22>?</text></svg>'; this.title='Logo unavailable'">`
                     : '';
 
                 return `
