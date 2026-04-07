@@ -121,47 +121,23 @@ class SegmentAuditor:
     def get_source_destinations(self, source_id):
         """Get all destinations connected to a source"""
         url = f"{self.v1_base}/sources/{source_id}/connected-destinations"
-        debug_file = Path('./audit_data/debug_destinations.txt')
 
         try:
-            with open(debug_file, 'a') as f:
-                f.write(f"\n\n=== Fetching destinations for source: {source_id} ===\n")
-                f.write(f"URL: {url}\n")
-
             response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
 
-            with open(debug_file, 'a') as f:
-                f.write(f"Response status: {response.status_code}\n")
-
             if response.status_code != 200:
-                with open(debug_file, 'a') as f:
-                    f.write(f"Non-200 response: {response.text[:500]}\n")
                 return []
 
             data = response.json()
-            with open(debug_file, 'a') as f:
-                f.write(f"Response keys: {list(data.keys())}\n")
-                f.write(f"Full response: {json.dumps(data, indent=2)[:1000]}\n")
 
             # API returns destinations in data.destinations
             destinations_wrapper = data.get('data', {})
 
-            with open(debug_file, 'a') as f:
-                f.write(f"destinations_wrapper type: {type(destinations_wrapper)}\n")
-                if isinstance(destinations_wrapper, dict):
-                    f.write(f"destinations_wrapper keys: {list(destinations_wrapper.keys())}\n")
-
             if isinstance(destinations_wrapper, dict):
                 destinations = destinations_wrapper.get('destinations', [])
-                with open(debug_file, 'a') as f:
-                    f.write(f"Found {len(destinations)} destinations\n")
                 return destinations
             return []
         except Exception as e:
-            with open(debug_file, 'a') as f:
-                f.write(f"ERROR: Exception fetching destinations: {str(e)}\n")
-                import traceback
-                f.write(traceback.format_exc())
             return []
 
     def get_workspace(self):
@@ -664,24 +640,6 @@ def retl_models():
     """Reverse ETL models view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('retl_models.html', customer_name=customer_name)
-
-@app.route('/api/test-csv-data')
-def test_csv_data():
-    """Test endpoint to see parsed CSV data"""
-    import csv
-    sources_file = DATA_DIR / 'segment_sources_audit.csv'
-    if not sources_file.exists():
-        return jsonify({'error': 'CSV not found'}), 404
-
-    with open(sources_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        sources = list(reader)
-
-    return jsonify({
-        'total_sources': len(sources),
-        'first_source': sources[0] if sources else None,
-        'headers': list(sources[0].keys()) if sources else []
-    })
 
 @app.route('/proxy-logo')
 def proxy_logo():

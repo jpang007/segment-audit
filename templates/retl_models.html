@@ -280,7 +280,6 @@
                 nameLink.addEventListener('click', function(e) {
                     e.preventDefault();
                     const idx = parseInt(this.dataset.index);
-                    console.log('Link clicked, index:', idx, 'model name:', modelName);
                     showQueryModal(idx);
                 });
                 nameCell.appendChild(nameLink);
@@ -313,23 +312,12 @@
         }
 
         function showQueryModal(index) {
-            console.log('showQueryModal called with index:', index);
-            console.log('filteredModels length:', filteredModels.length);
-            console.log('Attempting to get model at index:', index);
-
             const model = filteredModels[index];
-            console.log('Model found:', model);
-
-            if (!model) {
-                console.error('No model found at index:', index);
-                return;
-            }
+            if (!model) return;
 
             const modelName = model.Name || 'Unnamed Model';
             const query = model.Query || 'No query available';
             const identifier = model['Query Identifier Column'] || 'Not specified';
-
-            console.log('Opening modal for:', modelName);
 
             document.getElementById('modalTitle').textContent = modelName;
             document.getElementById('modalQuery').textContent = query;
