@@ -286,6 +286,9 @@ def run_audit(api_token, skip_ssl_verify=False):
         # Create space mapping (ID -> Name) for better readability
         space_mapping = {space.get('id'): space.get('name', space.get('id')) for space in spaces if space.get('id')}
 
+        # Create space slug mapping (ID -> Slug) for URLs
+        space_slug_mapping = {space.get('id'): space.get('slug', space.get('name', space.get('id'))) for space in spaces if space.get('id')}
+
         if not space_list:
             raise Exception("No spaces found in workspace. Make sure your workspace has the Spaces feature enabled.")
 
@@ -406,6 +409,7 @@ def run_audit(api_token, skip_ssl_verify=False):
                 definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
 
                 audience_data = {
+                    'ID': audience.get('id', ''),
                     'Enabled': audience.get('enabled', False),
                     'Name': audience.get('name'),
                     'Key': audience.get('key'),
@@ -450,6 +454,7 @@ def run_audit(api_token, skip_ssl_verify=False):
             'workspace_slug': workspace_slug,
             'space_ids': space_list,
             'space_mapping': space_mapping,  # ID -> Name mapping
+            'space_slug_mapping': space_slug_mapping,  # ID -> Slug mapping
             'sources': {
                 'total': len(sources_data),
                 'enabled': len([s for s in sources_data if s['Enabled']]),

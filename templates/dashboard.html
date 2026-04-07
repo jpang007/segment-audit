@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ customer_name }} - Audience Audit</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="dashboard-page">
@@ -64,8 +65,26 @@
             <!-- Charts -->
             <div class="chart-section">
                 <h2>Audience Distribution</h2>
-                <div class="chart-container">
-                    <canvas id="audienceChart"></canvas>
+
+                <!-- Absolute position layout -->
+                <div style="position: relative;">
+                    <div style="width: 400px; margin: 0 auto; height: 400px;">
+                        <canvas id="audienceChart"></canvas>
+                    </div>
+                    <div style="position: absolute; top: 0; right: 30px;">
+                        <div style="background: #48bb78; color: white; padding: 10px 14px; border-radius: 6px; width: 120px; margin-bottom: 10px;">
+                            <div style="font-size: 0.75rem; opacity: 0.9;">Enabled</div>
+                            <div style="font-size: 1.4rem; font-weight: 600;" id="enabledCount">-</div>
+                        </div>
+                        <div style="background: #f56565; color: white; padding: 10px 14px; border-radius: 6px; width: 120px; margin-bottom: 10px;">
+                            <div style="font-size: 0.75rem; opacity: 0.9;">Disabled</div>
+                            <div style="font-size: 1.4rem; font-weight: 600;" id="disabledCount">-</div>
+                        </div>
+                        <div style="background: #cbd5e0; color: white; padding: 10px 14px; border-radius: 6px; width: 120px;">
+                            <div style="font-size: 0.75rem; opacity: 0.9;">Empty</div>
+                            <div style="font-size: 1.4rem; font-weight: 600;" id="emptyCount">-</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -278,6 +297,15 @@
 
         function renderAudienceChart(audiences) {
             const ctx = document.getElementById('audienceChart').getContext('2d');
+
+            // Update count cards
+            document.getElementById('enabledCount').textContent = audiences.enabled || 0;
+            document.getElementById('disabledCount').textContent = audiences.disabled || 0;
+            document.getElementById('emptyCount').textContent = audiences.empty || 0;
+
+            // Unregister datalabels globally to avoid conflicts
+            Chart.defaults.plugins.datalabels = { display: false };
+
             new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -292,7 +320,20 @@
                             '#48bb78',
                             '#f56565',
                             '#cbd5e0'
-                        ]
+                        ],
+                        datalabels: {
+                            color: '#fff',
+                            font: {
+                                weight: 'bold',
+                                size: 16
+                            },
+                            formatter: (value, context) => {
+                                if (value === 0) return '';
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${value}\n(${percentage}%)`;
+                            }
+                        }
                     }]
                 },
                 options: {
@@ -303,7 +344,8 @@
                             position: 'bottom'
                         }
                     }
-                }
+                },
+                plugins: [ChartDataLabels]
             });
         }
 
@@ -509,6 +551,27 @@
                 const name = aud.Name || '';
                 const description = (aud.Description || '').substring(0, 60) + (aud.Description && aud.Description.length > 60 ? '...' : '');
 
+                // Get workspace slug and space slug for URL
+                const workspaceSlug = auditData.summary.workspace_slug || '';
+                const spaceId = aud['Space ID'] || '';
+                const audienceId = aud.ID || '';
+                const spaceSlugMapping = auditData.summary.space_slug_mapping || {};
+                const spaceMapping = auditData.summary.space_mapping || {};
+
+                // Use slug if available, otherwise fall back to slugified space name
+                let spaceSlug = spaceSlugMapping[spaceId];
+                if (!spaceSlug) {
+                    const spaceName = spaceMapping[spaceId] || spaceId;
+                    spaceSlug = spaceName.toLowerCase().replace(/\s+/g, '-');
+                }
+
+                // Build Segment URL
+                let nameDisplay = `<strong>${name}</strong>`;
+                if (workspaceSlug && spaceId && audienceId) {
+                    const segmentUrl = `https://app.segment.com/${workspaceSlug}/engage/spaces/${spaceSlug}/audiences/${audienceId}/overview`;
+                    nameDisplay = `<a href="${segmentUrl}" target="_blank" style="color: #667eea; text-decoration: none; font-weight: 600;">${name}</a>`;
+                }
+
                 // Parse dates safely - check for valid date strings
                 let created = 'N/A';
                 if (aud['Created At'] && aud['Created At'].trim() !== '') {
@@ -525,7 +588,7 @@
                 return `
                     <tr>
                         <td>${statusBadge}</td>
-                        <td><strong>${name}</strong></td>
+                        <td>${nameDisplay}</td>
                         <td>${size}</td>
                         <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${aud.Description || ''}">${description}</td>
                         <td>${created}</td>

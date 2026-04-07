@@ -35,9 +35,9 @@ body {
 .form-card {
     background: white;
     border-radius: 16px;
-    padding: 40px;
+    padding: 50px;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-    max-width: 600px;
+    max-width: 1200px;
     width: 100%;
 }
 
