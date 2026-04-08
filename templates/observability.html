@@ -27,6 +27,9 @@
                 <button onclick="window.location.href='/connections'" class="btn btn-secondary btn-sm">
                     🔗 Connections
                 </button>
+                <button onclick="window.location.href='/computed-traits'" class="btn btn-secondary btn-sm">
+                    🧮 Computed Traits
+                </button>
                 <button onclick="window.location.href='/retl-models'" class="btn btn-secondary btn-sm">
                     🔄 RETL Models
                 </button>
@@ -45,24 +48,24 @@
             <!-- Stats Grid -->
             <div class="stats-grid">
                 <div class="stat-card primary">
-                    <div class="label">7-Day Total Events</div>
-                    <div class="value" id="sevenDayTotal">-</div>
-                    <div class="subtext" id="sevenDaySubtext">Last 7 days</div>
+                    <div class="label" id="totalLabel">Total Events</div>
+                    <div class="value" id="totalEvents">-</div>
+                    <div class="subtext" id="totalSubtext">-</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">14-Day Total Events</div>
-                    <div class="value" id="fourteenDayTotal">-</div>
-                    <div class="subtext" id="fourteenDaySubtext">Last 14 days</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Daily Average (7d)</div>
-                    <div class="value" id="sevenDayAvg">-</div>
+                    <div class="label">Daily Average</div>
+                    <div class="value" id="dailyAvg">-</div>
                     <div class="subtext">Events per day</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">Daily Average (14d)</div>
-                    <div class="value" id="fourteenDayAvg">-</div>
-                    <div class="subtext">Events per day</div>
+                    <div class="label">Top Source</div>
+                    <div class="value" id="topSource" style="font-size: 1.5rem; font-weight: 600; overflow-wrap: break-word; line-height: 1.2;">-</div>
+                    <div class="subtext" id="topSourceVolume">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Active Sources</div>
+                    <div class="value" id="activeSources">-</div>
+                    <div class="subtext">Sending events</div>
                 </div>
             </div>
 
@@ -70,10 +73,16 @@
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <div>
-                        <h2 style="margin: 0;">Daily Event Volume by Source (Last 7 Days)</h2>
-                        <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;">Top sources by volume (≥1,000 events)</p>
+                        <h2 style="margin: 0;" id="chartTitle">Daily Event Volume by Source</h2>
+                        <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;" id="chartSubtitle">Top sources by volume (≥1,000 events)</p>
                     </div>
-                    <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 250px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                            <button id="btn7Day" onclick="setTimeRange(7)" class="btn btn-sm" style="background: #667eea; color: white; padding: 8px 16px;">7 Days</button>
+                            <button id="btn14Day" onclick="setTimeRange(14)" class="btn btn-sm" style="background: white; color: #2d3748; padding: 8px 16px;">14 Days</button>
+                        </div>
+                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 250px;">
+                    </div>
                 </div>
                 <div class="chart-container" style="height: 400px;">
                     <canvas id="dailyVolumeChart"></canvas>
@@ -90,7 +99,7 @@
             <!-- Low Volume Sources -->
             <div class="chart-section" id="lowVolumeSection" style="display: none;">
                 <h2>Low Volume Sources</h2>
-                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;">Sources with &lt;1,000 events in the last 7 days</p>
+                <p style="color: #718096; font-size: 0.9rem; margin-bottom: 15px;" id="lowVolumeText">Sources with &lt;1,000 events</p>
                 <div id="lowVolumeList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;"></div>
             </div>
         </div>
@@ -106,18 +115,18 @@
 
     <script>
         let volumeData = {
-            seven_day: null,
-            fourteen_day: null,
-            seven_day_by_source: null
+            fourteen_day_by_source: null
         };
 
         let sourcesMap = {}; // Map of sourceId to source name
         let allSourcesData = []; // Store all parsed source data for filtering
         let currentChart = null; // Store chart instance
+        let currentTimeRange = 7; // Default to 7 days
+        let rawVolumeData = null; // Store raw 14-day data for filtering
 
         async function loadData() {
             try {
-                // Fetch event volumes
+                // Fetch event volumes (14 days)
                 const response = await fetch('/api/event-volumes');
                 if (!response.ok) {
                     const error = await response.json();
@@ -125,6 +134,7 @@
                 }
 
                 volumeData = await response.json();
+                rawVolumeData = volumeData.fourteen_day_by_source;
 
                 // Load sources to get source names
                 try {
@@ -144,6 +154,58 @@
             } catch (error) {
                 showError(error.message);
             }
+        }
+
+        function setTimeRange(days) {
+            currentTimeRange = days;
+
+            // Update button styles
+            const btn7Day = document.getElementById('btn7Day');
+            const btn14Day = document.getElementById('btn14Day');
+
+            if (days === 7) {
+                btn7Day.style.background = '#667eea';
+                btn7Day.style.color = 'white';
+                btn14Day.style.background = 'white';
+                btn14Day.style.color = '#2d3748';
+            } else {
+                btn7Day.style.background = 'white';
+                btn7Day.style.color = '#2d3748';
+                btn14Day.style.background = '#667eea';
+                btn14Day.style.color = 'white';
+            }
+
+            // Reset allSourcesData so it gets recalculated with the new time range
+            allSourcesData = [];
+
+            // Re-render the page with filtered data
+            renderPage();
+        }
+
+        function filterDataByTimeRange(data, days) {
+            if (!data || !data.data || !data.data.result) {
+                return data;
+            }
+
+            // Get the last N days of data
+            const filtered = JSON.parse(JSON.stringify(data)); // Deep clone
+
+            filtered.data.result = data.data.result.map(resultItem => {
+                const series = resultItem.series || [];
+                // Take the last N days
+                const filteredSeries = series.slice(-days);
+
+                // Recalculate total for the filtered time range
+                const newTotal = filteredSeries.reduce((sum, item) => sum + (item.count || 0), 0);
+
+                return {
+                    ...resultItem,
+                    series: filteredSeries,
+                    total: newTotal
+                };
+            });
+
+            return filtered;
         }
 
         function parseCSV(text) {
@@ -181,22 +243,42 @@
             document.getElementById('loading').style.display = 'none';
             document.getElementById('content').style.display = 'block';
 
+            // Filter data based on selected time range
+            const filteredData = filterDataByTimeRange(rawVolumeData, currentTimeRange);
+
             // Calculate totals
-            const sevenDayTotal = calculateTotal(volumeData.seven_day);
-            const fourteenDayTotal = calculateTotal(volumeData.fourteen_day);
+            const total = calculateTotal(filteredData);
 
             // Update stats
-            document.getElementById('sevenDayTotal').textContent = formatNumber(sevenDayTotal);
-            document.getElementById('fourteenDayTotal').textContent = formatNumber(fourteenDayTotal);
+            document.getElementById('totalEvents').textContent = formatNumber(total);
+            document.getElementById('totalSubtext').textContent = `Last ${currentTimeRange} days`;
 
-            const sevenDayAvg = Math.round(sevenDayTotal / 7);
-            const fourteenDayAvg = Math.round(fourteenDayTotal / 14);
+            const dailyAvg = Math.round(total / currentTimeRange);
+            document.getElementById('dailyAvg').textContent = formatNumber(dailyAvg);
 
-            document.getElementById('sevenDayAvg').textContent = formatNumber(sevenDayAvg);
-            document.getElementById('fourteenDayAvg').textContent = formatNumber(fourteenDayAvg);
+            // Update chart title
+            document.getElementById('chartTitle').textContent = `Daily Event Volume by Source (Last ${currentTimeRange} Days)`;
+            document.getElementById('chartSubtitle').textContent = `Top sources by volume (≥1,000 events)`;
 
-            // Render daily volume chart
-            renderDailyVolumeChart(volumeData.seven_day_by_source);
+            // Update low volume text
+            document.getElementById('lowVolumeText').textContent = `Sources with <1,000 events in the last ${currentTimeRange} days`;
+
+            // Render daily volume chart with filtered data
+            renderDailyVolumeChart(filteredData);
+        }
+
+        function calculateTotal(data) {
+            if (!data || !data.data || !data.data.result) {
+                return 0;
+            }
+
+            let total = 0;
+            data.data.result.forEach(resultItem => {
+                // Use the pre-calculated total from the resultItem
+                total += resultItem.total || 0;
+            });
+
+            return total;
         }
 
         function renderDailyVolumeChart(volumeData, searchTerm = '') {
@@ -255,7 +337,8 @@
                 });
 
                 // Calculate and display volatility
-                displayVolatility(allSourcesData);
+                // Commented out - volatility hidden from UI but kept in AI export
+                // displayVolatility(allSourcesData);
 
                 // Display low volume sources
                 displayLowVolumeSources(lowVolumeSourcesData, totalWorkspaceVolume);
@@ -282,6 +365,28 @@
             const sortedSources = filteredSources
                 .sort((a, b) => b.total - a.total)
                 .slice(0, 15);
+
+            // Update top source stat card
+            if (allSourcesData.length > 0) {
+                const topSourceData = allSourcesData.sort((a, b) => b.total - a.total)[0];
+                const topSourceEl = document.getElementById('topSource');
+                topSourceEl.textContent = topSourceData.name;
+
+                // Dynamically adjust font size based on name length
+                const nameLength = topSourceData.name.length;
+                if (nameLength > 30) {
+                    topSourceEl.style.fontSize = '1rem';
+                } else if (nameLength > 20) {
+                    topSourceEl.style.fontSize = '1.2rem';
+                } else {
+                    topSourceEl.style.fontSize = '1.5rem';
+                }
+
+                document.getElementById('topSourceVolume').textContent = formatNumber(topSourceData.total) + ' events';
+            }
+
+            // Update active sources count
+            document.getElementById('activeSources').textContent = allSourcesData.length;
 
             // Prepare datasets for stacked bar chart
             const colors = [
@@ -360,17 +465,6 @@
                 }
             });
         }
-
-        function calculateTotal(volumeData) {
-            // Simple total from workspace-level query (no groupBy)
-            if (!volumeData || !volumeData.data || !volumeData.data.result || !volumeData.data.result[0]) {
-                return 0;
-            }
-
-            // Get the total from the first result item
-            return volumeData.data.result[0].total || 0;
-        }
-
         function formatNumber(num) {
             if (num >= 1000000) {
                 return (num / 1000000).toFixed(2) + 'M';

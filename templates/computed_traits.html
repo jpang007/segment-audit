@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Computed Traits</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Computed Traits</h1>
+                <p class="subtitle" id="reportDate">Loading...</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="window.location.href='/export-workspace-markdown'" class="btn btn-ai" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; border: none; box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4); font-weight: 600; transition: all 0.3s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(167, 139, 250, 0.6)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='0 4px 12px rgba(167, 139, 250, 0.4)'; this.style.transform='translateY(0)'">
+                    ✨ AI Export
+                </button>
+                <button onclick="window.location.href='/dashboard'" class="btn btn-secondary btn-sm">
+                    👥 Audiences
+                </button>
+                <button onclick="window.location.href='/sources'" class="btn btn-secondary btn-sm">
+                    🔌 Sources
+                </button>
+                <button onclick="window.location.href='/connections'" class="btn btn-secondary btn-sm">
+                    🔗 Connections
+                </button>
+                <button onclick="window.location.href='/retl-models'" class="btn btn-secondary btn-sm">
+                    🔄 RETL Models
+                </button>
+                <button onclick="window.location.href='/observability'" class="btn btn-secondary btn-sm">
+                    📊 Observability
+                </button>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading computed traits data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Computed Traits</div>
+                    <div class="value" id="totalTraits">-</div>
+                    <div class="subtext" id="traitsBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Enabled Traits</div>
+                    <div class="value" id="enabledTraits">-</div>
+                    <div class="subtext">Active traits</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Disabled Traits</div>
+                    <div class="value" id="disabledTraits">-</div>
+                    <div class="subtext">Inactive traits</div>
+                </div>
+            </div>
+
+            <!-- Access Warning Banner -->
+            <div id="accessWarning" style="display: none; background: #fef5e7; border-left: 4px solid #f39c12; padding: 20px; margin-bottom: 30px; border-radius: 8px;">
+                <div style="display: flex; align-items: start; gap: 15px;">
+                    <div style="font-size: 2rem;">⚠️</div>
+                    <div>
+                        <div style="font-weight: 600; font-size: 1.1rem; color: #d68910; margin-bottom: 10px;">Computed Traits Private Beta</div>
+                        <p style="margin: 0 0 10px 0; color: #7d6608; line-height: 1.6;">
+                            The Computed Traits API is currently in a Private Beta. Your workspace does not have access to this feature yet.
+                        </p>
+                        <p style="margin: 0; color: #7d6608; line-height: 1.6;">
+                            If you are interested in joining the Private Beta, please reach out to your <strong>Customer Success Manager</strong>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Type Breakdown -->
+            <div class="chart-section">
+                <h2>Computed Trait Types</h2>
+                <div id="typeBreakdown" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px;"></div>
+            </div>
+
+            <!-- Computed Traits Table -->
+            <div class="chart-section">
+                <h2>All Computed Traits</h2>
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap;">
+                    <div style="position: relative; flex: 1; min-width: 250px;">
+                        <button id="spaceFilterBtn" style="width: 100%; padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                            <span id="spaceFilterText">🏢 All Spaces</span>
+                            <span style="font-size: 0.7rem;">▼</span>
+                        </button>
+                        <div id="spaceFilterDropdown" style="display: none; position: absolute; top: 100%; left: 0; background: white; border: 2px solid #e2e8f0; border-radius: 8px; margin-top: 4px; min-width: 250px; max-height: 300px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 1000; padding: 8px;">
+                            <div style="padding: 8px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; cursor: pointer; font-weight: 600;">
+                                    <input type="checkbox" id="selectAllSpaces" checked style="margin-right: 8px;">
+                                    Select All
+                                </label>
+                            </div>
+                            <div id="spaceCheckboxes"></div>
+                        </div>
+                    </div>
+                    <select id="sortBy" class="filter-select" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                        <option value="">Default Sort</option>
+                        <option value="status-enabled">Status: Enabled First</option>
+                        <option value="status-disabled">Status: Disabled First</option>
+                        <option value="name-asc">Name: A-Z</option>
+                        <option value="name-desc">Name: Z-A</option>
+                        <option value="type">Type</option>
+                        <option value="created-desc">Created: Newest First</option>
+                        <option value="created-asc">Created: Oldest First</option>
+                        <option value="updated-desc">Updated: Newest First</option>
+                        <option value="updated-asc">Updated: Oldest First</option>
+                    </select>
+                    <input type="text" id="searchBox" placeholder="🔍 Search traits..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
+                    <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                        📥 Export CSV
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table id="traitsTable">
+                        <thead>
+                            <tr>
+                                <th>Status</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Definition</th>
+                                <th>Created</th>
+                                <th>Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody id="traitsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="margin-top: 20px; text-align: center; display: none;">
+                    <button onclick="previousPage()" class="btn btn-secondary btn-sm" id="prevBtn">← Previous</button>
+                    <span style="margin: 0 20px; color: #2d3748; font-weight: 600;" id="pageInfo">Page 1</span>
+                    <button onclick="nextPage()" class="btn btn-secondary btn-sm" id="nextBtn">Next →</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const DATA_PATH = '/audit_data/';
+
+        let auditData = {
+            summary: null,
+            computedTraits: []
+        };
+
+        let currentPage = 1;
+        let pageSize = 20;
+        let filteredTraits = [];
+
+        async function loadData() {
+            try {
+                // Load summary
+                const summaryResponse = await fetch(DATA_PATH + 'audit_summary.json');
+                if (!summaryResponse.ok) throw new Error('audit_summary.json not found');
+                auditData.summary = await summaryResponse.json();
+
+                // Load computed traits
+                try {
+                    const traitsResponse = await fetch(DATA_PATH + 'segment_computed_traits_audit.csv');
+                    const traitsText = await traitsResponse.text();
+                    auditData.computedTraits = parseCSV(traitsText);
+                } catch (e) {
+                    console.warn('segment_computed_traits_audit.csv not found');
+                    auditData.computedTraits = [];
+                }
+
+                renderPage();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split('\n');
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+
+            return lines.slice(1).map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim().replace(/^"|"$/g, ''));
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim().replace(/^"|"$/g, ''));
+
+                const obj = {};
+                headers.forEach((header, i) => {
+                    obj[header] = values[i] || '';
+                });
+                return obj;
+            });
+        }
+
+        function renderPage() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            const summary = auditData.summary;
+            const computedTraits = auditData.computedTraits;
+
+            // Update report date
+            if (summary.audit_date) {
+                const date = new Date(summary.audit_date);
+                document.getElementById('reportDate').textContent = `Audit Date: ${date.toLocaleDateString()}`;
+            }
+
+            // Update stats
+            const ctStats = summary.computed_traits || {};
+            document.getElementById('totalTraits').textContent = ctStats.total || 0;
+            document.getElementById('enabledTraits').textContent = ctStats.enabled || 0;
+            document.getElementById('disabledTraits').textContent = ctStats.disabled || 0;
+            document.getElementById('traitsBreakdown').textContent =
+                `${ctStats.enabled || 0} enabled, ${ctStats.disabled || 0} disabled`;
+
+            // Check for access error and show warning banner
+            if (ctStats.access_error === 'no_access' || (computedTraits.length === 0 && ctStats.total === 0)) {
+                // Show warning if there was a 403 error OR if there are genuinely no traits
+                if (ctStats.access_error === 'no_access') {
+                    document.getElementById('accessWarning').style.display = 'block';
+                }
+            }
+
+            // Calculate and display type breakdown
+            renderTypeBreakdown(computedTraits);
+
+            // Setup filters
+            setupSpaceFilter();
+
+            // Initial render
+            filteredTraits = computedTraits;
+            renderTable();
+        }
+
+        function renderTypeBreakdown(traits) {
+            const typeCounts = {};
+            traits.forEach(trait => {
+                const type = trait.Type || 'Unknown';
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+
+            // Sort by count descending
+            const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+
+            // Color map for different types
+            const colorMap = {
+                'Event Count': '#667eea',
+                'Sum Aggregation': '#48bb78',
+                'Average Aggregation': '#4299e1',
+                'Minimum Value': '#9f7aea',
+                'Maximum Value': '#ed8936',
+                'Most Frequent': '#38b2ac',
+                'Least Frequent': '#e53e3e',
+                'First Occurrence': '#805ad5',
+                'Last Occurrence': '#dd6b20',
+                'Unique Count': '#319795',
+                'Unique List': '#3182ce',
+                'Trait Transformation': '#d69e2e',
+                'Custom': '#718096',
+                'Unknown': '#cbd5e0'
+            };
+
+            const typeBreakdownHtml = sortedTypes.map(([type, count]) => {
+                const color = colorMap[type] || '#718096';
+                return `
+                    <div style="background: white; border-left: 4px solid ${color}; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <div style="font-size: 0.85rem; color: #718096; margin-bottom: 5px;">${type}</div>
+                        <div style="font-size: 1.8rem; font-weight: 600; color: #2d3748;">${count}</div>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('typeBreakdown').innerHTML = typeBreakdownHtml;
+        }
+
+        function setupSpaceFilter() {
+            const spaceMapping = auditData.summary.space_mapping || {};
+            const spaceIds = Object.keys(spaceMapping);
+
+            const spaceCheckboxes = document.getElementById('spaceCheckboxes');
+            spaceCheckboxes.innerHTML = spaceIds.map(spaceId => `
+                <label style="display: flex; align-items: center; padding: 8px 12px; cursor: pointer; border-radius: 4px;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='transparent'">
+                    <input type="checkbox" class="space-checkbox" value="${spaceId}" checked style="margin-right: 8px;">
+                    ${spaceMapping[spaceId]}
+                </label>
+            `).join('');
+
+            // Toggle dropdown
+            document.getElementById('spaceFilterBtn').onclick = function(e) {
+                e.stopPropagation();
+                const dropdown = document.getElementById('spaceFilterDropdown');
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            };
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', function() {
+                document.getElementById('spaceFilterDropdown').style.display = 'none';
+            });
+
+            // Select all functionality
+            document.getElementById('selectAllSpaces').onchange = function() {
+                const checkboxes = document.querySelectorAll('.space-checkbox');
+                checkboxes.forEach(cb => cb.checked = this.checked);
+                applyFilters();
+            };
+
+            // Individual checkbox changes
+            document.querySelectorAll('.space-checkbox').forEach(cb => {
+                cb.onchange = applyFilters;
+            });
+
+            // Sort change
+            document.getElementById('sortBy').onchange = applyFilters;
+
+            // Search box
+            document.getElementById('searchBox').addEventListener('input', applyFilters);
+        }
+
+        function applyFilters() {
+            const selectedSpaces = Array.from(document.querySelectorAll('.space-checkbox:checked')).map(cb => cb.value);
+            const sortBy = document.getElementById('sortBy').value;
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
+
+            // Update filter button text
+            const spaceMapping = auditData.summary.space_mapping || {};
+            if (selectedSpaces.length === Object.keys(spaceMapping).length) {
+                document.getElementById('spaceFilterText').textContent = '🏢 All Spaces';
+            } else if (selectedSpaces.length === 1) {
+                document.getElementById('spaceFilterText').textContent = `🏢 ${spaceMapping[selectedSpaces[0]]}`;
+            } else {
+                document.getElementById('spaceFilterText').textContent = `🏢 ${selectedSpaces.length} Spaces`;
+            }
+
+            // Filter traits by space and search
+            filteredTraits = auditData.computedTraits.filter(trait => {
+                const inSelectedSpace = selectedSpaces.includes(trait['Space ID']);
+                if (!inSelectedSpace) return false;
+
+                if (searchTerm) {
+                    const name = (trait.Name || '').toLowerCase();
+                    const type = (trait.Type || '').toLowerCase();
+                    const definition = (trait.Definition || '').toLowerCase();
+                    return name.includes(searchTerm) || type.includes(searchTerm) || definition.includes(searchTerm);
+                }
+
+                return true;
+            });
+
+            // Sort traits
+            if (sortBy === 'status-enabled') {
+                filteredTraits.sort((a, b) => {
+                    const aEnabled = (a.Enabled || '').toLowerCase() === 'true';
+                    const bEnabled = (b.Enabled || '').toLowerCase() === 'true';
+                    return bEnabled - aEnabled;
+                });
+            } else if (sortBy === 'status-disabled') {
+                filteredTraits.sort((a, b) => {
+                    const aEnabled = (a.Enabled || '').toLowerCase() === 'true';
+                    const bEnabled = (b.Enabled || '').toLowerCase() === 'true';
+                    return aEnabled - bEnabled;
+                });
+            } else if (sortBy === 'name-asc') {
+                filteredTraits.sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
+            } else if (sortBy === 'name-desc') {
+                filteredTraits.sort((a, b) => (b.Name || '').localeCompare(a.Name || ''));
+            } else if (sortBy === 'type') {
+                filteredTraits.sort((a, b) => (a.Type || '').localeCompare(b.Type || ''));
+            } else if (sortBy === 'created-desc') {
+                filteredTraits.sort((a, b) => {
+                    const aDate = new Date(a['Created At'] || 0);
+                    const bDate = new Date(b['Created At'] || 0);
+                    return bDate - aDate;
+                });
+            } else if (sortBy === 'created-asc') {
+                filteredTraits.sort((a, b) => {
+                    const aDate = new Date(a['Created At'] || 0);
+                    const bDate = new Date(b['Created At'] || 0);
+                    return aDate - bDate;
+                });
+            } else if (sortBy === 'updated-desc') {
+                filteredTraits.sort((a, b) => {
+                    const aDate = new Date(a['Updated At'] || 0);
+                    const bDate = new Date(b['Updated At'] || 0);
+                    return bDate - aDate;
+                });
+            } else if (sortBy === 'updated-asc') {
+                filteredTraits.sort((a, b) => {
+                    const aDate = new Date(a['Updated At'] || 0);
+                    const bDate = new Date(b['Updated At'] || 0);
+                    return aDate - bDate;
+                });
+            }
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        function formatDefinition(definition) {
+            if (!definition || definition.trim() === '') {
+                return '<span style="color: #cbd5e0;">No definition</span>';
+            }
+
+            // Truncate if too long
+            let displayDef = definition;
+            let isTruncated = false;
+            if (definition.length > 120) {
+                displayDef = definition.substring(0, 120);
+                isTruncated = true;
+            }
+
+            // Highlight key parts with color-coded spans
+            // Event names: event('...')
+            displayDef = displayDef.replace(/event\('([^']+)'\)/g, '<span style="background: #e0e7ff; color: #5a67d8; padding: 2px 6px; border-radius: 3px; font-weight: 600;">event($1)</span>');
+
+            if (isTruncated) {
+                displayDef += '<span style="color: #a0aec0; font-weight: 600;">...</span>';
+            }
+
+            return displayDef;
+        }
+
+        function renderTable() {
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageTraits = filteredTraits.slice(start, end);
+
+            const tbody = document.getElementById('traitsTableBody');
+            tbody.innerHTML = pageTraits.map(trait => {
+                const enabled = (trait.Enabled || '').toLowerCase() === 'true';
+                const statusBadge = enabled
+                    ? '<span class="badge enabled">Enabled</span>'
+                    : '<span class="badge disabled">Disabled</span>';
+
+                const name = trait.Name || '';
+                const type = trait.Type || 'Unknown';
+                const formattedDefinition = formatDefinition(trait.Definition || '');
+
+                let created = 'N/A';
+                if (trait['Created At'] && trait['Created At'].trim() !== '') {
+                    const createdDate = new Date(trait['Created At']);
+                    created = isNaN(createdDate.getTime()) ? 'N/A' : createdDate.toLocaleDateString();
+                }
+
+                let updated = 'N/A';
+                if (trait['Updated At'] && trait['Updated At'].trim() !== '') {
+                    const updatedDate = new Date(trait['Updated At']);
+                    updated = isNaN(updatedDate.getTime()) ? 'N/A' : updatedDate.toLocaleDateString();
+                }
+
+                return `
+                    <tr>
+                        <td>${statusBadge}</td>
+                        <td><strong>${name}</strong></td>
+                        <td><span style="background: #e2e8f0; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${type}</span></td>
+                        <td style="max-width: 500px; line-height: 1.8; font-family: 'Courier New', monospace; font-size: 0.85rem;" title="${trait.Definition || ''}">${formattedDefinition}</td>
+                        <td>${created}</td>
+                        <td>${updated}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Update pagination
+            const totalPages = Math.ceil(filteredTraits.length / pageSize);
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+            document.getElementById('prevBtn').disabled = currentPage === 1;
+            document.getElementById('nextBtn').disabled = currentPage === totalPages;
+            document.getElementById('paginationControls').style.display = filteredTraits.length > pageSize ? 'block' : 'none';
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                renderTable();
+            }
+        }
+
+        function nextPage() {
+            const totalPages = Math.ceil(filteredTraits.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                renderTable();
+            }
+        }
+
+        function exportToCSV() {
+            const headers = ['Status', 'Name', 'Type', 'Definition', 'Created', 'Updated'];
+            const rows = filteredTraits.map(trait => [
+                (trait.Enabled || '').toLowerCase() === 'true' ? 'Enabled' : 'Disabled',
+                trait.Name || '',
+                trait.Type || '',
+                trait.Definition || '',
+                trait['Created At'] || '',
+                trait['Updated At'] || ''
+            ]);
+
+            let csvContent = headers.join(',') + '\n';
+            rows.forEach(row => {
+                csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'computed_traits_export.csv';
+            a.click();
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

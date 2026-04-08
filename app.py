@@ -11,13 +11,19 @@ import json
 import threading
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from collections import Counter
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 CORS(app)
+
+# Session configuration - keep sessions alive for 7 days
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # Set to True if using HTTPS
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 # Configuration
 DATA_DIR = Path('./audit_data')
@@ -183,6 +189,13 @@ class SegmentAuditor:
         url = f"{self.v1_base}/spaces/{self.space_id}/audiences"
         return self._paginate(url, 'data')
 
+    def get_computed_traits(self):
+        """Get all computed traits"""
+        if not self.space_id:
+            return []
+        url = f"{self.v1_base}/spaces/{self.space_id}/computed-traits"
+        return self._paginate(url, 'data')
+
     def get_reverse_etl_models(self):
         """Get all Reverse ETL models"""
         url = f"{self.v1_base}/reverse-etl-models"
@@ -255,6 +268,41 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
+def infer_computed_trait_type(definition):
+    """Infer the type of computed trait from its definition"""
+    if not isinstance(definition, dict):
+        return 'Unknown'
+
+    query = definition.get('query', '').lower()
+
+    # Check for aggregation types
+    if '.count()' in query:
+        return 'Event Count'
+    elif '.sum(' in query:
+        return 'Sum Aggregation'
+    elif '.avg(' in query or '.average(' in query:
+        return 'Average Aggregation'
+    elif '.min(' in query:
+        return 'Minimum Value'
+    elif '.max(' in query:
+        return 'Maximum Value'
+    elif 'most_frequent' in query or '.most(' in query or '.mode(' in query or 'mode(' in query:
+        return 'Most Frequent'
+    elif 'least_frequent' in query or '.least(' in query:
+        return 'Least Frequent'
+    elif 'first(' in query or '.first' in query:
+        return 'First Occurrence'
+    elif 'last(' in query or '.last' in query:
+        return 'Last Occurrence'
+    elif '.unique.count()' in query or 'unique_count' in query:
+        return 'Unique Count'
+    elif '.unique' in query or 'unique()' in query or 'distinct' in query:
+        return 'Unique List'
+    elif 'trait(' in query and 'event(' not in query:
+        return 'Trait Transformation'
+    else:
+        return 'Custom'
+
 def run_audit(api_token, skip_ssl_verify=False):
     """Run the audit in background thread"""
     global audit_status
@@ -267,6 +315,21 @@ def run_audit(api_token, skip_ssl_verify=False):
             'complete': False,
             'error': None
         }
+
+        # Clear old data files to ensure fresh start
+        old_files = [
+            'segment_audiences_audit.csv',
+            'segment_computed_traits_audit.csv',
+            'segment_sources_audit.csv',
+            'segment_retl_models.json',
+            'event_coverage.csv',
+            'trait_coverage.csv',
+            'segment_event_volumes.json'
+        ]
+        for filename in old_files:
+            file_path = DATA_DIR / filename
+            if file_path.exists():
+                file_path.unlink()
 
         # Fetch workspace info from token
         auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
@@ -296,6 +359,8 @@ def run_audit(api_token, skip_ssl_verify=False):
         audit_status['message'] = f'Found {len(space_list)} space(s). Connecting to Segment API...'
 
         all_audiences = []
+        all_computed_traits = []
+        computed_traits_access_error = None
         all_events = Counter()
         all_traits = Counter()
         sources_data = []
@@ -431,6 +496,37 @@ def run_audit(api_token, skip_ssl_verify=False):
                 for trait in traits:
                     all_traits[trait] += 1
 
+            # Collect computed traits from this space
+            try:
+                computed_traits = auditor.get_computed_traits()
+                for ct in computed_traits:
+                    # Extract the definition to infer type
+                    definition = ct.get('definition', {})
+                    definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
+
+                    # Infer computed trait type from definition
+                    ct_type = infer_computed_trait_type(definition)
+
+                    computed_trait_data = {
+                        'ID': ct.get('id', ''),
+                        'Enabled': ct.get('enabled', False),
+                        'Name': ct.get('name', ''),
+                        'Key': ct.get('key', ''),
+                        'Type': ct_type,
+                        'Definition': definition_query,
+                        'Created At': ct.get('createdAt', ''),
+                        'Updated At': ct.get('updatedAt', ''),
+                        'Space ID': space_id
+                    }
+                    all_computed_traits.append(computed_trait_data)
+            except Exception as e:
+                error_str = str(e)
+                print(f"Warning: Could not fetch computed traits for space {space_id}: {e}")
+
+                # Check if it's a 403 forbidden error (private beta access needed)
+                if '403' in error_str or 'forbidden' in error_str.lower() or 'Not authorized' in error_str:
+                    computed_traits_access_error = 'no_access'
+
         # Save data files
         audit_status['message'] = 'Saving audit data...'
         audit_status['progress'] = 80
@@ -466,6 +562,12 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'disabled': len([a for a in all_audiences if not a['Enabled']]),
                 'empty': len([a for a in all_audiences if a['Size'] == 0])
             },
+            'computed_traits': {
+                'total': len(all_computed_traits),
+                'enabled': len([ct for ct in all_computed_traits if ct['Enabled']]),
+                'disabled': len([ct for ct in all_computed_traits if not ct['Enabled']]),
+                'access_error': computed_traits_access_error
+            },
             'coverage': {
                 'unique_events_referenced': len(all_events),
                 'unique_traits_referenced': len(all_traits),
@@ -486,6 +588,13 @@ def run_audit(api_token, skip_ssl_verify=False):
                 writer = csv.DictWriter(f, fieldnames=all_audiences[0].keys())
                 writer.writeheader()
                 writer.writerows(all_audiences)
+
+        # Computed Traits
+        if all_computed_traits:
+            with open(DATA_DIR / 'segment_computed_traits_audit.csv', 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=all_computed_traits[0].keys())
+                writer.writeheader()
+                writer.writerows(all_computed_traits)
 
         # Events
         with open(DATA_DIR / 'event_coverage.csv', 'w', newline='', encoding='utf-8') as f:
@@ -512,6 +621,54 @@ def run_audit(api_token, skip_ssl_verify=False):
         if retl_models_data:
             with open(DATA_DIR / 'segment_retl_models.json', 'w', encoding='utf-8') as f:
                 json.dump(retl_models_data, f, indent=2)
+
+        # Collect observability data (event volumes)
+        audit_status['message'] = 'Collecting event volume data...'
+        audit_status['progress'] = 95
+        event_volume_data = {}
+        try:
+            from datetime import timedelta
+            now = datetime.now()
+            seven_days_ago = now - timedelta(days=7)
+            fourteen_days_ago = now - timedelta(days=14)
+
+            end_time = now.isoformat() + 'Z'
+            seven_day_start = seven_days_ago.isoformat() + 'Z'
+            fourteen_day_start = fourteen_days_ago.isoformat() + 'Z'
+
+            # Get workspace volumes
+            auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
+            seven_day_volume = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY')
+            fourteen_day_volume = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY')
+            seven_day_by_source = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY', group_by=['sourceId'])
+
+            event_volume_data = {
+                'seven_day': seven_day_volume,
+                'fourteen_day': fourteen_day_volume,
+                'seven_day_by_source': seven_day_by_source,
+                'collection_time': now.isoformat()
+            }
+
+            # Save event volumes
+            with open(DATA_DIR / 'segment_event_volumes.json', 'w', encoding='utf-8') as f:
+                json.dump(event_volume_data, f, indent=2)
+
+            # Add summary to audit_summary
+            summary['observability'] = {
+                'collected': True,
+                'collection_time': now.isoformat()
+            }
+        except Exception as e:
+            print(f"Warning: Could not fetch event volumes: {e}")
+            event_volume_data = {}
+            summary['observability'] = {
+                'collected': False,
+                'error': str(e)
+            }
+
+        # Re-save summary with observability data
+        with open(DATA_DIR / 'audit_summary.json', 'w') as f:
+            json.dump(summary, f, indent=2)
 
         audit_status['message'] = 'Audit complete!'
         audit_status['progress'] = 100
@@ -550,6 +707,7 @@ def run_audit_route():
         return jsonify({'error': 'API token is required'}), 400
 
     # Store credentials in session for later use (workspace details will be fetched during audit)
+    session.permanent = True  # Keep session alive for configured lifetime (7 days)
     session['api_token'] = api_token
     session['skip_ssl'] = skip_ssl
 
@@ -583,6 +741,7 @@ def status():
     # If audit is complete and workspace info is available, update session
     if audit_status.get('complete') and 'workspace_info' in audit_status:
         workspace_info = audit_status['workspace_info']
+        session.permanent = True  # Extend session lifetime
         session['customer_name'] = workspace_info['customer_name']
         session['workspace_slug'] = workspace_info['workspace_slug']
         session['workspace_id'] = workspace_info['workspace_id']
@@ -627,6 +786,12 @@ def sources():
     """Sources view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('sources.html', customer_name=customer_name)
+
+@app.route('/computed-traits')
+def computed_traits_view():
+    """Computed traits view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('computed_traits.html', customer_name=customer_name)
 
 @app.route('/observability')
 def observability():
@@ -725,12 +890,28 @@ def export_workspace_markdown():
         with open(retl_file, 'r', encoding='utf-8') as f:
             retl_models = json.load(f)
 
+    # Load computed traits
+    computed_traits = []
+    computed_traits_file = DATA_DIR / 'segment_computed_traits_audit.csv'
+    if computed_traits_file.exists():
+        with open(computed_traits_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            computed_traits = list(reader)
+
     # Build markdown content
     audit_date = summary.get('audit_date', '')
     if audit_date:
         from datetime import datetime
         audit_date_obj = datetime.fromisoformat(audit_date)
         audit_date = audit_date_obj.strftime('%B %d, %Y at %I:%M %p')
+
+    # Check if computed traits are accessible
+    has_computed_traits_access = not summary.get('computed_traits', {}).get('access_error')
+
+    # Build executive summary with conditional computed traits line
+    computed_traits_line = ""
+    if has_computed_traits_access:
+        computed_traits_line = f"\n**Computed Traits:** {summary.get('computed_traits', {}).get('total', 0)} ({summary.get('computed_traits', {}).get('enabled', 0)} enabled)"
 
     md_content = f"""# {customer_name} - Segment Workspace Analysis
 
@@ -739,7 +920,7 @@ def export_workspace_markdown():
 **Audit Date:** {audit_date}
 **Workspace:** {workspace_slug}
 **Total Sources:** {summary.get('sources', {}).get('total', 0)} ({summary.get('sources', {}).get('enabled', 0)} enabled)
-**Total Audiences:** {summary.get('audiences', {}).get('total', 0)} ({summary.get('audiences', {}).get('enabled', 0)} enabled)
+**Total Audiences:** {summary.get('audiences', {}).get('total', 0)} ({summary.get('audiences', {}).get('enabled', 0)} enabled){computed_traits_line}
 **Reverse ETL Models:** {len(retl_models)} ({len([m for m in retl_models if m.get('Enabled')])} enabled)
 **Unique Events Referenced:** {summary.get('coverage', {}).get('unique_events_referenced', 0)}
 **Unique Traits Referenced:** {summary.get('coverage', {}).get('unique_traits_referenced', 0)}
@@ -899,6 +1080,53 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     if len(enabled_audiences) > 20:
         md_content += f"\n_...and {len(enabled_audiences) - 20} more active audiences_\n"
 
+    # Only include computed traits section if workspace has access
+    if has_computed_traits_access:
+        md_content += "\n---\n\n## Computed Traits\n\n"
+        md_content += f"This workspace has **{len(computed_traits)} computed traits** that calculate and store user attributes based on event data and aggregations.\n\n"
+
+        if computed_traits:
+            # Count by type
+            from collections import Counter
+            type_counts = Counter()
+            for ct in computed_traits:
+                ct_type = ct.get('Type', 'Unknown')
+                type_counts[ct_type] += 1
+
+            md_content += "### Computed Trait Types\n\n"
+            for ct_type, count in type_counts.most_common():
+                md_content += f"- **{ct_type}:** {count} trait(s)\n"
+
+            # Show active computed traits
+            enabled_traits = [ct for ct in computed_traits if ct.get('Enabled', '').lower() == 'true']
+            md_content += f"\n### Active Computed Traits ({len(enabled_traits)})\n\n"
+
+            if enabled_traits:
+                md_content += "The following traits are actively computing:\n\n"
+                for ct in enabled_traits[:15]:  # Show top 15
+                    ct_name = ct.get('Name', '')
+                    ct_type = ct.get('Type', 'Unknown')
+                    ct_def = ct.get('Definition', '')
+
+                    md_content += f"#### {ct_name}\n"
+                    md_content += f"- **Type:** {ct_type}\n"
+
+                    # Show definition snippet (first 150 chars)
+                    if ct_def:
+                        def_snippet = ct_def[:150].replace('\n', ' ')
+                        if len(ct_def) > 150:
+                            def_snippet += '...'
+                        md_content += f"- **Definition:** `{def_snippet}`\n"
+
+                    md_content += "\n"
+
+                if len(enabled_traits) > 15:
+                    md_content += f"\n_...and {len(enabled_traits) - 15} more active computed traits_\n"
+            else:
+                md_content += "No active computed traits found.\n"
+        else:
+            md_content += "No computed traits configured in this workspace.\n"
+
     md_content += "\n---\n\n## Event & Trait Coverage\n\n"
     md_content += "### Top Events Referenced in Audiences\n\n"
 
@@ -960,15 +1188,190 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     if mobile_sources > 0:
         md_content += f"- **Mobile Tracking:** {mobile_sources} mobile app source(s) for iOS/Android tracking\n"
 
+    # Add Observability section
+    md_content += "\n---\n\n## Event Volume & Observability\n\n"
+
+    # Load event volume data
+    event_volume_file = DATA_DIR / 'segment_event_volumes.json'
+    if event_volume_file.exists():
+        with open(event_volume_file, 'r', encoding='utf-8') as f:
+            event_volumes = json.load(f)
+
+        seven_day = event_volumes.get('seven_day', {})
+        fourteen_day = event_volumes.get('fourteen_day', {})
+        seven_day_by_source = event_volumes.get('seven_day_by_source', {})
+
+        # Calculate workspace-level totals
+        seven_day_total = sum(day.get('value', 0) for day in seven_day.get('data', []))
+        fourteen_day_total = sum(day.get('value', 0) for day in fourteen_day.get('data', []))
+
+        md_content += f"### Workspace Event Volume\n\n"
+        md_content += f"**Last 7 Days:** {seven_day_total:,} events\n\n"
+        md_content += f"**Last 14 Days:** {fourteen_day_total:,} events\n\n"
+
+        # Calculate daily averages
+        if len(seven_day.get('data', [])) > 0:
+            daily_avg_7d = seven_day_total / len(seven_day.get('data', []))
+            md_content += f"**Daily Average (7d):** {daily_avg_7d:,.0f} events/day\n\n"
+
+        if len(fourteen_day.get('data', [])) > 0:
+            daily_avg_14d = fourteen_day_total / len(fourteen_day.get('data', []))
+            md_content += f"**Daily Average (14d):** {daily_avg_14d:,.0f} events/day\n\n"
+
+        # Analyze volume by source
+        md_content += f"### Event Volume by Source\n\n"
+
+        # Group by source and calculate totals
+        source_volumes = {}
+        for entry in seven_day_by_source.get('data', []):
+            source_id = entry.get('sourceId', 'Unknown')
+            volume = entry.get('value', 0)
+            if source_id not in source_volumes:
+                source_volumes[source_id] = 0
+            source_volumes[source_id] += volume
+
+        # Sort by volume
+        sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1], reverse=True)
+
+        if sorted_sources:
+            md_content += "Sources ranked by 7-day event volume:\n\n"
+
+            for source_id, volume in sorted_sources[:15]:  # Top 15 sources
+                # Find source name
+                source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                source_name = source.get('Source Name', source_id) if source else source_id
+
+                # Calculate percentage of total
+                percentage = (volume / seven_day_total * 100) if seven_day_total > 0 else 0
+
+                md_content += f"- **{source_name}:** {volume:,} events ({percentage:.1f}%)\n"
+
+            if len(sorted_sources) > 15:
+                remaining_volume = sum(v for _, v in sorted_sources[15:])
+                remaining_percentage = (remaining_volume / seven_day_total * 100) if seven_day_total > 0 else 0
+                md_content += f"\n_...and {len(sorted_sources) - 15} more source(s) with {remaining_volume:,} events ({remaining_percentage:.1f}%)_\n"
+
+        # Identify low volume sources
+        md_content += f"\n### Low Volume Sources\n\n"
+        low_volume_threshold = 100  # Less than 100 events in 7 days
+        low_volume_sources = [(sid, vol) for sid, vol in sorted_sources if vol < low_volume_threshold]
+
+        if low_volume_sources:
+            md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
+            for source_id, volume in low_volume_sources[:10]:
+                source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                source_name = source.get('Source Name', source_id) if source else source_id
+                md_content += f"- **{source_name}:** {volume:,} events\n"
+
+            if len(low_volume_sources) > 10:
+                md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
+
+            md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
+        else:
+            md_content += "All sources have healthy event volumes.\n"
+
+        # Analyze volume trends
+        md_content += f"\n### Volume Trends\n\n"
+
+        # Compare 7-day vs 14-day to detect trends
+        if fourteen_day_total > 0 and seven_day_total > 0:
+            # Calculate daily average for both periods
+            seven_day_daily = seven_day_total / 7
+            # For 14-day, we want the first 7 days (days 8-14)
+            fourteen_day_daily = (fourteen_day_total - seven_day_total) / 7 if fourteen_day_total > seven_day_total else 0
+
+            if fourteen_day_daily > 0:
+                change_pct = ((seven_day_daily - fourteen_day_daily) / fourteen_day_daily) * 100
+
+                if abs(change_pct) > 20:
+                    trend = "significant increase" if change_pct > 0 else "significant decrease"
+                    md_content += f"⚠️ **Volume Alert:** Event volume shows a **{trend}** of {abs(change_pct):.1f}% compared to the previous 7-day period.\n\n"
+
+                    if change_pct < 0:
+                        md_content += "This decline may indicate:\n"
+                        md_content += "- Data collection issues\n"
+                        md_content += "- Reduced user activity\n"
+                        md_content += "- Sources being disabled or misconfigured\n"
+                    else:
+                        md_content += "This increase may indicate:\n"
+                        md_content += "- New sources being enabled\n"
+                        md_content += "- Increased user activity\n"
+                        md_content += "- New tracking implementations\n"
+                elif abs(change_pct) < 5:
+                    md_content += f"✅ Event volume is stable with only a {abs(change_pct):.1f}% change compared to the previous 7-day period.\n"
+                else:
+                    trend_word = "increase" if change_pct > 0 else "decrease"
+                    md_content += f"Event volume shows a moderate {trend_word} of {abs(change_pct):.1f}% compared to the previous 7-day period.\n"
+
+        # Analyze daily volume variability (volatility)
+        md_content += f"\n### Daily Volume Variability\n\n"
+
+        if sorted_sources and len(sorted_sources) > 0:
+            # Calculate volatility for each source
+            source_volatility = []
+
+            for source_id, _ in sorted_sources[:15]:  # Top 15 sources
+                source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                source_name = source.get('Source Name', source_id) if source else source_id
+
+                # Get daily volumes for this source from seven_day_by_source
+                daily_volumes = []
+                for entry in seven_day_by_source.get('data', []):
+                    if entry.get('sourceId') == source_id:
+                        daily_volumes.append(entry.get('value', 0))
+
+                if len(daily_volumes) > 1:
+                    # Calculate average and standard deviation
+                    avg = sum(daily_volumes) / len(daily_volumes)
+                    if avg > 0:
+                        variance = sum((x - avg) ** 2 for x in daily_volumes) / len(daily_volumes)
+                        std_dev = variance ** 0.5
+                        coefficient_of_variation = (std_dev / avg) * 100  # Percentage
+
+                        # Calculate max swing
+                        max_swing = max(abs(x - avg) for x in daily_volumes) if daily_volumes else 0
+                        max_swing_pct = (max_swing / avg * 100) if avg > 0 else 0
+
+                        source_volatility.append({
+                            'name': source_name,
+                            'cv': coefficient_of_variation,
+                            'max_swing_pct': max_swing_pct,
+                            'avg': avg
+                        })
+
+            # Sort by coefficient of variation (highest variability first)
+            source_volatility.sort(key=lambda x: x['cv'], reverse=True)
+
+            if source_volatility:
+                md_content += "Sources with the highest day-to-day volume variability:\n\n"
+
+                for vol_data in source_volatility[:5]:  # Top 5 most volatile
+                    md_content += f"- **{vol_data['name']}:** "
+                    md_content += f"{vol_data['cv']:.1f}% variability, "
+                    md_content += f"max swing ±{vol_data['max_swing_pct']:.1f}% from average\n"
+
+                md_content += "\n⚠️ **Note:** High variability may indicate:\n"
+                md_content += "- Batch processing or scheduled jobs\n"
+                md_content += "- Event-driven spikes (e.g., marketing campaigns, product launches)\n"
+                md_content += "- Data quality issues or intermittent collection problems\n"
+            else:
+                md_content += "Volume variability analysis not available for this time period.\n"
+        else:
+            md_content += "Not enough data to analyze volume variability.\n"
+    else:
+        md_content += "Event volume data not available. This data is collected during workspace audits.\n"
+
     md_content += "\n---\n\n## Recommendations for AI Analysis\n\n"
     md_content += """When analyzing this workspace, consider:
 
 1. **Data Flow Patterns:** Examine which sources feed into which destinations to understand data routing
 2. **Audience Strategy:** Review audience definitions and sizes to understand segmentation approach
 3. **Event Coverage:** Look at which events are most frequently used in audiences to identify key behaviors
-4. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
-5. **Data Quality:** Check for empty audiences, disabled sources, or unused connections that may indicate data quality issues
-6. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
+4. **Event Volume Health:** Analyze event volume trends and identify sources with low activity that may need attention
+5. **Volume Distribution:** Review if event volume is concentrated in a few sources or well-distributed across the workspace
+6. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
+7. **Data Quality:** Check for empty audiences, disabled sources, or unused connections that may indicate data quality issues
+8. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
 
 ---
 
@@ -1126,25 +1529,18 @@ def event_volumes():
 
         # Calculate time ranges
         now = datetime.utcnow()
-        seven_days_ago = now - timedelta(days=7)
         fourteen_days_ago = now - timedelta(days=14)
 
         # Format as ISO 8601
         end_time = now.isoformat() + 'Z'
-        seven_day_start = seven_days_ago.isoformat() + 'Z'
         fourteen_day_start = fourteen_days_ago.isoformat() + 'Z'
 
-        # Get total workspace volumes (no groupBy, just workspace totals)
-        seven_day_volume = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY')
-        fourteen_day_volume = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY')
-
-        # Get 7-day volume grouped by sourceId for the chart
-        seven_day_by_source = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY', group_by=['sourceId'])
+        # Get 14-day volume grouped by sourceId (single API call for efficiency)
+        # Frontend can filter this to 7 days if needed
+        fourteen_day_by_source = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY', group_by=['sourceId'])
 
         return jsonify({
-            'seven_day': seven_day_volume,
-            'fourteen_day': fourteen_day_volume,
-            'seven_day_by_source': seven_day_by_source
+            'fourteen_day_by_source': fourteen_day_by_source
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1216,6 +1612,7 @@ def upload_schemas():
             return jsonify({'error': 'No valid CSV files found'}), 400
 
         # Store only metadata in session
+        session.permanent = True  # Extend session lifetime
         session['project_name'] = project_name
         session['upload_id'] = upload_id
         session['schema_filenames'] = saved_files
