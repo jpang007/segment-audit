@@ -853,17 +853,16 @@ def export_workspace_markdown():
     """Export comprehensive workspace data as markdown for AI analysis"""
     from io import BytesIO
 
-    try:
-        workspace_slug = session.get('workspace_slug', 'workspace')
-        customer_name = session.get('customer_name', workspace_slug)
+    workspace_slug = session.get('workspace_slug', 'workspace')
+    customer_name = session.get('customer_name', workspace_slug)
 
-        # Load all data files
-        summary_file = DATA_DIR / 'audit_summary.json'
-        sources_file = DATA_DIR / 'segment_sources_audit.csv'
-        audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
+    # Load all data files
+    summary_file = DATA_DIR / 'audit_summary.json'
+    sources_file = DATA_DIR / 'segment_sources_audit.csv'
+    audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
 
-        if not summary_file.exists():
-            return "No audit data found. Please run an audit first.", 404
+    if not summary_file.exists():
+        return "No audit data found. Please run an audit first.", 404
 
     # Load summary
     with open(summary_file, 'r') as f:
@@ -1199,167 +1198,175 @@ This workspace contains **{len(sources)} data sources** collecting customer data
             with open(event_volume_file, 'r', encoding='utf-8') as f:
                 event_volumes = json.load(f)
 
-            seven_day = event_volumes.get('seven_day', {})
-            fourteen_day = event_volumes.get('fourteen_day', {})
-            seven_day_by_source = event_volumes.get('seven_day_by_source', {})
+            seven_day = event_volumes.get('seven_day', {}) if isinstance(event_volumes.get('seven_day'), dict) else {}
+            fourteen_day = event_volumes.get('fourteen_day', {}) if isinstance(event_volumes.get('fourteen_day'), dict) else {}
+            seven_day_by_source = event_volumes.get('seven_day_by_source', {}) if isinstance(event_volumes.get('seven_day_by_source'), dict) else {}
 
-        # Calculate workspace-level totals
-        seven_day_total = sum(day.get('value', 0) for day in seven_day.get('data', []))
-        fourteen_day_total = sum(day.get('value', 0) for day in fourteen_day.get('data', []))
+            # Calculate workspace-level totals - with validation
+            seven_day_data = seven_day.get('data', []) if isinstance(seven_day.get('data'), list) else []
+            fourteen_day_data = fourteen_day.get('data', []) if isinstance(fourteen_day.get('data'), list) else []
+            seven_day_by_source_data = seven_day_by_source.get('data', []) if isinstance(seven_day_by_source.get('data'), list) else []
 
-        md_content += f"### Workspace Event Volume\n\n"
-        md_content += f"**Last 7 Days:** {seven_day_total:,} events\n\n"
-        md_content += f"**Last 14 Days:** {fourteen_day_total:,} events\n\n"
+            seven_day_total = sum(day.get('value', 0) if isinstance(day, dict) else 0 for day in seven_day_data)
+            fourteen_day_total = sum(day.get('value', 0) if isinstance(day, dict) else 0 for day in fourteen_day_data)
 
-        # Calculate daily averages
-        if len(seven_day.get('data', [])) > 0:
-            daily_avg_7d = seven_day_total / len(seven_day.get('data', []))
-            md_content += f"**Daily Average (7d):** {daily_avg_7d:,.0f} events/day\n\n"
+            md_content += f"### Workspace Event Volume\n\n"
+            md_content += f"**Last 7 Days:** {seven_day_total:,} events\n\n"
+            md_content += f"**Last 14 Days:** {fourteen_day_total:,} events\n\n"
 
-        if len(fourteen_day.get('data', [])) > 0:
-            daily_avg_14d = fourteen_day_total / len(fourteen_day.get('data', []))
-            md_content += f"**Daily Average (14d):** {daily_avg_14d:,.0f} events/day\n\n"
+            # Calculate daily averages
+            if len(seven_day_data) > 0:
+                daily_avg_7d = seven_day_total / len(seven_day_data)
+                md_content += f"**Daily Average (7d):** {daily_avg_7d:,.0f} events/day\n\n"
 
-        # Analyze volume by source
-        md_content += f"### Event Volume by Source\n\n"
+            if len(fourteen_day_data) > 0:
+                daily_avg_14d = fourteen_day_total / len(fourteen_day_data)
+                md_content += f"**Daily Average (14d):** {daily_avg_14d:,.0f} events/day\n\n"
 
-        # Group by source and calculate totals
-        source_volumes = {}
-        for entry in seven_day_by_source.get('data', []):
-            source_id = entry.get('sourceId', 'Unknown')
-            volume = entry.get('value', 0)
-            if source_id not in source_volumes:
-                source_volumes[source_id] = 0
-            source_volumes[source_id] += volume
+            # Analyze volume by source
+            md_content += f"### Event Volume by Source\n\n"
 
-        # Sort by volume
-        sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1], reverse=True)
+            # Group by source and calculate totals
+            source_volumes = {}
+            for entry in seven_day_by_source_data:
+                if isinstance(entry, dict):
+                    source_id = entry.get('sourceId', 'Unknown')
+                    volume = entry.get('value', 0)
+                    if source_id not in source_volumes:
+                        source_volumes[source_id] = 0
+                    source_volumes[source_id] += volume
 
-        if sorted_sources:
-            md_content += "Sources ranked by 7-day event volume:\n\n"
+            # Sort by volume
+            sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1], reverse=True)
 
-            for source_id, volume in sorted_sources[:15]:  # Top 15 sources
-                # Find source name
-                source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                source_name = source.get('Source Name', source_id) if source else source_id
+            if sorted_sources:
+                md_content += "Sources ranked by 7-day event volume:\n\n"
 
-                # Calculate percentage of total
-                percentage = (volume / seven_day_total * 100) if seven_day_total > 0 else 0
+                for source_id, volume in sorted_sources[:15]:  # Top 15 sources
+                    # Find source name
+                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                    source_name = source.get('Source Name', source_id) if source else source_id
 
-                md_content += f"- **{source_name}:** {volume:,} events ({percentage:.1f}%)\n"
+                    # Calculate percentage of total
+                    percentage = (volume / seven_day_total * 100) if seven_day_total > 0 else 0
 
-            if len(sorted_sources) > 15:
-                remaining_volume = sum(v for _, v in sorted_sources[15:])
-                remaining_percentage = (remaining_volume / seven_day_total * 100) if seven_day_total > 0 else 0
-                md_content += f"\n_...and {len(sorted_sources) - 15} more source(s) with {remaining_volume:,} events ({remaining_percentage:.1f}%)_\n"
+                    md_content += f"- **{source_name}:** {volume:,} events ({percentage:.1f}%)\n"
 
-        # Identify low volume sources
-        md_content += f"\n### Low Volume Sources\n\n"
-        low_volume_threshold = 100  # Less than 100 events in 7 days
-        low_volume_sources = [(sid, vol) for sid, vol in sorted_sources if vol < low_volume_threshold]
+                if len(sorted_sources) > 15:
+                    remaining_volume = sum(v for _, v in sorted_sources[15:])
+                    remaining_percentage = (remaining_volume / seven_day_total * 100) if seven_day_total > 0 else 0
+                    md_content += f"\n_...and {len(sorted_sources) - 15} more source(s) with {remaining_volume:,} events ({remaining_percentage:.1f}%)_\n"
 
-        if low_volume_sources:
-            md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
-            for source_id, volume in low_volume_sources[:10]:
-                source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                source_name = source.get('Source Name', source_id) if source else source_id
-                md_content += f"- **{source_name}:** {volume:,} events\n"
+            # Identify low volume sources
+            md_content += f"\n### Low Volume Sources\n\n"
+            low_volume_threshold = 100  # Less than 100 events in 7 days
+            low_volume_sources = [(sid, vol) for sid, vol in sorted_sources if vol < low_volume_threshold]
 
-            if len(low_volume_sources) > 10:
-                md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
+            if low_volume_sources:
+                md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
+                for source_id, volume in low_volume_sources[:10]:
+                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                    source_name = source.get('Source Name', source_id) if source else source_id
+                    md_content += f"- **{source_name}:** {volume:,} events\n"
 
-            md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
-        else:
-            md_content += "All sources have healthy event volumes.\n"
+                if len(low_volume_sources) > 10:
+                    md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
 
-        # Analyze volume trends
-        md_content += f"\n### Volume Trends\n\n"
-
-        # Compare 7-day vs 14-day to detect trends
-        if fourteen_day_total > 0 and seven_day_total > 0:
-            # Calculate daily average for both periods
-            seven_day_daily = seven_day_total / 7
-            # For 14-day, we want the first 7 days (days 8-14)
-            fourteen_day_daily = (fourteen_day_total - seven_day_total) / 7 if fourteen_day_total > seven_day_total else 0
-
-            if fourteen_day_daily > 0:
-                change_pct = ((seven_day_daily - fourteen_day_daily) / fourteen_day_daily) * 100
-
-                if abs(change_pct) > 20:
-                    trend = "significant increase" if change_pct > 0 else "significant decrease"
-                    md_content += f"⚠️ **Volume Alert:** Event volume shows a **{trend}** of {abs(change_pct):.1f}% compared to the previous 7-day period.\n\n"
-
-                    if change_pct < 0:
-                        md_content += "This decline may indicate:\n"
-                        md_content += "- Data collection issues\n"
-                        md_content += "- Reduced user activity\n"
-                        md_content += "- Sources being disabled or misconfigured\n"
-                    else:
-                        md_content += "This increase may indicate:\n"
-                        md_content += "- New sources being enabled\n"
-                        md_content += "- Increased user activity\n"
-                        md_content += "- New tracking implementations\n"
-                elif abs(change_pct) < 5:
-                    md_content += f"✅ Event volume is stable with only a {abs(change_pct):.1f}% change compared to the previous 7-day period.\n"
-                else:
-                    trend_word = "increase" if change_pct > 0 else "decrease"
-                    md_content += f"Event volume shows a moderate {trend_word} of {abs(change_pct):.1f}% compared to the previous 7-day period.\n"
-
-        # Analyze daily volume variability (volatility)
-        md_content += f"\n### Daily Volume Variability\n\n"
-
-        if sorted_sources and len(sorted_sources) > 0:
-            # Calculate volatility for each source
-            source_volatility = []
-
-            for source_id, _ in sorted_sources[:15]:  # Top 15 sources
-                source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                source_name = source.get('Source Name', source_id) if source else source_id
-
-                # Get daily volumes for this source from seven_day_by_source
-                daily_volumes = []
-                for entry in seven_day_by_source.get('data', []):
-                    if entry.get('sourceId') == source_id:
-                        daily_volumes.append(entry.get('value', 0))
-
-                if len(daily_volumes) > 1:
-                    # Calculate average and standard deviation
-                    avg = sum(daily_volumes) / len(daily_volumes)
-                    if avg > 0:
-                        variance = sum((x - avg) ** 2 for x in daily_volumes) / len(daily_volumes)
-                        std_dev = variance ** 0.5
-                        coefficient_of_variation = (std_dev / avg) * 100  # Percentage
-
-                        # Calculate max swing
-                        max_swing = max(abs(x - avg) for x in daily_volumes) if daily_volumes else 0
-                        max_swing_pct = (max_swing / avg * 100) if avg > 0 else 0
-
-                        source_volatility.append({
-                            'name': source_name,
-                            'cv': coefficient_of_variation,
-                            'max_swing_pct': max_swing_pct,
-                            'avg': avg
-                        })
-
-            # Sort by coefficient of variation (highest variability first)
-            source_volatility.sort(key=lambda x: x['cv'], reverse=True)
-
-            if source_volatility:
-                md_content += "Sources with the highest day-to-day volume variability:\n\n"
-
-                for vol_data in source_volatility[:5]:  # Top 5 most volatile
-                    md_content += f"- **{vol_data['name']}:** "
-                    md_content += f"{vol_data['cv']:.1f}% variability, "
-                    md_content += f"max swing ±{vol_data['max_swing_pct']:.1f}% from average\n"
-
-                md_content += "\n⚠️ **Note:** High variability may indicate:\n"
-                md_content += "- Batch processing or scheduled jobs\n"
-                md_content += "- Event-driven spikes (e.g., marketing campaigns, product launches)\n"
-                md_content += "- Data quality issues or intermittent collection problems\n"
+                md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
             else:
-                md_content += "Volume variability analysis not available for this time period.\n"
-        else:
-            md_content += "Not enough data to analyze volume variability.\n"
+                md_content += "All sources have healthy event volumes.\n"
+
+            # Analyze volume trends
+            md_content += f"\n### Volume Trends\n\n"
+
+            # Compare 7-day vs 14-day to detect trends
+            if fourteen_day_total > 0 and seven_day_total > 0:
+                # Calculate daily average for both periods
+                seven_day_daily = seven_day_total / 7
+                # For 14-day, we want the first 7 days (days 8-14)
+                fourteen_day_daily = (fourteen_day_total - seven_day_total) / 7 if fourteen_day_total > seven_day_total else 0
+
+                if fourteen_day_daily > 0:
+                    change_pct = ((seven_day_daily - fourteen_day_daily) / fourteen_day_daily) * 100
+
+                    if abs(change_pct) > 20:
+                        trend = "significant increase" if change_pct > 0 else "significant decrease"
+                        md_content += f"⚠️ **Volume Alert:** Event volume shows a **{trend}** of {abs(change_pct):.1f}% compared to the previous 7-day period.\n\n"
+
+                        if change_pct < 0:
+                            md_content += "This decline may indicate:\n"
+                            md_content += "- Data collection issues\n"
+                            md_content += "- Reduced user activity\n"
+                            md_content += "- Sources being disabled or misconfigured\n"
+                        else:
+                            md_content += "This increase may indicate:\n"
+                            md_content += "- New sources being enabled\n"
+                            md_content += "- Increased user activity\n"
+                            md_content += "- New tracking implementations\n"
+                    elif abs(change_pct) < 5:
+                        md_content += f"✅ Event volume is stable with only a {abs(change_pct):.1f}% change compared to the previous 7-day period.\n"
+                    else:
+                        trend_word = "increase" if change_pct > 0 else "decrease"
+                        md_content += f"Event volume shows a moderate {trend_word} of {abs(change_pct):.1f}% compared to the previous 7-day period.\n"
+
+            # Analyze daily volume variability (volatility)
+            md_content += f"\n### Daily Volume Variability\n\n"
+
+            if sorted_sources and len(sorted_sources) > 0:
+                # Calculate volatility for each source
+                source_volatility = []
+
+                for source_id, _ in sorted_sources[:15]:  # Top 15 sources
+                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
+                    source_name = source.get('Source Name', source_id) if source else source_id
+
+                    # Get daily volumes for this source from seven_day_by_source
+                    daily_volumes = []
+                    for entry in seven_day_by_source_data:
+                        if isinstance(entry, dict) and entry.get('sourceId') == source_id:
+                            daily_volumes.append(entry.get('value', 0))
+
+                    if len(daily_volumes) > 1:
+                        # Calculate average and standard deviation
+                        avg = sum(daily_volumes) / len(daily_volumes)
+                        if avg > 0:
+                            variance = sum((x - avg) ** 2 for x in daily_volumes) / len(daily_volumes)
+                            std_dev = variance ** 0.5
+                            coefficient_of_variation = (std_dev / avg) * 100  # Percentage
+
+                            # Calculate max swing
+                            max_swing = max(abs(x - avg) for x in daily_volumes) if daily_volumes else 0
+                            max_swing_pct = (max_swing / avg * 100) if avg > 0 else 0
+
+                            source_volatility.append({
+                                'name': source_name,
+                                'cv': coefficient_of_variation,
+                                'max_swing_pct': max_swing_pct,
+                                'avg': avg
+                            })
+
+                # Sort by coefficient of variation (highest variability first)
+                source_volatility.sort(key=lambda x: x['cv'], reverse=True)
+
+                if source_volatility:
+                    md_content += "Sources with the highest day-to-day volume variability:\n\n"
+
+                    for vol_data in source_volatility[:5]:  # Top 5 most volatile
+                        md_content += f"- **{vol_data['name']}:** "
+                        md_content += f"{vol_data['cv']:.1f}% variability, "
+                        md_content += f"max swing ±{vol_data['max_swing_pct']:.1f}% from average\n"
+
+                    md_content += "\n⚠️ **Note:** High variability may indicate:\n"
+                    md_content += "- Batch processing or scheduled jobs\n"
+                    md_content += "- Event-driven spikes (e.g., marketing campaigns, product launches)\n"
+                    md_content += "- Data quality issues or intermittent collection problems\n"
+                else:
+                    md_content += "Volume variability analysis not available for this time period.\n"
+            else:
+                md_content += "Not enough data to analyze volume variability.\n"
+        except Exception as obs_error:
+            print(f"Error processing observability data: {obs_error}")
+            md_content += f"\n⚠️ Error loading observability data: {str(obs_error)}\n"
         except Exception as obs_error:
             print(f"Error processing observability data: {obs_error}")
             md_content += f"\n⚠️ Error loading observability data: {str(obs_error)}\n"
@@ -1393,23 +1400,17 @@ This markdown file was generated from a Segment workspace audit and is optimized
 For more detailed analysis, consider reviewing the source schemas directly in Segment or examining raw event data in your data warehouse.
 """
 
-        # Create response
-        output = BytesIO(md_content.encode('utf-8'))
-        output.seek(0)
+    # Create response
+    output = BytesIO(md_content.encode('utf-8'))
+    output.seek(0)
 
-        from flask import send_file
-        return send_file(
-            output,
-            mimetype='text/markdown',
-            as_attachment=True,
-            download_name=f'{customer_name}_workspace_analysis.md'
-        )
-
-    except Exception as e:
-        print(f"Error generating markdown export: {e}")
-        import traceback
-        traceback.print_exc()
-        return f"Error generating export: {str(e)}", 500
+    from flask import send_file
+    return send_file(
+        output,
+        mimetype='text/markdown',
+        as_attachment=True,
+        download_name=f'{customer_name}_workspace_analysis.md'
+    )
 
 @app.route('/export-workspace-analysis')
 def export_workspace_analysis():
