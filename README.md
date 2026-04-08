@@ -129,9 +129,9 @@ python3 app.py
 - **No Framework Overhead**: Pure vanilla JavaScript for fast load times
 
 ### Session Management
-- **7-Day Persistence**: Audit data persists for a week without re-fetching
+- **Persistent Sessions**: Session lasts 7 days (no need to re-enter API token)
 - **Background Processing**: Async data collection with real-time progress updates
-- **Fresh Data**: Automatic cleanup of stale data files on each audit run
+- **Fresh Data**: Automatic cleanup of previous audit data when running new audits
 
 ## 🛠️ Tech Stack
 
