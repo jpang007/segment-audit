@@ -853,16 +853,17 @@ def export_workspace_markdown():
     """Export comprehensive workspace data as markdown for AI analysis"""
     from io import BytesIO
 
-    workspace_slug = session.get('workspace_slug', 'workspace')
-    customer_name = session.get('customer_name', workspace_slug)
+    try:
+        workspace_slug = session.get('workspace_slug', 'workspace')
+        customer_name = session.get('customer_name', workspace_slug)
 
-    # Load all data files
-    summary_file = DATA_DIR / 'audit_summary.json'
-    sources_file = DATA_DIR / 'segment_sources_audit.csv'
-    audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
+        # Load all data files
+        summary_file = DATA_DIR / 'audit_summary.json'
+        sources_file = DATA_DIR / 'segment_sources_audit.csv'
+        audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
 
-    if not summary_file.exists():
-        return "No audit data found. Please run an audit first.", 404
+        if not summary_file.exists():
+            return "No audit data found. Please run an audit first.", 404
 
     # Load summary
     with open(summary_file, 'r') as f:
@@ -1194,12 +1195,13 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     # Load event volume data
     event_volume_file = DATA_DIR / 'segment_event_volumes.json'
     if event_volume_file.exists():
-        with open(event_volume_file, 'r', encoding='utf-8') as f:
-            event_volumes = json.load(f)
+        try:
+            with open(event_volume_file, 'r', encoding='utf-8') as f:
+                event_volumes = json.load(f)
 
-        seven_day = event_volumes.get('seven_day', {})
-        fourteen_day = event_volumes.get('fourteen_day', {})
-        seven_day_by_source = event_volumes.get('seven_day_by_source', {})
+            seven_day = event_volumes.get('seven_day', {})
+            fourteen_day = event_volumes.get('fourteen_day', {})
+            seven_day_by_source = event_volumes.get('seven_day_by_source', {})
 
         # Calculate workspace-level totals
         seven_day_total = sum(day.get('value', 0) for day in seven_day.get('data', []))
@@ -1358,6 +1360,9 @@ This workspace contains **{len(sources)} data sources** collecting customer data
                 md_content += "Volume variability analysis not available for this time period.\n"
         else:
             md_content += "Not enough data to analyze volume variability.\n"
+        except Exception as obs_error:
+            print(f"Error processing observability data: {obs_error}")
+            md_content += f"\n⚠️ Error loading observability data: {str(obs_error)}\n"
     else:
         md_content += "Event volume data not available. This data is collected during workspace audits.\n"
 
@@ -1388,17 +1393,23 @@ This markdown file was generated from a Segment workspace audit and is optimized
 For more detailed analysis, consider reviewing the source schemas directly in Segment or examining raw event data in your data warehouse.
 """
 
-    # Create response
-    output = BytesIO(md_content.encode('utf-8'))
-    output.seek(0)
+        # Create response
+        output = BytesIO(md_content.encode('utf-8'))
+        output.seek(0)
 
-    from flask import send_file
-    return send_file(
-        output,
-        mimetype='text/markdown',
-        as_attachment=True,
-        download_name=f'{customer_name}_workspace_analysis.md'
-    )
+        from flask import send_file
+        return send_file(
+            output,
+            mimetype='text/markdown',
+            as_attachment=True,
+            download_name=f'{customer_name}_workspace_analysis.md'
+        )
+
+    except Exception as e:
+        print(f"Error generating markdown export: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error generating export: {str(e)}", 500
 
 @app.route('/export-workspace-analysis')
 def export_workspace_analysis():
