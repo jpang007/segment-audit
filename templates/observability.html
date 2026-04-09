@@ -319,11 +319,6 @@
 
                     totalWorkspaceVolume += total;
 
-                    // Skip Personas sources entirely
-                    if (sourceName.toLowerCase().includes('personas')) {
-                        return;
-                    }
-
                     const sourceInfo = {
                         name: sourceName,
                         total: total,
