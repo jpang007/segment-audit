@@ -690,6 +690,11 @@ def index():
     """Landing page with configuration form"""
     return render_template('index.html')
 
+@app.route('/health')
+def health():
+    """Health check endpoint for monitoring"""
+    return jsonify({'status': 'ok', 'service': 'segment-audit-dashboard'}), 200
+
 @app.route('/run-audit', methods=['POST'])
 def run_audit_route():
     """Start audit data collection"""
