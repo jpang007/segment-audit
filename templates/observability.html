@@ -76,7 +76,15 @@
                         <h2 style="margin: 0;" id="chartTitle">Daily Event Volume by Source</h2>
                         <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;" id="chartSubtitle">Top sources by volume (≥1,000 events)</p>
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: center;">
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                            <button id="btnCustomSources" onclick="toggleSourceView('custom')" class="btn btn-sm" style="background: #667eea; color: white; padding: 8px 16px;">
+                                Custom Sources
+                            </button>
+                            <button id="btnEngageSources" onclick="toggleSourceView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; padding: 8px 16px;">
+                                Engage Sources
+                            </button>
+                        </div>
                         <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
                             <button id="btn7Day" onclick="setTimeRange(7)" class="btn btn-sm" style="background: #667eea; color: white; padding: 8px 16px;">7 Days</button>
                             <button id="btn14Day" onclick="setTimeRange(14)" class="btn btn-sm" style="background: white; color: #2d3748; padding: 8px 16px;">14 Days</button>
@@ -123,6 +131,8 @@
         let currentChart = null; // Store chart instance
         let currentTimeRange = 7; // Default to 7 days
         let rawVolumeData = null; // Store raw 14-day data for filtering
+        let currentSourceView = 'custom'; // 'custom' or 'engage'
+        let sourcesData = []; // Store sources CSV data to check if Engage
 
         async function loadData() {
             try {
@@ -153,14 +163,14 @@
                     throw new Error('No event data found for this workspace. This workspace may have no active event collection.');
                 }
 
-                // Load sources to get source names
+                // Load sources to get source names and Engage status
                 try {
                     const sourcesResponse = await fetch('/audit_data/segment_sources_audit.csv');
                     const sourcesText = await sourcesResponse.text();
-                    const sources = parseCSV(sourcesText);
+                    sourcesData = parseCSV(sourcesText);
 
                     // Create map of source ID to source name
-                    sources.forEach(source => {
+                    sourcesData.forEach(source => {
                         sourcesMap[source['Source ID']] = source['Source Name'] || source['Source ID'];
                     });
                 } catch (e) {
@@ -171,6 +181,32 @@
             } catch (error) {
                 showError(error.message);
             }
+        }
+
+        function toggleSourceView(view) {
+            currentSourceView = view;
+
+            // Update button styles
+            const btnCustom = document.getElementById('btnCustomSources');
+            const btnEngage = document.getElementById('btnEngageSources');
+
+            if (view === 'custom') {
+                btnCustom.style.background = '#667eea';
+                btnCustom.style.color = 'white';
+                btnEngage.style.background = 'white';
+                btnEngage.style.color = '#2d3748';
+            } else {
+                btnCustom.style.background = 'white';
+                btnCustom.style.color = '#2d3748';
+                btnEngage.style.background = '#667eea';
+                btnEngage.style.color = 'white';
+            }
+
+            // Reset allSourcesData so it gets recalculated with the new filter
+            allSourcesData = [];
+
+            // Re-render page
+            renderPage();
         }
 
         function setTimeRange(days) {
@@ -316,6 +352,17 @@
                     const sourceId = sourceObj.id || 'Unknown';
                     const sourceName = sourceObj.name || sourceObj.slug || sourceId;
                     const total = resultItem.total || 0;
+
+                    // Check if source is Engage by looking in sourcesData
+                    const sourceRecord = sourcesData.find(s => s['Source ID'] === sourceId);
+                    const isEngage = sourceRecord && (sourceRecord['Is Engage'] || '').toString().toLowerCase() === 'true';
+
+                    // Filter based on current source view
+                    if (currentSourceView === 'custom' && isEngage) {
+                        return; // Skip Engage sources in custom view
+                    } else if (currentSourceView === 'engage' && !isEngage) {
+                        return; // Skip custom sources in Engage view
+                    }
 
                     totalWorkspaceVolume += total;
 
