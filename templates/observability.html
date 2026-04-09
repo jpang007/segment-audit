@@ -299,8 +299,23 @@
             // Filter data based on selected time range
             const filteredData = filterDataByTimeRange(rawVolumeData, currentTimeRange);
 
-            // Calculate totals
-            const total = calculateTotal(filteredData);
+            // Update chart title
+            document.getElementById('chartTitle').textContent = `Daily Event Volume by Source (Last ${currentTimeRange} Days)`;
+            document.getElementById('chartSubtitle').textContent = `All sources by volume`;
+
+            // Update low volume text
+            document.getElementById('lowVolumeText').textContent = `Sources with <1,000 events in the last ${currentTimeRange} days`;
+
+            // Render daily volume chart with filtered data (this also populates allSourcesData)
+            renderDailyVolumeChart(filteredData);
+
+            // After chart renders, calculate stats from filtered allSourcesData
+            updateStatsFromFilteredData();
+        }
+
+        function updateStatsFromFilteredData() {
+            // Calculate total from allSourcesData (which is already filtered by source view)
+            const total = allSourcesData.reduce((sum, source) => sum + source.total, 0);
 
             // Update stats
             document.getElementById('totalEvents').textContent = formatNumber(total);
@@ -309,15 +324,27 @@
             const dailyAvg = Math.round(total / currentTimeRange);
             document.getElementById('dailyAvg').textContent = formatNumber(dailyAvg);
 
-            // Update chart title
-            document.getElementById('chartTitle').textContent = `Daily Event Volume by Source (Last ${currentTimeRange} Days)`;
-            document.getElementById('chartSubtitle').textContent = `Top sources by volume (≥1,000 events)`;
+            // Update top source
+            if (allSourcesData.length > 0) {
+                const topSourceData = [...allSourcesData].sort((a, b) => b.total - a.total)[0];
+                const topSourceEl = document.getElementById('topSource');
+                topSourceEl.textContent = topSourceData.name;
 
-            // Update low volume text
-            document.getElementById('lowVolumeText').textContent = `Sources with <1,000 events in the last ${currentTimeRange} days`;
+                // Dynamically adjust font size based on name length
+                const nameLength = topSourceData.name.length;
+                if (nameLength > 30) {
+                    topSourceEl.style.fontSize = '1rem';
+                } else if (nameLength > 20) {
+                    topSourceEl.style.fontSize = '1.2rem';
+                } else {
+                    topSourceEl.style.fontSize = '1.5rem';
+                }
 
-            // Render daily volume chart with filtered data
-            renderDailyVolumeChart(filteredData);
+                document.getElementById('topSourceVolume').textContent = formatNumber(topSourceData.total) + ' events';
+            }
+
+            // Update active sources count
+            document.getElementById('activeSources').textContent = allSourcesData.length;
         }
 
         function calculateTotal(data) {
@@ -384,14 +411,15 @@
                         });
                     }
 
-                    // Categorize sources
+                    // Add all sources to main data for chart
+                    allSourcesData.push(sourceInfo);
+
+                    // Also track low volume sources for alert section
                     if (total < 1000) {
                         lowVolumeSourcesData.push({
                             name: sourceName,
                             total: total
                         });
-                    } else {
-                        allSourcesData.push(sourceInfo);
                     }
                 });
 
@@ -420,32 +448,10 @@
                 return new Date(a + ', 2026') - new Date(b + ', 2026');
             });
 
-            // Sort filtered sources by total volume (descending) and take top 15
+            // Sort filtered sources by total volume (descending) and take top 15 for chart
             const sortedSources = filteredSources
                 .sort((a, b) => b.total - a.total)
                 .slice(0, 15);
-
-            // Update top source stat card
-            if (allSourcesData.length > 0) {
-                const topSourceData = allSourcesData.sort((a, b) => b.total - a.total)[0];
-                const topSourceEl = document.getElementById('topSource');
-                topSourceEl.textContent = topSourceData.name;
-
-                // Dynamically adjust font size based on name length
-                const nameLength = topSourceData.name.length;
-                if (nameLength > 30) {
-                    topSourceEl.style.fontSize = '1rem';
-                } else if (nameLength > 20) {
-                    topSourceEl.style.fontSize = '1.2rem';
-                } else {
-                    topSourceEl.style.fontSize = '1.5rem';
-                }
-
-                document.getElementById('topSourceVolume').textContent = formatNumber(topSourceData.total) + ' events';
-            }
-
-            // Update active sources count
-            document.getElementById('activeSources').textContent = allSourcesData.length;
 
             // Prepare datasets for stacked bar chart
             const colors = [
