@@ -458,6 +458,10 @@
             const searchTerm = document.getElementById('searchBox').value.toLowerCase().trim();
 
             filteredSources = sources.filter(source => {
+                // Filter out Engage sources (system-generated)
+                const isEngage = (source['Is Engage'] || '').toString().toLowerCase() === 'true';
+                if (isEngage) return false;
+
                 const categoryMatch = !selectedCategory || source.Category === selectedCategory;
                 const enabledStr = (source.Enabled || '').toString().toLowerCase();
                 const statusMatch = !selectedStatus ||

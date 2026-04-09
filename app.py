@@ -394,9 +394,8 @@ def run_audit(api_token, skip_ssl_verify=False):
             metadata = source.get('metadata', {})
             source_type = metadata.get('name', 'Unknown')
 
-            # Skip Personas sources (Segment-generated)
-            if source_type == 'Personas':
-                continue
+            # Mark Personas/Engage sources (don't skip, just flag them)
+            is_engage = source_type == 'Personas'
 
             categories = metadata.get('categories', [])
             # Use first category as the type (e.g., "Website" instead of "Javascript")
@@ -452,7 +451,8 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'Labels': labels_str,
                 'Connected Destinations': destinations_str,
                 'Destination Count': len(destinations_list),
-                'Logo URL': source_logo
+                'Logo URL': source_logo,
+                'Is Engage': is_engage
             })
 
         # Collect audiences from each space

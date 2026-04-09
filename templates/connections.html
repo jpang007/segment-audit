@@ -78,6 +78,10 @@
                             <input type="checkbox" id="hideEmpty" onchange="updateDiagram()">
                             <span>Hide sources with no destinations</span>
                         </label>
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
+                            <input type="checkbox" id="showEngageSources" onchange="updateDiagram()">
+                            <span>Show Engage sources</span>
+                        </label>
                         <div style="position: relative;">
                             <button id="destinationFilterBtn" onclick="toggleDestinationFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.9rem; color: #4a5568;">
                                 🎯 Filter Destinations (<span id="selectedCount">0</span>)
@@ -265,20 +269,26 @@
         }
 
         function updateStats() {
-            const enabledSources = sourcesData.filter(s => s.Enabled.toLowerCase() === 'true').length;
-            const totalSources = sourcesData.length;
+            // Exclude Engage sources from stats (they're system-generated)
+            const nonEngageSources = sourcesData.filter(s => {
+                const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                return !isEngage;
+            });
 
-            // Count unique destinations
+            const enabledSources = nonEngageSources.filter(s => s.Enabled.toLowerCase() === 'true').length;
+            const totalSources = nonEngageSources.length;
+
+            // Count unique destinations (excluding Engage sources)
             const allDestinations = new Set();
-            sourcesData.forEach(source => {
+            nonEngageSources.forEach(source => {
                 const destinations = (source['Connected Destinations'] || '').split(',')
                     .map(d => d.trim())
                     .filter(d => d);
                 destinations.forEach(d => allDestinations.add(d));
             });
 
-            // Count total connections
-            const totalConnections = sourcesData.reduce((sum, source) => {
+            // Count total connections (excluding Engage sources)
+            const totalConnections = nonEngageSources.reduce((sum, source) => {
                 return sum + parseInt(source['Destination Count'] || 0);
             }, 0);
 
@@ -315,10 +325,19 @@
         function updateDiagram() {
             const showEnabledOnly = document.getElementById('showEnabledOnly').checked;
             const hideEmpty = document.getElementById('hideEmpty').checked;
+            const showEngageSources = document.getElementById('showEngageSources').checked;
             const sourceSearchTerm = document.getElementById('sourceSearchBox').value.toLowerCase().trim();
 
             // Filter data
             let filteredSources = sourcesData;
+
+            // Filter out Engage sources by default (unless toggle is checked)
+            if (!showEngageSources) {
+                filteredSources = filteredSources.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return !isEngage;
+                });
+            }
 
             // Apply search filter
             if (sourceSearchTerm) {
@@ -452,13 +471,26 @@
             };
 
             Plotly.newPlot('sankeyDiagram', data, layout, config);
+
+            // Update the connections table when diagram updates
+            renderConnectionsTable();
         }
 
         function renderConnectionsTable() {
             const tbody = document.getElementById('connectionsTableBody');
+            const showEngageSources = document.getElementById('showEngageSources').checked;
+
+            // Filter out Engage sources unless toggle is checked
+            let displaySources = sourcesData;
+            if (!showEngageSources) {
+                displaySources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return !isEngage;
+                });
+            }
 
             // Sort by destination count descending
-            const sortedSources = [...sourcesData].sort((a, b) => {
+            const sortedSources = [...displaySources].sort((a, b) => {
                 return parseInt(b['Destination Count'] || 0) - parseInt(a['Destination Count'] || 0);
             });
 
