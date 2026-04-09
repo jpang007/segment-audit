@@ -502,11 +502,11 @@
                     let linkColor;
                     if (colorStrategy === 'sources') {
                         // Color flows from source to destination
-                        linkColor = (sourceColorMap[sourceName] || '#a0aec0') + '66';
+                        linkColor = (sourceColorMap[sourceName] || '#a0aec0') + 'cc'; // 80% opacity
                     } else {
                         // Color flows from destination to source (default)
                         const destColor = destinationColorMap[dest] || '#48bb78';
-                        linkColor = destColor + '66';
+                        linkColor = destColor + 'cc'; // 80% opacity
                     }
 
                     links.push({
@@ -563,45 +563,7 @@
                 modeBarButtonsToRemove: ['lasso2d', 'select2d']
             };
 
-            Plotly.newPlot('sankeyDiagram', data, layout, config).then(function(gd) {
-                // Add hover highlighting for paths
-                const sankeyElement = document.getElementById('sankeyDiagram');
-
-                sankeyElement.on('plotly_hover', function(eventData) {
-                    if (eventData.points && eventData.points[0]) {
-                        const point = eventData.points[0];
-
-                        // If hovering over a node, highlight connected links
-                        if (point.pointNumber !== undefined) {
-                            const nodeIndex = point.pointNumber;
-
-                            // Create highlighted link colors
-                            const highlightedLinkColors = links.map((link, idx) => {
-                                // Highlight if source or target matches hovered node
-                                if (link.source === nodeIndex || link.target === nodeIndex) {
-                                    // Remove transparency for connected links
-                                    return link.color.replace('66', 'ff');
-                                } else {
-                                    // Dim unconnected links
-                                    return link.color.replace('66', '22');
-                                }
-                            });
-
-                            // Update the diagram
-                            Plotly.restyle(sankeyElement, {
-                                'link.color': [highlightedLinkColors]
-                            });
-                        }
-                    }
-                });
-
-                sankeyElement.on('plotly_unhover', function() {
-                    // Reset to original link colors
-                    Plotly.restyle(sankeyElement, {
-                        'link.color': [links.map(l => l.color)]
-                    });
-                });
-            });
+            Plotly.newPlot('sankeyDiagram', data, layout, config);
 
             // Update the connections table when diagram updates
             renderConnectionsTable();
