@@ -73,7 +73,7 @@
                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                         <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
                             <button id="btnCustomSources" onclick="toggleSourceView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
-                                Custom Sources
+                                Sources
                             </button>
                             <button id="btnEngageSources" onclick="toggleSourceView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
                                 Engage Sources
@@ -127,7 +127,17 @@
 
             <!-- Connection Details Table -->
             <div class="chart-section">
-                <h2>Connection Details</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">Connection Details</h2>
+                    <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                        <button id="btnTableSources" onclick="toggleTableView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                            Sources
+                        </button>
+                        <button id="btnTableEngage" onclick="toggleTableView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                            Engage Sources
+                        </button>
+                    </div>
+                </div>
                 <div class="table-container">
                     <table id="connectionsTable">
                         <thead>
@@ -159,7 +169,8 @@
         let sourcesData = [];
         let allDestinations = new Set();
         let selectedDestinations = new Set();
-        let currentSourceView = 'custom'; // 'custom' or 'engage'
+        let currentSourceView = 'custom'; // 'custom' or 'engage' - for diagram
+        let currentTableView = 'custom'; // 'custom' or 'engage' - for table
         let colorStrategy = 'destinations'; // 'sources' or 'destinations'
 
         async function loadData() {
@@ -292,9 +303,9 @@
         }
 
         function updateStats() {
-            // Filter based on current view
+            // Filter based on TABLE view (not diagram view)
             let viewSources;
-            if (currentSourceView === 'custom') {
+            if (currentTableView === 'custom') {
                 // Show only custom sources
                 viewSources = sourcesData.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
@@ -374,8 +385,32 @@
                 btnEngage.style.color = 'white';
             }
 
-            updateStats();
+            // Only update diagram, not stats (stats follow table view)
             updateDiagram();
+        }
+
+        function toggleTableView(view) {
+            currentTableView = view;
+
+            // Update button styles
+            const btnSources = document.getElementById('btnTableSources');
+            const btnEngage = document.getElementById('btnTableEngage');
+
+            if (view === 'custom') {
+                btnSources.style.background = '#667eea';
+                btnSources.style.color = 'white';
+                btnEngage.style.background = 'white';
+                btnEngage.style.color = '#2d3748';
+            } else {
+                btnSources.style.background = 'white';
+                btnSources.style.color = '#2d3748';
+                btnEngage.style.background = '#667eea';
+                btnEngage.style.color = 'white';
+            }
+
+            // Update both table and stats
+            updateStats();
+            renderConnectionsTable();
         }
 
         function toggleColorStrategy(strategy) {
@@ -571,17 +606,14 @@
             };
 
             Plotly.newPlot('sankeyDiagram', data, layout, config);
-
-            // Update the connections table when diagram updates
-            renderConnectionsTable();
         }
 
         function renderConnectionsTable() {
             const tbody = document.getElementById('connectionsTableBody');
 
-            // Filter based on current view
+            // Filter based on TABLE view
             let displaySources;
-            if (currentSourceView === 'custom') {
+            if (currentTableView === 'custom') {
                 displaySources = sourcesData.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
                     return !isEngage;
