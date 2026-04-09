@@ -67,7 +67,7 @@
             <!-- Filters -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
+                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
                         <h2 style="margin: 0;">Connection Flow</h2>
                         <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
                             <button id="btnCustomSources" onclick="toggleSourceView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
@@ -75,6 +75,14 @@
                             </button>
                             <button id="btnEngageSources" onclick="toggleSourceView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
                                 Engage Sources
+                            </button>
+                        </div>
+                        <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                            <button id="btnColorSources" onclick="toggleColorStrategy('sources')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Color: Sources
+                            </button>
+                            <button id="btnColorDestinations" onclick="toggleColorStrategy('destinations')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Color: Destinations
                             </button>
                         </div>
                     </div>
@@ -145,6 +153,7 @@
         let allDestinations = new Set();
         let selectedDestinations = new Set();
         let currentSourceView = 'custom'; // 'custom' or 'engage'
+        let colorStrategy = 'destinations'; // 'sources' or 'destinations'
 
         async function loadData() {
             try {
@@ -362,6 +371,28 @@
             updateDiagram();
         }
 
+        function toggleColorStrategy(strategy) {
+            colorStrategy = strategy;
+
+            // Update button styles
+            const btnSources = document.getElementById('btnColorSources');
+            const btnDestinations = document.getElementById('btnColorDestinations');
+
+            if (strategy === 'sources') {
+                btnSources.style.background = '#667eea';
+                btnSources.style.color = 'white';
+                btnDestinations.style.background = 'white';
+                btnDestinations.style.color = '#2d3748';
+            } else {
+                btnSources.style.background = 'white';
+                btnSources.style.color = '#2d3748';
+                btnDestinations.style.background = '#667eea';
+                btnDestinations.style.color = 'white';
+            }
+
+            updateDiagram();
+        }
+
         function updateDiagram() {
             const showEnabledOnly = document.getElementById('showEnabledOnly').checked;
             const hideEmpty = document.getElementById('hideEmpty').checked;
@@ -418,15 +449,19 @@
                 '#a8edea', '#fed6e3', '#c471f5', '#12c2e9'
             ];
 
+            // Create a map to store source colors for later link coloring
+            const sourceColorMap = {};
+
             // Add source nodes
             filteredSources.forEach((source, idx) => {
                 const sourceName = source['Source Name'];
                 if (!nodeMap.has(sourceName)) {
                     const sourceColor = sourceColors[idx % sourceColors.length];
+                    sourceColorMap[sourceName] = sourceColor;
                     nodeMap.set(sourceName, nodes.length);
                     nodes.push({
                         label: sourceName,
-                        color: sourceColor,
+                        color: colorStrategy === 'sources' ? sourceColor : '#a0aec0', // Gray if coloring by destinations
                         type: 'source'
                     });
                 }
@@ -455,19 +490,30 @@
                         nodeMap.set(dest, nodes.length);
                         nodes.push({
                             label: dest,
-                            color: destColor,
+                            color: colorStrategy === 'destinations' ? destColor : '#a0aec0', // Gray if coloring by sources
                             type: 'destination'
                         });
                         destinationNodes.add(dest);
                     }
 
                     const destIdx = nodeMap.get(dest);
-                    const destColor = destinationColorMap[dest] || '#48bb78';
+
+                    // Choose link color based on color strategy
+                    let linkColor;
+                    if (colorStrategy === 'sources') {
+                        // Color flows from source to destination
+                        linkColor = (sourceColorMap[sourceName] || '#a0aec0') + '66';
+                    } else {
+                        // Color flows from destination to source (default)
+                        const destColor = destinationColorMap[dest] || '#48bb78';
+                        linkColor = destColor + '66';
+                    }
+
                     links.push({
                         source: sourceIdx,
                         target: destIdx,
                         value: 1,
-                        color: destColor + '66' // Add transparency (40% opacity)
+                        color: linkColor
                     });
                 });
             });
@@ -485,7 +531,8 @@
                     },
                     label: nodes.map(n => n.label),
                     color: nodes.map(n => n.color),
-                    hovertemplate: '<b>%{label}</b><br>%{value} connection(s)<extra></extra>'
+                    hovertemplate: '<b>%{label}</b><br>%{value:.0f} connection(s)<extra></extra>',
+                    customdata: nodes.map((n, i) => ({index: i, label: n.label, type: n.type}))
                 },
                 link: {
                     source: links.map(l => l.source),
@@ -516,7 +563,45 @@
                 modeBarButtonsToRemove: ['lasso2d', 'select2d']
             };
 
-            Plotly.newPlot('sankeyDiagram', data, layout, config);
+            Plotly.newPlot('sankeyDiagram', data, layout, config).then(function(gd) {
+                // Add hover highlighting for paths
+                const sankeyElement = document.getElementById('sankeyDiagram');
+
+                sankeyElement.on('plotly_hover', function(eventData) {
+                    if (eventData.points && eventData.points[0]) {
+                        const point = eventData.points[0];
+
+                        // If hovering over a node, highlight connected links
+                        if (point.pointNumber !== undefined) {
+                            const nodeIndex = point.pointNumber;
+
+                            // Create highlighted link colors
+                            const highlightedLinkColors = links.map((link, idx) => {
+                                // Highlight if source or target matches hovered node
+                                if (link.source === nodeIndex || link.target === nodeIndex) {
+                                    // Remove transparency for connected links
+                                    return link.color.replace('66', 'ff');
+                                } else {
+                                    // Dim unconnected links
+                                    return link.color.replace('66', '22');
+                                }
+                            });
+
+                            // Update the diagram
+                            Plotly.restyle(sankeyElement, {
+                                'link.color': [highlightedLinkColors]
+                            });
+                        }
+                    }
+                });
+
+                sankeyElement.on('plotly_unhover', function() {
+                    // Reset to original link colors
+                    Plotly.restyle(sankeyElement, {
+                        'link.color': [links.map(l => l.color)]
+                    });
+                });
+            });
 
             // Update the connections table when diagram updates
             renderConnectionsTable();
