@@ -45,26 +45,7 @@
         </div>
 
         <div id="content" style="display: none;">
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card primary">
-                    <div class="label">Total Sources</div>
-                    <div class="value" id="totalSources">-</div>
-                    <div class="subtext" id="sourcesBreakdown">-</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Total Destinations</div>
-                    <div class="value" id="totalDestinations">-</div>
-                    <div class="subtext" id="destinationsBreakdown">-</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Total Connections</div>
-                    <div class="value" id="totalConnections">-</div>
-                    <div class="subtext">Source-to-destination links</div>
-                </div>
-            </div>
-
-            <!-- Filters -->
+            <!-- Connection Flow -->
             <div class="chart-section">
                 <h2 style="margin: 0 0 15px 0;">Connection Flow</h2>
 
@@ -123,6 +104,25 @@
                     </div>
                 </div>
                 <div id="sankeyDiagram" style="width: 100%; height: 800px;"></div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Sources</div>
+                    <div class="value" id="totalSources">-</div>
+                    <div class="subtext" id="sourcesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Destinations</div>
+                    <div class="value" id="totalDestinations">-</div>
+                    <div class="subtext" id="destinationsBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Connections</div>
+                    <div class="value" id="totalConnections">-</div>
+                    <div class="subtext">Source-to-destination links</div>
+                </div>
             </div>
 
             <!-- Connection Details Table -->
