@@ -66,9 +66,11 @@
 
             <!-- Filters -->
             <div class="chart-section">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
-                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
-                        <h2 style="margin: 0;">Connection Flow</h2>
+                <h2 style="margin: 0 0 15px 0;">Connection Flow</h2>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 15px; flex-wrap: wrap;">
+                    <!-- Left: View Toggles -->
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                         <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
                             <button id="btnCustomSources" onclick="toggleSourceView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
                                 Custom Sources
@@ -86,19 +88,24 @@
                             </button>
                         </div>
                     </div>
-                    <div style="display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap;">
-                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." oninput="updateDiagram()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
-                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
-                            <input type="checkbox" id="showEnabledOnly" onchange="updateDiagram()">
-                            <span>Show enabled only</span>
+
+                    <!-- Right: Filters -->
+                    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search..." oninput="updateDiagram()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem; width: 180px;">
+
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85rem; color: #4a5568; cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="showEnabledOnly" onchange="updateDiagram()" style="cursor: pointer;">
+                            <span>Enabled only</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
-                            <input type="checkbox" id="hideEmpty" onchange="updateDiagram()">
+
+                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85rem; color: #4a5568; cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="hideEmpty" onchange="updateDiagram()" style="cursor: pointer;">
                             <span>Hide empty</span>
                         </label>
+
                         <div style="position: relative;">
-                            <button id="destinationFilterBtn" onclick="toggleDestinationFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.9rem; color: #4a5568;">
-                                🎯 Filter Destinations (<span id="selectedCount">0</span>)
+                            <button id="destinationFilterBtn" onclick="toggleDestinationFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.85rem; color: #4a5568; white-space: nowrap;">
+                                🎯 Destinations (<span id="selectedCount">0</span>)
                             </button>
                             <div id="destinationFilterMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 15px; min-width: 300px; max-height: 400px; overflow-y: auto; z-index: 1000;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0;">
