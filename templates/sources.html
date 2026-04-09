@@ -232,13 +232,21 @@
             });
             document.getElementById('reportDate').textContent = `Report Date: ${reportDate}`;
 
-            // Update stats
-            const sources = summary.sources || {};
-            document.getElementById('totalSources').textContent = sources.total || 0;
-            document.getElementById('enabledSources').textContent = sources.enabled || 0;
-            document.getElementById('disabledSources').textContent = sources.disabled || 0;
+            // Update stats - exclude Engage sources to match table display
+            const nonEngageSources = sourcesData.sources.filter(s => {
+                const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                return !isEngage;
+            });
+
+            const totalSources = nonEngageSources.length;
+            const enabledSources = nonEngageSources.filter(s => (s.Enabled || '').toString().toLowerCase() === 'true').length;
+            const disabledSources = totalSources - enabledSources;
+
+            document.getElementById('totalSources').textContent = totalSources;
+            document.getElementById('enabledSources').textContent = enabledSources;
+            document.getElementById('disabledSources').textContent = disabledSources;
             document.getElementById('sourcesBreakdown').textContent =
-                `${sources.enabled || 0} enabled, ${sources.disabled || 0} disabled`;
+                `${enabledSources} enabled, ${disabledSources} disabled`;
 
             // Count unique categories
             const categories = new Set(sourcesData.sources.map(s => s.Category).filter(Boolean));
