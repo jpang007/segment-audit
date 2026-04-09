@@ -67,20 +67,26 @@
             <!-- Filters -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 20px;">
-                    <h2 style="margin: 0;">Connection Flow</h2>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <h2 style="margin: 0;">Connection Flow</h2>
+                        <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                            <button id="btnCustomSources" onclick="toggleSourceView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Custom Sources
+                            </button>
+                            <button id="btnEngageSources" onclick="toggleSourceView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Engage Sources
+                            </button>
+                        </div>
+                    </div>
                     <div style="display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap;">
                         <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." oninput="updateDiagram()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; min-width: 200px;">
                         <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
                             <input type="checkbox" id="showEnabledOnly" onchange="updateDiagram()">
-                            <span>Show enabled sources only</span>
+                            <span>Show enabled only</span>
                         </label>
                         <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
                             <input type="checkbox" id="hideEmpty" onchange="updateDiagram()">
-                            <span>Hide sources with no destinations</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 5px; font-size: 0.9rem; color: #4a5568;">
-                            <input type="checkbox" id="showEngageSources" onchange="updateDiagram()">
-                            <span>Show Engage sources</span>
+                            <span>Hide empty</span>
                         </label>
                         <div style="position: relative;">
                             <button id="destinationFilterBtn" onclick="toggleDestinationFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.9rem; color: #4a5568;">
@@ -138,6 +144,7 @@
         let sourcesData = [];
         let allDestinations = new Set();
         let selectedDestinations = new Set();
+        let currentSourceView = 'custom'; // 'custom' or 'engage'
 
         async function loadData() {
             try {
@@ -269,26 +276,36 @@
         }
 
         function updateStats() {
-            // Exclude Engage sources from stats (they're system-generated)
-            const nonEngageSources = sourcesData.filter(s => {
-                const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
-                return !isEngage;
-            });
+            // Filter based on current view
+            let viewSources;
+            if (currentSourceView === 'custom') {
+                // Show only custom sources
+                viewSources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return !isEngage;
+                });
+            } else {
+                // Show only Engage sources
+                viewSources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return isEngage;
+                });
+            }
 
-            const enabledSources = nonEngageSources.filter(s => s.Enabled.toLowerCase() === 'true').length;
-            const totalSources = nonEngageSources.length;
+            const enabledSources = viewSources.filter(s => s.Enabled.toLowerCase() === 'true').length;
+            const totalSources = viewSources.length;
 
-            // Count unique destinations (excluding Engage sources)
+            // Count unique destinations for current view
             const allDestinations = new Set();
-            nonEngageSources.forEach(source => {
+            viewSources.forEach(source => {
                 const destinations = (source['Connected Destinations'] || '').split(',')
                     .map(d => d.trim())
                     .filter(d => d);
                 destinations.forEach(d => allDestinations.add(d));
             });
 
-            // Count total connections (excluding Engage sources)
-            const totalConnections = nonEngageSources.reduce((sum, source) => {
+            // Count total connections for current view
+            const totalConnections = viewSources.reduce((sum, source) => {
                 return sum + parseInt(source['Destination Count'] || 0);
             }, 0);
 
@@ -322,20 +339,49 @@
             return colorMap;
         }
 
+        function toggleSourceView(view) {
+            currentSourceView = view;
+
+            // Update button styles
+            const btnCustom = document.getElementById('btnCustomSources');
+            const btnEngage = document.getElementById('btnEngageSources');
+
+            if (view === 'custom') {
+                btnCustom.style.background = '#667eea';
+                btnCustom.style.color = 'white';
+                btnEngage.style.background = 'white';
+                btnEngage.style.color = '#2d3748';
+            } else {
+                btnCustom.style.background = 'white';
+                btnCustom.style.color = '#2d3748';
+                btnEngage.style.background = '#667eea';
+                btnEngage.style.color = 'white';
+            }
+
+            updateStats();
+            updateDiagram();
+        }
+
         function updateDiagram() {
             const showEnabledOnly = document.getElementById('showEnabledOnly').checked;
             const hideEmpty = document.getElementById('hideEmpty').checked;
-            const showEngageSources = document.getElementById('showEngageSources').checked;
             const sourceSearchTerm = document.getElementById('sourceSearchBox').value.toLowerCase().trim();
 
-            // Filter data
+            // Filter data based on current view
             let filteredSources = sourcesData;
 
-            // Filter out Engage sources by default (unless toggle is checked)
-            if (!showEngageSources) {
+            // Filter based on source view (custom vs engage)
+            if (currentSourceView === 'custom') {
+                // Show only custom sources (exclude Engage)
                 filteredSources = filteredSources.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
                     return !isEngage;
+                });
+            } else {
+                // Show only Engage sources
+                filteredSources = filteredSources.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return isEngage;
                 });
             }
 
@@ -478,14 +524,18 @@
 
         function renderConnectionsTable() {
             const tbody = document.getElementById('connectionsTableBody');
-            const showEngageSources = document.getElementById('showEngageSources').checked;
 
-            // Filter out Engage sources unless toggle is checked
-            let displaySources = sourcesData;
-            if (!showEngageSources) {
+            // Filter based on current view
+            let displaySources;
+            if (currentSourceView === 'custom') {
                 displaySources = sourcesData.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
                     return !isEngage;
+                });
+            } else {
+                displaySources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return isEngage;
                 });
             }
 
