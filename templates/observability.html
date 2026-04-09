@@ -127,14 +127,31 @@
         async function loadData() {
             try {
                 // Fetch event volumes (14 days)
+                console.log('Fetching event volumes...');
                 const response = await fetch('/api/event-volumes');
+                console.log('Response status:', response.status);
+
                 if (!response.ok) {
                     const error = await response.json();
+                    console.error('API Error:', error);
                     throw new Error(error.error || 'Failed to load event volumes');
                 }
 
                 volumeData = await response.json();
+                console.log('Volume data received:', volumeData);
                 rawVolumeData = volumeData.fourteen_day_by_source;
+                console.log('Raw volume data:', rawVolumeData);
+
+                // Validate data structure
+                if (!rawVolumeData || !rawVolumeData.data || !rawVolumeData.data.result) {
+                    console.error('Invalid data structure:', rawVolumeData);
+                    throw new Error('Invalid event volume data structure. Please run a fresh audit.');
+                }
+
+                if (rawVolumeData.data.result.length === 0) {
+                    console.warn('No event volume data found');
+                    throw new Error('No event data found for this workspace. This workspace may have no active event collection.');
+                }
 
                 // Load sources to get source names
                 try {
