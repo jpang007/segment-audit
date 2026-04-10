@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: segment-audit
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1 --threads 2 --worker-class gthread --worker-tmp-dir /dev/shm --log-file - --access-logfile - --error-logfile - --log-level info
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: WEB_CONCURRENCY
+        value: 1

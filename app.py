@@ -780,11 +780,16 @@ def list_spaces():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/dashboard')
-def dashboard():
-    """Main dashboard view"""
+@app.route('/audiences')
+def audiences():
+    """Audiences view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('dashboard.html', customer_name=customer_name)
+
+@app.route('/dashboard')
+def dashboard():
+    """Legacy redirect to audiences"""
+    return redirect('/audiences', code=301)
 
 @app.route('/sources')
 def sources():
@@ -815,6 +820,18 @@ def retl_models():
     """Reverse ETL models view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('retl_models.html', customer_name=customer_name)
+
+@app.route('/warehouses')
+def warehouses():
+    """Warehouses view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('warehouses.html', customer_name=customer_name)
+
+@app.route('/ai-prompt')
+def ai_prompt():
+    """AI Prompt builder view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('ai-prompt.html', customer_name=customer_name)
 
 @app.route('/proxy-logo')
 def proxy_logo():
