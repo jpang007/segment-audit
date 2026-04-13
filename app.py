@@ -305,6 +305,111 @@ class SegmentAuditor:
         traverse(definition)
         return events, traits
 
+    def _graphql_query(self, query, variables=None):
+        """Execute a GraphQL query against Segment's API"""
+        url = f"{self.platform_base}/graphql"
+
+        payload = {
+            'query': query
+        }
+
+        if variables:
+            payload['variables'] = variables
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    url,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30,
+                    verify=self.verify
+                )
+
+                if response.status_code != 200:
+                    raise Exception(f"GraphQL API Error: {response.status_code} - {response.text}")
+
+                data = response.json()
+
+                # Check for GraphQL errors
+                if 'errors' in data:
+                    errors = data['errors']
+                    error_messages = ', '.join([e.get('message', str(e)) for e in errors])
+                    raise Exception(f"GraphQL Error: {error_messages}")
+
+                return data.get('data', {})
+
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    ssl_hint = " Try enabling 'Skip SSL Verification' checkbox if you're behind a VPN." if "SSL" in str(e) or "certificate" in str(e).lower() else ""
+                    raise Exception(f"Network Error: Unable to connect to Segment GraphQL API after {max_retries} attempts.{ssl_hint} Error: {str(e)}")
+
+    def get_delivery_metrics(self, source_id, destination_id, start_time=None, end_time=None, granularity='HOUR'):
+        """Get delivery metrics for a specific source-destination pair using REST API
+
+        Args:
+            source_id: The source ID
+            destination_id: The destination ID (not metadata ID)
+            start_time: ISO format datetime string (defaults to 24 hours ago)
+            end_time: ISO format datetime string (defaults to now)
+            granularity: MINUTE, HOUR, or DAY (defaults to HOUR for 24hr window)
+        """
+
+        # Default to last 24 hours if not specified
+        if not start_time or not end_time:
+            now = datetime.now()
+            end_time = now.isoformat() + 'Z'
+            start_time = (now - timedelta(hours=24)).isoformat() + 'Z'
+
+        # REST API endpoint: GET /destinations/{destinationId}/delivery-metrics
+        url = f"{self.v1_base}/destinations/{destination_id}/delivery-metrics"
+
+        params = {
+            'sourceId': source_id,
+            'startTime': start_time,
+            'endTime': end_time,
+            'granularity': granularity
+        }
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(
+                    url,
+                    headers=self.headers,
+                    params=params,
+                    timeout=30,
+                    verify=self.verify
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    # Return the deliveryMetricsSummary which contains sourceId, destinationId, and metrics array
+                    return data.get('data', {}).get('deliveryMetricsSummary', {})
+                elif response.status_code == 404:
+                    # Destination not found or no metrics available
+                    return None
+                elif response.status_code == 403:
+                    raise Exception(f"API Error: 403 - Not authorized to access delivery metrics")
+                else:
+                    raise Exception(f"API Error: {response.status_code} - {response.text}")
+
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    ssl_hint = " Try enabling 'Skip SSL Verification' checkbox if you're behind a VPN." if "SSL" in str(e) or "certificate" in str(e).lower() else ""
+                    raise Exception(f"Network Error: Unable to connect to Segment API after {max_retries} attempts.{ssl_hint} Error: {str(e)}")
+
+        return None
+
 def infer_computed_trait_type(definition):
     """Infer the type of computed trait from its definition"""
     if not isinstance(definition, dict):
@@ -536,6 +641,7 @@ def run_audit(api_token, skip_ssl_verify=False):
             audit_status['message'] = f'Collecting destinations for source {idx+1}/{len(sources)}...'
             destinations_list = []
             destination_logos = {}
+            destination_objects = []  # Keep full destination objects for metrics collection
             try:
                 source_id = source.get('id')
                 destinations = auditor.get_source_destinations(source_id)
@@ -545,11 +651,21 @@ def run_audit(api_token, skip_ssl_verify=False):
                     dest_metadata = dest.get('metadata', {})
                     dest_slug = dest_metadata.get('slug', '')
                     dest_logo = dest_metadata.get('logos', {}).get('default', '')
+                    dest_id = dest.get('id', '')
 
                     if dest_slug:
                         destinations_list.append(dest_slug)
                         if dest_logo:
                             destination_logos[dest_slug] = dest_logo
+
+                    # Store full destination object for metrics collection
+                    if dest_id:
+                        destination_objects.append({
+                            'id': dest_id,
+                            'name': dest_name,
+                            'slug': dest_slug,
+                            'metadataId': dest_metadata.get('id', '')
+                        })
             except Exception as e:
                 # If fetching destinations fails, continue with empty list
                 pass
@@ -578,8 +694,122 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'Logo URL': source_logo,
                 'Is Engage': is_engage,
                 'Space': personas_space_name or '',
-                'Space ID': personas_space_id or ''
+                'Space ID': personas_space_id or '',
+                '_destination_objects': destination_objects  # Internal field for metrics collection
             })
+
+        # Collect delivery metrics for source-destination pairs (non-engage, non-warehouse sources only)
+        # Note: Skip warehouse sources (RETL) since they're harder to visualize without model context
+        audit_status['message'] = 'Collecting delivery metrics for connected sources...'
+        audit_status['progress'] = 25
+
+        delivery_metrics_data = []
+
+        # Count total source-destination pairs (excluding engage and warehouse sources)
+        total_pairs = sum(
+            len(src.get('_destination_objects', []))
+            for src in sources_data
+            if src.get('_destination_objects')
+            and not src.get('Is Engage')
+            and src.get('Type') != 'Warehouse'  # Skip RETL/warehouse sources
+        )
+
+        if total_pairs > 0:
+            print(f"=== Collecting delivery metrics for {total_pairs} connection source-destination pairs (excluding RETL/warehouses)...")
+
+            # Get time range for metrics (last 7 days)
+            from datetime import timedelta
+            now = datetime.now()
+            end_time = now.isoformat() + 'Z'
+            start_time = (now - timedelta(days=7)).isoformat() + 'Z'
+
+            pair_count = 0
+            graphql_access_denied = False
+
+            for src in sources_data:
+                # Skip engage sources and warehouse sources (RETL) - only collect metrics for direct connections
+                if src.get('Is Engage') or src.get('Type') == 'Warehouse':
+                    continue
+
+                source_id = src.get('Source ID')
+                source_name = src.get('Source Name', '')
+                source_slug = src.get('Slug', '')
+                source_type = src.get('Type', '')
+                destination_objs = src.get('_destination_objects', [])
+
+                if not destination_objs:
+                    continue
+
+                for dest in destination_objs:
+                    # If we've already detected API access is denied, skip remaining calls
+                    if graphql_access_denied:
+                        break
+
+                    pair_count += 1
+                    dest_name = dest.get('name', '')
+                    dest_id = dest.get('id', '')
+
+                    # Skip if we don't have the destination ID
+                    if not dest_id:
+                        print(f"Warning: No destination ID for {dest_name}, skipping metrics")
+                        continue
+
+                    audit_status['message'] = f'Collecting metrics for {source_name} → {dest_name} ({pair_count}/{total_pairs})...'
+                    audit_status['progress'] = 25 + (5 * pair_count // total_pairs)
+
+                    try:
+                        metrics = auditor.get_delivery_metrics(
+                            source_id=source_id,
+                            destination_id=dest_id,
+                            start_time=start_time,
+                            end_time=end_time,
+                            granularity='DAY'  # Daily granularity for 7-day window
+                        )
+
+                        if metrics and metrics.get('metrics'):
+                            delivery_metrics_data.append({
+                                'source_id': source_id,
+                                'source_name': source_name,
+                                'source_slug': source_slug,
+                                'source_type': source_type,
+                                'destination_id': dest_id,
+                                'destination_name': dest_name,
+                                'destination_slug': dest.get('slug', ''),
+                                'metrics': metrics.get('metrics', []),  # Extract the metrics array
+                                'daily_metrics': metrics.get('deliveryMetrics', []),  # Daily breakdown
+                                'collection_time': now.isoformat(),
+                                'time_range': {
+                                    'start': start_time,
+                                    'end': end_time
+                                }
+                            })
+                            print(f"✓ Collected 7-day metrics for {source_name} → {dest_name}")
+                        elif metrics:
+                            print(f"⚠️ No metrics data returned for {source_name} → {dest_name}")
+                    except Exception as e:
+                        error_str = str(e)
+                        # Check if this is a 403/forbidden error
+                        if '403' in error_str or 'forbidden' in error_str.lower() or 'Not authorized' in error_str:
+                            print(f"⚠️ API access denied (403). Your API token does not have permission to access delivery metrics.")
+                            print(f"   Skipping delivery metrics collection for remaining source-destination pairs.")
+                            graphql_access_denied = True
+                            break
+                        else:
+                            print(f"Warning: Could not fetch metrics for {source_name} → {dest_name}: {e}")
+                            continue
+
+                # Break outer loop if access was denied
+                if graphql_access_denied:
+                    break
+
+            if graphql_access_denied:
+                print(f"=== Delivery metrics collection skipped due to insufficient API permissions")
+            elif len(delivery_metrics_data) > 0:
+                print(f"=== Collected 7-day delivery metrics for {len(delivery_metrics_data)} source-destination pairs")
+            else:
+                print(f"=== No delivery metrics collected")
+        else:
+            print("=== No connected sources found (excluding Engage/RETL sources), skipping delivery metrics collection")
 
         # Collect audiences from each space
         # Note: List Spaces API returns all spaces including deleted ones
@@ -758,10 +988,17 @@ def run_audit(api_token, skip_ssl_verify=False):
 
         # Sources
         if sources_data:
+            # Remove internal _destination_objects field before saving
+            sources_data_clean = []
+            for src in sources_data:
+                src_copy = src.copy()
+                src_copy.pop('_destination_objects', None)
+                sources_data_clean.append(src_copy)
+
             with open(DATA_DIR / 'segment_sources_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=sources_data[0].keys())
+                writer = csv.DictWriter(f, fieldnames=sources_data_clean[0].keys())
                 writer.writeheader()
-                writer.writerows(sources_data)
+                writer.writerows(sources_data_clean)
 
         # Reverse ETL Models (save as JSON to preserve multi-line queries)
         if retl_models_data:
@@ -772,6 +1009,12 @@ def run_audit(api_token, skip_ssl_verify=False):
         if warehouses_data:
             with open(DATA_DIR / 'segment_warehouses.json', 'w', encoding='utf-8') as f:
                 json.dump(warehouses_data, f, indent=2)
+
+        # Delivery Metrics (save as JSON)
+        if delivery_metrics_data:
+            with open(DATA_DIR / 'segment_delivery_metrics.json', 'w', encoding='utf-8') as f:
+                json.dump(delivery_metrics_data, f, indent=2)
+            print(f"Saved {len(delivery_metrics_data)} delivery metrics records")
 
         # Collect observability data (event volumes)
         audit_status['message'] = 'Collecting event volume data...'
@@ -817,7 +1060,16 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'error': str(e)
             }
 
-        # Re-save summary with observability data
+        # Add delivery metrics summary
+        summary['delivery_metrics'] = {
+            'collected': len(delivery_metrics_data) > 0,
+            'total_connections': len(delivery_metrics_data),
+            'time_range': '7 days',
+            'granularity': 'DAY',
+            'note': 'Direct connections only (excludes Engage and RETL/warehouse sources)' if len(delivery_metrics_data) > 0 else 'No data or insufficient permissions'
+        }
+
+        # Re-save summary with observability and delivery metrics data
         with open(DATA_DIR / 'audit_summary.json', 'w') as f:
             json.dump(summary, f, indent=2)
 
@@ -958,7 +1210,8 @@ def computed_traits_view():
 def observability():
     """Observability view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('observability.html', customer_name=customer_name)
+    workspace_slug = session.get('workspace_slug', '')
+    return render_template('observability.html', customer_name=customer_name, workspace_slug=workspace_slug)
 
 @app.route('/connections')
 def connections():
@@ -1244,10 +1497,19 @@ This workspace contains **{len(sources)} data sources** collecting customer data
         aud_name = audience.get('Name', '')
         aud_size = audience.get('Size', '0')
         aud_desc = audience.get('Description', 'No description')
+        aud_query = audience.get('Definition Query', '')
 
         md_content += f"#### {aud_name}\n"
         md_content += f"- **Size:** {int(aud_size):,} users\n"
         md_content += f"- **Description:** {aud_desc}\n"
+
+        # Add query definition (truncate if too long)
+        if aud_query:
+            query_snippet = aud_query[:300].replace('\n', ' ')
+            if len(aud_query) > 300:
+                query_snippet += '...'
+            md_content += f"- **Query:** `{query_snippet}`\n"
+
         md_content += "\n"
 
     if len(enabled_audiences) > 20:
@@ -1600,6 +1862,192 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     else:
         md_content += "This workspace does not currently use Personas/Engage features.\n\n"
 
+    # Add Delivery Metrics section
+    md_content += "\n### Source-to-Destination Delivery Metrics\n\n"
+
+    delivery_metrics_file = DATA_DIR / 'segment_delivery_metrics.json'
+    if delivery_metrics_file.exists():
+        try:
+            with open(delivery_metrics_file, 'r', encoding='utf-8') as f:
+                delivery_metrics_data = json.load(f)
+
+            if delivery_metrics_data and len(delivery_metrics_data) > 0:
+                md_content += f"**Overview:** Delivery performance metrics for {len(delivery_metrics_data)} source-destination connection(s) over the last 7 days.\n\n"
+                md_content += "**Note:** RETL (warehouse) sources are excluded from delivery metrics for clarity. Only direct source-to-destination connections are included.\n\n"
+
+                # Calculate summary statistics
+                total_successes = 0
+                total_retries = 0
+                total_expired = 0
+                total_discarded = 0
+                connections_with_issues = []
+
+                for pair in delivery_metrics_data:
+                    metrics = pair.get('metrics', [])
+
+                    successes = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'successes'), 0)
+                    retries = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'retried'), 0)
+                    expired = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'expired'), 0)
+                    discarded = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'discarded'), 0)
+
+                    total_successes += successes
+                    total_retries += retries
+                    total_expired += expired
+                    total_discarded += discarded
+
+                    if retries > 0 or expired > 0 or discarded > 0:
+                        connections_with_issues.append({
+                            'source': pair.get('source_name', ''),
+                            'destination': pair.get('destination_name', ''),
+                            'successes': successes,
+                            'retries': retries,
+                            'expired': expired,
+                            'discarded': discarded
+                        })
+
+                # Summary metrics
+                md_content += f"#### Summary (Last 7 Days)\n\n"
+                md_content += f"- **Total Successful Deliveries:** {total_successes:,}\n"
+                md_content += f"- **Total Retries:** {total_retries:,}\n"
+                md_content += f"- **Expired Events:** {total_expired:,}\n"
+                md_content += f"- **Discarded Events:** {total_discarded:,}\n"
+
+                # Overall success rate
+                total_events = total_successes + total_expired + total_discarded
+                if total_events > 0:
+                    success_rate = (total_successes / total_events) * 100
+                    md_content += f"- **Overall Success Rate:** {success_rate:.2f}%\n"
+
+                md_content += "\n"
+
+                # Connections with issues
+                if connections_with_issues:
+                    md_content += f"#### ⚠️ Connections with Delivery Issues ({len(connections_with_issues)})\n\n"
+                    md_content += "The following source-destination connections experienced retries, expirations, or discarded events:\n\n"
+
+                    # Sort by severity (expired + discarded first, then retries)
+                    connections_with_issues.sort(key=lambda x: (x['expired'] + x['discarded'], x['retries']), reverse=True)
+
+                    for conn in connections_with_issues[:10]:  # Top 10 problematic connections
+                        md_content += f"**{conn['source']} → {conn['destination']}**\n"
+                        md_content += f"  - ✅ Successes: {conn['successes']:,}\n"
+                        if conn['retries'] > 0:
+                            md_content += f"  - 🔄 Retries: {conn['retries']:,}\n"
+                        if conn['expired'] > 0:
+                            md_content += f"  - ❌ Expired: {conn['expired']:,}\n"
+                        if conn['discarded'] > 0:
+                            md_content += f"  - ❌ Discarded: {conn['discarded']:,}\n"
+                        md_content += "\n"
+
+                    if len(connections_with_issues) > 10:
+                        md_content += f"_...and {len(connections_with_issues) - 10} more connection(s) with issues_\n\n"
+
+                    md_content += "**Possible Causes:**\n"
+                    md_content += "- **Retries:** Temporary network issues, rate limiting, or destination API timeouts\n"
+                    md_content += "- **Expired:** Events that couldn't be delivered within the retry window\n"
+                    md_content += "- **Discarded:** Invalid data format, schema mismatches, or destination rejections\n\n"
+                else:
+                    md_content += "#### ✅ Delivery Health\n\n"
+                    md_content += "All source-destination connections are delivering events successfully with no retries, expirations, or discarded events in the last 7 days.\n\n"
+
+                # Detailed connection breakdown
+                md_content += f"#### Detailed Connection Metrics\n\n"
+                md_content += "Complete breakdown of all source-destination connections:\n\n"
+
+                # Create comprehensive list with all metrics
+                all_connections = []
+                for pair in delivery_metrics_data:
+                    metrics = pair.get('metrics', [])
+
+                    success_metric = next((m for m in metrics if m.get('metricName') == 'successes'), {})
+                    successes = success_metric.get('total', 0)
+                    success_first = next((b.get('value', 0) for b in success_metric.get('breakdown', []) if b.get('metricName') == 'successes_on_first_attempt'), 0)
+                    success_retry = next((b.get('value', 0) for b in success_metric.get('breakdown', []) if b.get('metricName') == 'successes_after_retry'), 0)
+
+                    retries = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'retried'), 0)
+                    expired = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'expired'), 0)
+                    discarded = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'discarded'), 0)
+
+                    time_metric = next((m for m in metrics if m.get('metricName') == 'time_to_success'), {})
+                    avg_latency = next((b.get('value', 0) for b in time_metric.get('breakdown', []) if b.get('metricName') == 'time_to_success_average'), 0)
+                    p95_latency = next((b.get('value', 0) for b in time_metric.get('breakdown', []) if b.get('metricName') == 'time_to_success_p95'), 0)
+
+                    total_attempts = successes + expired + discarded
+                    success_rate = (successes / total_attempts * 100) if total_attempts > 0 else 0
+
+                    all_connections.append({
+                        'source': pair.get('source_name', ''),
+                        'destination': pair.get('destination_name', ''),
+                        'successes': successes,
+                        'success_first': success_first,
+                        'success_retry': success_retry,
+                        'retries': retries,
+                        'expired': expired,
+                        'discarded': discarded,
+                        'success_rate': success_rate,
+                        'avg_latency': avg_latency,
+                        'p95_latency': p95_latency,
+                        'total_attempts': total_attempts
+                    })
+
+                # Sort by total volume (successes + failures)
+                all_connections.sort(key=lambda x: x['total_attempts'], reverse=True)
+
+                # Create markdown table
+                md_content += "| Source | Destination | Success Rate | Successes | First Attempt | After Retry | Retries | Expired | Discarded | Avg Latency (ms) |\n"
+                md_content += "|--------|-------------|-------------|-----------|---------------|-------------|---------|---------|-----------|------------------|\n"
+
+                for conn in all_connections:
+                    md_content += f"| {conn['source']} | {conn['destination']} | {conn['success_rate']:.1f}% | {conn['successes']:,} | {conn['success_first']:,} | {conn['success_retry']:,} | {conn['retries']:,} | {conn['expired']:,} | {conn['discarded']:,} | {int(conn['avg_latency'])} |\n"
+
+                md_content += "\n"
+
+                # Add insights section
+                md_content += "#### Key Insights\n\n"
+
+                # Highest success rate
+                high_success = [c for c in all_connections if c['success_rate'] >= 99]
+                if high_success:
+                    md_content += f"**Excellent Performance ({len(high_success)} connections):** {len(high_success)} connection(s) have ≥99% success rate\n\n"
+
+                # Connections needing attention
+                needs_attention = [c for c in all_connections if c['success_rate'] < 95]
+                if needs_attention:
+                    md_content += f"**Needs Attention ({len(needs_attention)} connections):** The following connections have <95% success rate:\n\n"
+                    for conn in needs_attention[:5]:
+                        md_content += f"- **{conn['source']} → {conn['destination']}:** {conn['success_rate']:.1f}% success rate "
+                        if conn['expired'] > 0:
+                            md_content += f"({conn['expired']:,} expired) "
+                        if conn['discarded'] > 0:
+                            md_content += f"({conn['discarded']:,} discarded) "
+                        md_content += "\n"
+                    md_content += "\n"
+
+                # High retry rate
+                high_retry = [c for c in all_connections if c['retries'] > c['successes'] * 0.1]
+                if high_retry:
+                    md_content += f"**High Retry Rate ({len(high_retry)} connections):** These connections have significant retry activity:\n\n"
+                    for conn in high_retry[:5]:
+                        retry_pct = (conn['retries'] / conn['total_attempts'] * 100) if conn['total_attempts'] > 0 else 0
+                        md_content += f"- **{conn['source']} → {conn['destination']}:** {retry_pct:.1f}% retry rate ({conn['retries']:,} retries)\n"
+                    md_content += "\n"
+
+                # Slow connections (high latency)
+                slow_connections = [c for c in all_connections if c['avg_latency'] > 1000]
+                if slow_connections:
+                    md_content += f"**High Latency ({len(slow_connections)} connections):** These connections have >1 second average delivery time:\n\n"
+                    for conn in sorted(slow_connections, key=lambda x: x['avg_latency'], reverse=True)[:5]:
+                        md_content += f"- **{conn['source']} → {conn['destination']}:** {int(conn['avg_latency']):,}ms average latency\n"
+                    md_content += "\n"
+            else:
+                md_content += "No delivery metrics data available. This may indicate no active source-destination connections during the collection period.\n\n"
+
+        except Exception as e:
+            print(f"Error loading delivery metrics: {e}")
+            md_content += f"⚠️ Error loading delivery metrics data: {str(e)}\n\n"
+    else:
+        md_content += "Delivery metrics data not available. This data is collected during workspace audits.\n\n"
+
     md_content += "\n---\n\n## Recommendations for AI Analysis\n\n"
     md_content += """When analyzing this workspace, consider:
 
@@ -1608,9 +2056,11 @@ This workspace contains **{len(sources)} data sources** collecting customer data
 3. **Event Coverage:** Look at which events are most frequently used in audiences to identify key behaviors
 4. **Event Volume Health:** Analyze event volume trends and identify sources with low activity that may need attention
 5. **Volume Distribution:** Review if event volume is concentrated in a few sources or well-distributed across the workspace
-6. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
-7. **Data Quality:** Check for empty audiences, disabled sources, or unused connections that may indicate data quality issues
-8. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
+6. **Delivery Health:** Review the delivery metrics table to identify connections with high failure rates, retries, or latency issues
+7. **Data Quality:** Check for empty audiences, disabled sources, or connections with high discard rates that may indicate data quality issues
+8. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
+9. **Performance Optimization:** Investigate connections with high retry rates or latency for potential infrastructure improvements
+10. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
 
 ---
 

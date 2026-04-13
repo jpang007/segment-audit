@@ -56,3 +56,37 @@ Dashboard shows: 4 active spaces
 **Solution:**
 - Always run a full audit to ensure sources data is available
 - The warehouse page automatically loads the sources mapping when available
+
+## Delivery Metrics - REST API Access
+
+**Issue:** The delivery metrics feature uses the REST API endpoint `GET /destinations/{destinationId}/delivery-metrics`.
+
+**Behavior:**
+- During audit, the system collects delivery metrics for non-engage, non-warehouse source-destination pairs
+- Uses the last 7 days with DAY granularity for daily trends
+- RETL (warehouse) sources are excluded from delivery metrics for clearer visualization
+- If the API token lacks permissions, the first request will return a 403 Forbidden error
+- The audit automatically skips remaining delivery metrics collection and continues successfully
+- No delivery metrics will be displayed on the Observability page or in the markdown export if collection fails
+
+**API Endpoint:**
+```
+GET /destinations/{destinationId}/delivery-metrics
+Query params: sourceId, startTime, endTime, granularity=DAY
+Time range: Last 7 days
+```
+
+**Excluded Sources:**
+- Engage/Personas sources (system-generated)
+- Warehouse sources (RETL models) - excluded because the warehouse → model → destination relationship is complex to visualize
+
+**Solution:**
+- Delivery metrics are optional - the audit will complete successfully without them
+- To enable delivery metrics, ensure your API token has access to the delivery-metrics endpoint
+- Only direct source-to-destination connections are included in delivery metrics collection
+- The feature gracefully degrades if permissions are insufficient
+
+**Impact:**
+- All other audit features work normally
+- Event volumes, sources, audiences, and connections are not affected
+- The observability page will show event volumes but not delivery metrics if collection fails

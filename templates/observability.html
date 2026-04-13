@@ -98,6 +98,20 @@
                 </div>
             </div>
 
+            <!-- Delivery Metrics -->
+            <div class="chart-section" id="deliveryMetricsSection">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <div>
+                        <h2 style="margin: 0;">Source-to-Destination Delivery Metrics</h2>
+                        <p style="color: #718096; font-size: 0.9rem; margin-top: 5px;">Last 7 days delivery performance (daily breakdown)</p>
+                        <p style="color: #a0aec0; font-size: 0.85rem; margin-top: 3px;">⚠️ Note: RETL (warehouse) sources are excluded for clearer visualization</p>
+                    </div>
+                </div>
+                <div id="deliveryMetricsContent">
+                    <p style="color: #718096;">Loading delivery metrics...</p>
+                </div>
+            </div>
+
             <!-- Source Volatility -->
             <div class="chart-section" id="volatilitySection" style="display: none;">
                 <h2>Biggest Daily Swings</h2>
@@ -123,6 +137,8 @@
     </div>
 
     <script>
+        const workspaceSlug = "{{ workspace_slug }}";
+
         let volumeData = {
             fourteen_day_by_source: null
         };
@@ -134,6 +150,7 @@
         let rawVolumeData = null; // Store raw 14-day data for filtering
         let currentSourceView = 'custom'; // 'custom' or 'engage'
         let sourcesData = []; // Store sources CSV data to check if Engage
+        let deliveryMetrics = []; // Store delivery metrics data
 
         async function loadData() {
             try {
@@ -176,6 +193,18 @@
                     });
                 } catch (e) {
                     console.warn('segment_sources_audit.csv not found, using source IDs');
+                }
+
+                // Load delivery metrics
+                try {
+                    const metricsResponse = await fetch('/audit_data/segment_delivery_metrics.json');
+                    if (metricsResponse.ok) {
+                        deliveryMetrics = await metricsResponse.json();
+                        console.log('Delivery metrics loaded:', deliveryMetrics.length);
+                    }
+                } catch (e) {
+                    console.warn('segment_delivery_metrics.json not found or empty');
+                    deliveryMetrics = [];
                 }
 
                 renderPage();
@@ -312,6 +341,9 @@
 
             // After chart renders, calculate stats from filtered allSourcesData
             updateStatsFromFilteredData();
+
+            // Render delivery metrics
+            renderDeliveryMetrics();
         }
 
         function updateStatsFromFilteredData() {
@@ -346,6 +378,154 @@
 
             // Update active sources count
             document.getElementById('activeSources').textContent = allSourcesData.length;
+        }
+
+        function renderDeliveryMetrics() {
+            const container = document.getElementById('deliveryMetricsContent');
+
+            if (!deliveryMetrics || deliveryMetrics.length === 0) {
+                container.innerHTML = '<p style="color: #718096;">No delivery metrics available. Metrics are collected for sources with connected destinations.</p>';
+                return;
+            }
+
+            // Calculate summary statistics
+            let totalSuccesses = 0;
+            let totalRetries = 0;
+            let totalExpired = 0;
+            let totalDiscarded = 0;
+            let pairsWithIssues = 0;
+
+            deliveryMetrics.forEach(pair => {
+                const metrics = pair.metrics || [];
+                const successes = metrics.find(m => m.metricName === 'successes')?.total || 0;
+                const retries = metrics.find(m => m.metricName === 'retried')?.total || 0;
+                const expired = metrics.find(m => m.metricName === 'expired')?.total || 0;
+                const discarded = metrics.find(m => m.metricName === 'discarded')?.total || 0;
+
+                totalSuccesses += successes;
+                totalRetries += retries;
+                totalExpired += expired;
+                totalDiscarded += discarded;
+
+                if (retries > 0 || expired > 0 || discarded > 0) {
+                    pairsWithIssues++;
+                }
+            });
+
+            // Summary cards
+            let html = `
+                <div class="stats-grid" style="margin-bottom: 24px;">
+                    <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                        <div class="label">Total Successes</div>
+                        <div class="value">${formatNumber(totalSuccesses)}</div>
+                        <div class="subtext">Delivered events</div>
+                    </div>
+                    <div class="stat-card" style="background: ${totalRetries > 0 ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : '#f7fafc'}; color: ${totalRetries > 0 ? 'white' : '#2d3748'};">
+                        <div class="label">Total Retries</div>
+                        <div class="value">${formatNumber(totalRetries)}</div>
+                        <div class="subtext">Events retried</div>
+                    </div>
+                    <div class="stat-card" style="background: ${totalExpired > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'}; color: ${totalExpired > 0 ? 'white' : '#2d3748'};">
+                        <div class="label">Expired</div>
+                        <div class="value">${formatNumber(totalExpired)}</div>
+                        <div class="subtext">Failed to deliver</div>
+                    </div>
+                    <div class="stat-card" style="background: ${totalDiscarded > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'}; color: ${totalDiscarded > 0 ? 'white' : '#2d3748'};">
+                        <div class="label">Discarded</div>
+                        <div class="value">${formatNumber(totalDiscarded)}</div>
+                        <div class="subtext">Invalid events</div>
+                    </div>
+                </div>
+            `;
+
+            // Detailed table
+            html += `
+                <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <thead style="background: #f7fafc; border-bottom: 2px solid #e2e8f0;">
+                        <tr>
+                            <th style="text-align: left; padding: 12px; font-weight: 600; color: #2d3748;">Source</th>
+                            <th style="text-align: left; padding: 12px; font-weight: 600; color: #2d3748;">Destination</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">Successes</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">First Attempt</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">After Retry</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">Retried</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">Expired</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">Discarded</th>
+                            <th style="text-align: right; padding: 12px; font-weight: 600; color: #2d3748;">Avg Latency (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            // Sort by sources with issues first, then by total volume
+            const sortedMetrics = [...deliveryMetrics].sort((a, b) => {
+                const aIssues = (a.metrics.find(m => m.metricName === 'expired')?.total || 0) +
+                                (a.metrics.find(m => m.metricName === 'discarded')?.total || 0) +
+                                (a.metrics.find(m => m.metricName === 'retried')?.total || 0);
+                const bIssues = (b.metrics.find(m => m.metricName === 'expired')?.total || 0) +
+                                (b.metrics.find(m => m.metricName === 'discarded')?.total || 0) +
+                                (b.metrics.find(m => m.metricName === 'retried')?.total || 0);
+
+                if (aIssues !== bIssues) return bIssues - aIssues;
+
+                const aSuccesses = a.metrics.find(m => m.metricName === 'successes')?.total || 0;
+                const bSuccesses = b.metrics.find(m => m.metricName === 'successes')?.total || 0;
+                return bSuccesses - aSuccesses;
+            });
+
+            sortedMetrics.forEach((pair, index) => {
+                const metrics = pair.metrics || [];
+
+                const successMetric = metrics.find(m => m.metricName === 'successes');
+                const successTotal = successMetric?.total || 0;
+                const successFirstAttempt = successMetric?.breakdown?.find(b => b.metricName === 'successes_on_first_attempt')?.value || 0;
+                const successAfterRetry = successMetric?.breakdown?.find(b => b.metricName === 'successes_after_retry')?.value || 0;
+
+                const retried = metrics.find(m => m.metricName === 'retried')?.total || 0;
+                const expired = metrics.find(m => m.metricName === 'expired')?.total || 0;
+                const discarded = metrics.find(m => m.metricName === 'discarded')?.total || 0;
+
+                const timeToSuccess = metrics.find(m => m.metricName === 'time_to_success');
+                const avgLatency = timeToSuccess?.breakdown?.find(b => b.metricName === 'time_to_success_average')?.value || 0;
+
+                const hasIssues = retried > 0 || expired > 0 || discarded > 0;
+                const rowStyle = hasIssues ? 'background: #fef3c7;' : (index % 2 === 0 ? 'background: white;' : 'background: #f9fafb;');
+
+                // Construct Segment UI URL for event delivery page
+                const segmentUrl = workspaceSlug && pair.destination_slug && pair.source_slug && pair.destination_id
+                    ? `https://app.segment.com/${workspaceSlug}/destinations/${pair.destination_slug}/sources/${pair.source_slug}/instances/${pair.destination_id}/event-delivery`
+                    : '';
+
+                // Make destination name a clickable link
+                const destinationCell = segmentUrl
+                    ? `<a href="${segmentUrl}" target="_blank" style="color: #667eea; text-decoration: none; font-weight: 500; border-bottom: 1px dotted #667eea;" onmouseover="this.style.color='#5a67d8'; this.style.borderBottom='1px solid #5a67d8';" onmouseout="this.style.color='#667eea'; this.style.borderBottom='1px dotted #667eea';">${pair.destination_name}</a>`
+                    : pair.destination_name;
+
+                html += `
+                    <tr style="${rowStyle}">
+                        <td style="padding: 12px; border-bottom: 1px solid #e2e8f0;">${pair.source_name}</td>
+                        <td style="padding: 12px; border-bottom: 1px solid #e2e8f0;">${destinationCell}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #10b981;">${formatNumber(successTotal)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0;">${formatNumber(successFirstAttempt)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0;">${formatNumber(successAfterRetry)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0; ${retried > 0 ? 'color: #f59e0b; font-weight: 600;' : ''}">${formatNumber(retried)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0; ${expired > 0 ? 'color: #ef4444; font-weight: 600;' : ''}">${formatNumber(expired)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0; ${discarded > 0 ? 'color: #ef4444; font-weight: 600;' : ''}">${formatNumber(discarded)}</td>
+                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e2e8f0;">${avgLatency > 0 ? Math.round(avgLatency) : '-'}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                </table>
+                <p style="color: #718096; font-size: 0.85rem; margin-top: 16px;">
+                    ⚠️ Rows with yellow background indicate connections with retries, expirations, or discarded events in the last 7 days.
+                    Click any <span style="color: #667eea; font-weight: 500;">destination name</span> to view detailed event delivery in Segment.
+                </p>
+            `;
+
+            container.innerHTML = html;
         }
 
         function calculateTotal(data) {
