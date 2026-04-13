@@ -201,6 +201,43 @@ class SegmentAuditor:
         url = f"{self.v1_base}/reverse-etl-models"
         return self._paginate(url, 'data')
 
+    def get_warehouses(self):
+        """Get all data warehouse connections"""
+        url = f"{self.v1_base}/warehouses"
+        return self._paginate(url, 'data')
+
+    def get_warehouse_connection_state(self, warehouse_id):
+        """Get connection state for a specific warehouse"""
+        url = f"{self.v1_base}/warehouses/{warehouse_id}/connection-state"
+        try:
+            response = requests.get(url, headers=self.headers, verify=self.verify, timeout=30)
+            if response.status_code == 200:
+                return response.json()
+            return None
+        except Exception as e:
+            print(f"Warning: Could not fetch connection state for warehouse {warehouse_id}: {e}")
+            return None
+
+    def get_warehouse_sync_reports(self, warehouse_id, limit=500):
+        """Get sync reports for a warehouse"""
+        url = f"{self.v1_base}/warehouses/{warehouse_id}/syncs"
+        try:
+            response = requests.get(
+                url,
+                headers=self.headers,
+                verify=self.verify,
+                timeout=30,
+                params={'pagination.count': limit}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                reports = data.get('data', {}).get('reports', [])
+                return reports
+            return []
+        except Exception as e:
+            print(f"Warning: Could not fetch sync reports for warehouse {warehouse_id}: {e}")
+            return []
+
     def get_event_volumes(self, start_time, end_time, granularity='DAY', group_by=None):
         """Get event volumes for workspace"""
         url = f"{self.v1_base}/events/volume"
@@ -308,6 +345,12 @@ def run_audit(api_token, skip_ssl_verify=False):
     global audit_status
 
     try:
+        # Log token for debugging
+        token_prefix = api_token[:30] if len(api_token) > 30 else api_token[:20]
+        token_suffix = api_token[-10:] if len(api_token) > 40 else ""
+        print(f"=== AUDIT STARTING WITH TOKEN: {token_prefix}...{token_suffix}", flush=True)
+        print(f"=== TOKEN LENGTH: {len(api_token)}", flush=True)
+
         audit_status = {
             'running': True,
             'progress': 3,
@@ -322,6 +365,7 @@ def run_audit(api_token, skip_ssl_verify=False):
             'segment_computed_traits_audit.csv',
             'segment_sources_audit.csv',
             'segment_retl_models.json',
+            'segment_warehouses.json',
             'event_coverage.csv',
             'trait_coverage.csv',
             'segment_event_volumes.json'
@@ -345,6 +389,8 @@ def run_audit(api_token, skip_ssl_verify=False):
         # Fetch all spaces automatically
         spaces = auditor.get_spaces()
         space_list = [space.get('id') for space in spaces if space.get('id')]
+        print(f"=== FETCHED {len(spaces)} SPACES FROM API", flush=True)
+        print(f"=== SPACE IDS: {space_list}", flush=True)
 
         # Create space mapping (ID -> Name) for better readability
         space_mapping = {space.get('id'): space.get('name', space.get('id')) for space in spaces if space.get('id')}
@@ -365,6 +411,7 @@ def run_audit(api_token, skip_ssl_verify=False):
         all_traits = Counter()
         sources_data = []
         retl_models_data = []
+        warehouses_data = []
 
         # Collect sources (always - API token is workspace-scoped)
         audit_status['message'] = 'Collecting source data...'
@@ -390,12 +437,89 @@ def run_audit(api_token, skip_ssl_verify=False):
             # If RETL models API fails, continue without them
             print(f"Warning: Could not fetch Reverse ETL models: {e}")
 
+        # Collect Warehouses
+        audit_status['message'] = 'Collecting warehouse connections...'
+        try:
+            warehouses = auditor.get_warehouses()
+            # Fetch connection state and selective syncs for each warehouse
+            for idx, warehouse in enumerate(warehouses):
+                warehouse_id = warehouse.get('id')
+                if warehouse_id:
+                    audit_status['message'] = f'Checking warehouse connection {idx+1}/{len(warehouses)}...'
+
+                    # Get connection state
+                    connection_state = auditor.get_warehouse_connection_state(warehouse_id)
+                    if connection_state:
+                        warehouse['connectionState'] = connection_state
+
+                    # Get selective syncs
+                    audit_status['message'] = f'Collecting selective syncs for warehouse {idx+1}/{len(warehouses)}...'
+                    try:
+                        selective_syncs = auditor.get_warehouse_sync_reports(warehouse_id)
+                        warehouse['selectiveSyncs'] = selective_syncs
+
+                        # Count unique sources
+                        unique_sources = set(sync.get('sourceId') for sync in selective_syncs if sync.get('sourceId'))
+                        print(f"Found {len(selective_syncs)} sync reports across {len(unique_sources)} sources for warehouse {warehouse.get('settings', {}).get('name', warehouse_id)}")
+                    except Exception as sync_error:
+                        print(f"Warning: Could not fetch selective syncs for warehouse {warehouse_id}: {sync_error}")
+                        warehouse['selectiveSyncs'] = []
+
+            warehouses_data = warehouses
+        except Exception as e:
+            # If warehouses API fails, continue without them
+            print(f"Warning: Could not fetch warehouses: {e}")
+
+        # Map Personas sources to spaces by matching slugs
+        # Personas slugs follow pattern: personas_{space-slug} or personas_{space-slug}{number}
+        # Note: Personas slugs use underscores, space slugs use hyphens
+        def match_personas_to_space(personas_slug, space_slug_mapping):
+            """Match a Personas source slug to its space"""
+            if not personas_slug.startswith('personas_'):
+                return None
+
+            import re
+
+            # Remove 'personas_' prefix
+            stripped = personas_slug[9:]  # len('personas_') = 9
+
+            # Try exact match first (rare, but possible)
+            for space_id, space_slug in space_slug_mapping.items():
+                if stripped == space_slug:
+                    return space_id
+
+            # Try matching with trailing number removed and underscores replaced with hyphens
+            # e.g., personas_jeremy_test2 -> jeremy_test2 -> jeremy_test -> jeremy-test
+            stripped_no_number = re.sub(r'\d+$', '', stripped)
+            stripped_normalized = stripped_no_number.replace('_', '-')
+
+            for space_id, space_slug in space_slug_mapping.items():
+                if stripped_normalized == space_slug:
+                    return space_id
+
+            # Also try without removing numbers (e.g., personas_demo-space directly)
+            stripped_normalized_with_number = stripped.replace('_', '-')
+            for space_id, space_slug in space_slug_mapping.items():
+                if stripped_normalized_with_number == space_slug:
+                    return space_id
+
+            return None
+
         for idx, source in enumerate(sources):
             metadata = source.get('metadata', {})
             source_type = metadata.get('name', 'Unknown')
 
             # Mark Personas/Engage sources (don't skip, just flag them)
             is_engage = source_type == 'Personas'
+
+            # Map Personas source to its space
+            personas_space_id = None
+            personas_space_name = None
+            if is_engage:
+                source_slug = source.get('slug', '')
+                personas_space_id = match_personas_to_space(source_slug, space_slug_mapping)
+                if personas_space_id:
+                    personas_space_name = space_mapping.get(personas_space_id, '')
 
             categories = metadata.get('categories', [])
             # Use first category as the type (e.g., "Website" instead of "Javascript")
@@ -452,17 +576,31 @@ def run_audit(api_token, skip_ssl_verify=False):
                 'Connected Destinations': destinations_str,
                 'Destination Count': len(destinations_list),
                 'Logo URL': source_logo,
-                'Is Engage': is_engage
+                'Is Engage': is_engage,
+                'Space': personas_space_name or '',
+                'Space ID': personas_space_id or ''
             })
 
         # Collect audiences from each space
+        # Note: List Spaces API returns all spaces including deleted ones
+        # We'll filter out empty spaces (deleted spaces have no audiences)
         total_spaces = len(space_list)
+        spaces_with_audiences = []
+        print(f"=== DEBUG: Total spaces to process: {total_spaces}, space_list: {space_list}", flush=True)
+
         for idx, space_id in enumerate(space_list):
             audit_status['message'] = f'Collecting audiences from space {idx+1}/{total_spaces}...'
             audit_status['progress'] = 30 + (40 * idx // total_spaces)
+            print(f"=== DEBUG: Processing space {idx+1}/{total_spaces}: {space_id}", flush=True)
 
             auditor = SegmentAuditor(api_token, space_id=space_id, skip_ssl_verify=skip_ssl_verify)
             audiences = auditor.get_audiences()
+
+            # Track non-empty spaces
+            if len(audiences) > 0:
+                spaces_with_audiences.append(space_id)
+            else:
+                print(f"=== DEBUG: Space {space_id} has no audiences (possibly deleted)", flush=True)
 
             for audience in audiences:
                 # Extract size.count from size object
@@ -531,6 +669,12 @@ def run_audit(api_token, skip_ssl_verify=False):
         audit_status['message'] = 'Saving audit data...'
         audit_status['progress'] = 80
 
+        # Filter out empty spaces (deleted spaces have no audiences)
+        filtered_space_mapping = {sid: space_mapping[sid] for sid in spaces_with_audiences if sid in space_mapping}
+        filtered_space_slug_mapping = {sid: space_slug_mapping[sid] for sid in spaces_with_audiences if sid in space_slug_mapping}
+
+        print(f"=== DEBUG: Filtered spaces from {len(space_list)} to {len(spaces_with_audiences)} active spaces", flush=True)
+
         # Save summary
         # Use workspace display name (already formatted nicely from API)
         display_name = workspace_name
@@ -548,9 +692,11 @@ def run_audit(api_token, skip_ssl_verify=False):
             'customer_name': display_name,
             'workspace_id': workspace_id,
             'workspace_slug': workspace_slug,
-            'space_ids': space_list,
-            'space_mapping': space_mapping,  # ID -> Name mapping
-            'space_slug_mapping': space_slug_mapping,  # ID -> Slug mapping
+            'space_ids': spaces_with_audiences,  # Only active spaces
+            'space_mapping': filtered_space_mapping,  # ID -> Name mapping
+            'space_slug_mapping': filtered_space_slug_mapping,  # ID -> Slug mapping
+            'total_spaces_from_api': len(space_list),  # Track original count for reference
+            'empty_spaces_filtered': len(space_list) - len(spaces_with_audiences),  # Track how many were filtered
             'sources': {
                 'total': len(sources_data),
                 'enabled': len([s for s in sources_data if s['Enabled']]),
@@ -621,6 +767,11 @@ def run_audit(api_token, skip_ssl_verify=False):
         if retl_models_data:
             with open(DATA_DIR / 'segment_retl_models.json', 'w', encoding='utf-8') as f:
                 json.dump(retl_models_data, f, indent=2)
+
+        # Warehouses (save as JSON to preserve nested settings)
+        if warehouses_data:
+            with open(DATA_DIR / 'segment_warehouses.json', 'w', encoding='utf-8') as f:
+                json.dump(warehouses_data, f, indent=2)
 
         # Collect observability data (event volumes)
         audit_status['message'] = 'Collecting event volume data...'
@@ -1395,14 +1546,59 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     else:
         md_content += "Event volume data not available. This data is collected during workspace audits.\n"
 
-    # Add note about Engage sources visibility
-    md_content += "\n### Engage Sources\n\n"
+    # Add detailed Engage/Personas sources analysis
+    md_content += "\n### Engage Sources & Space Mapping\n\n"
     md_content += "**Note:** This workspace includes both custom sources (user-created) and Engage sources (system-generated by Segment's Personas/Engage product).\n\n"
-    md_content += "- The dashboard provides separate toggles on the **Observability** and **Connections** pages to view custom sources and Engage sources independently\n"
-    md_content += "- Engage sources are automatically created when using Personas features like computed traits, audiences, and journeys\n"
-    md_content += "- While we have visibility into the overall volume and connectivity of Engage sources, **space-level details** (which specific Personas space created each Engage source) are not available through this audit tool\n"
-    md_content += "- Engage sources typically represent outbound data flows from Personas to downstream destinations (e.g., sending audience memberships or computed trait values)\n\n"
-    md_content += "For detailed Personas space configuration and Engage source mappings, refer to the Personas dashboard in the Segment workspace.\n"
+
+    # Analyze Personas sources and group by space
+    engage_sources = [s for s in sources if s.get('Is Engage')]
+    total_engage_sources = len(engage_sources)
+
+    if total_engage_sources > 0:
+        # Group by space
+        engage_by_space = {}
+        unmapped_engage = []
+        for source in engage_sources:
+            space_name = source.get('Space')
+            if space_name:
+                if space_name not in engage_by_space:
+                    engage_by_space[space_name] = []
+                engage_by_space[space_name].append(source)
+            else:
+                unmapped_engage.append(source)
+
+        md_content += f"**Total Engage Sources:** {total_engage_sources}\n\n"
+        md_content += f"**Spaces with Engage Sources:** {len(engage_by_space)}\n\n"
+
+        md_content += "#### 🔑 Key Understanding: Shadow Sources\n\n"
+        md_content += "**Multiple Engage sources per space is NOT audience sprawl** - it's a technical architecture requirement called \"shadow sources\":\n\n"
+        md_content += "- Segment's architecture allows **only one destination type per source**\n"
+        md_content += "- When a Personas space sends audiences to multiple destination types (e.g., Facebook Ads, Google Ads, LinkedIn), Segment automatically creates multiple Engage sources\n"
+        md_content += "- Each shadow source handles a different destination type\n"
+        md_content += "- This is **by design** and indicates healthy multi-channel activation, not misconfiguration\n\n"
+
+        if engage_by_space:
+            md_content += "#### Engage Sources by Space:\n\n"
+            for space_name in sorted(engage_by_space.keys()):
+                sources_list = engage_by_space[space_name]
+                md_content += f"**{space_name}** ({len(sources_list)} shadow source{'s' if len(sources_list) > 1 else ''}):\n"
+                for source in sources_list:
+                    dest_count = source.get('Destination Count', 0)
+                    enabled = '✅' if source.get('Enabled') else '❌'
+                    md_content += f"  - {enabled} `{source.get('Source Name')}` → {dest_count} destination(s)\n"
+                md_content += "\n"
+
+        if unmapped_engage:
+            md_content += f"**Unmapped Engage Sources:** {len(unmapped_engage)} (unable to match to a space)\n\n"
+
+        md_content += "#### Engage Source Insights:\n\n"
+        md_content += "- The dashboard provides separate toggles on the **Observability** and **Connections** pages to view custom sources and Engage sources independently\n"
+        md_content += "- Engage sources are automatically created when using Personas features like computed traits, audiences, and journeys\n"
+        md_content += "- Each Engage source is mapped to its originating Personas space (shown in the **Space** column on the Sources page)\n"
+        md_content += "- Engage sources typically represent outbound data flows from Personas to downstream destinations\n"
+        md_content += "- **Volume from Engage sources reflects audience activation activity**, not raw event collection\n\n"
+    else:
+        md_content += "This workspace does not currently use Personas/Engage features.\n\n"
 
     md_content += "\n---\n\n## Recommendations for AI Analysis\n\n"
     md_content += """When analyzing this workspace, consider:
@@ -1609,7 +1805,7 @@ def api_summary():
 
 @app.route('/reset')
 def reset():
-    """Reset audit status"""
+    """Reset audit status and clear session"""
     global audit_status
     audit_status = {
         'running': False,
@@ -1618,6 +1814,8 @@ def reset():
         'complete': False,
         'error': None
     }
+    # Clear session data
+    session.clear()
     return redirect(url_for('index'))
 
 @app.route('/upload-schemas', methods=['POST'])

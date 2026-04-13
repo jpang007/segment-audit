@@ -39,20 +39,507 @@
             </div>
         </div>
 
-        <div id="content">
-            <div class="chart-section" style="text-align: center; padding: 60px 20px;">
-                <h2 style="color: #667eea; margin-bottom: 20px;">🗄️ Warehouses</h2>
-                <p style="color: #718096; font-size: 1.1rem; line-height: 1.6; max-width: 600px; margin: 0 auto;">
-                    Warehouse connections and data flow analysis coming soon.
-                </p>
-                <p style="color: #a0aec0; font-size: 0.95rem; margin-top: 20px;">
-                    This section will show data warehouse destinations, sync status, and schema information.
-                </p>
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading warehouse data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Warehouses</div>
+                    <div class="value" id="totalWarehouses">-</div>
+                    <div class="subtext" id="warehousesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Warehouse Types</div>
+                    <div class="value" id="warehouseTypes">-</div>
+                    <div class="subtext">Unique warehouse platforms</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Enabled</div>
+                    <div class="value" id="enabledWarehouses">-</div>
+                    <div class="subtext">Active connections</div>
+                </div>
+            </div>
+
+            <!-- Warehouses Table -->
+            <div class="chart-section">
+                <h2>Warehouse Connections</h2>
+                <div class="table-container">
+                    <table id="warehousesTable">
+                        <thead>
+                            <tr>
+                                <th>Warehouse</th>
+                                <th>Connected</th>
+                                <th>Configuration Name</th>
+                                <th>Selective Syncs</th>
+                                <th>Configuration</th>
+                            </tr>
+                        </thead>
+                        <tbody id="warehousesTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;">
+            <strong>Error loading data:</strong>
+            <p id="errorMessage"></p>
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                ← Try Again
+            </button>
+        </div>
+
+        <!-- Modal for Warehouse Details -->
+        <div id="warehouseModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background: white; border-radius: 12px; padding: 30px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; position: relative;">
+                <button onclick="closeModal()" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #718096;">&times;</button>
+                <div id="modalContent"></div>
+            </div>
+        </div>
+
+        <!-- Modal for Sync Reports -->
+        <div id="syncModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;">
+            <div style="background: white; border-radius: 12px; padding: 30px; max-width: 1000px; width: 90%; max-height: 85vh; overflow-y: auto; position: relative;">
+                <button onclick="closeSyncModal()" style="position: absolute; top: 15px; right: 15px; background: none; border: none; font-size: 24px; cursor: pointer; color: #718096;">&times;</button>
+                <div id="syncModalContent"></div>
             </div>
         </div>
     </div>
 
     <script>
+        let warehousesData = [];
+        let sourceIdToName = {};
+
+        async function loadData() {
+            try {
+                // Load warehouses
+                const warehousesResponse = await fetch('/audit_data/segment_warehouses.json');
+                if (!warehousesResponse.ok) throw new Error('Warehouse data not found. Please run a fresh audit.');
+                warehousesData = await warehousesResponse.json();
+
+                if (!warehousesData || warehousesData.length === 0) {
+                    showError('No warehouse connections found in this workspace.');
+                    return;
+                }
+
+                // Load sources to create ID to name mapping
+                try {
+                    const sourcesResponse = await fetch('/audit_data/segment_sources_audit.csv');
+                    if (sourcesResponse.ok) {
+                        const csvText = await sourcesResponse.text();
+                        const lines = csvText.split('\n');
+                        // Skip header row
+                        for (let i = 1; i < lines.length; i++) {
+                            const line = lines[i].trim();
+                            if (!line) continue;
+                            // Simple CSV parsing - Source ID is first column, Source Name is second
+                            // Handle quoted values
+                            const match = line.match(/^([^,]+),([^,]+)/);
+                            if (match) {
+                                const sourceId = match[1].trim().replace(/^"|"$/g, '');
+                                const sourceName = match[2].trim().replace(/^"|"$/g, '');
+                                if (sourceId && sourceName) {
+                                    sourceIdToName[sourceId] = sourceName;
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Could not load sources data:', e);
+                }
+
+                renderDashboard();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        function renderDashboard() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+
+            // Update stats
+            const totalWarehouses = warehousesData.length;
+            const enabledWarehouses = warehousesData.filter(w => w.enabled).length;
+            const types = new Set(warehousesData.map(w => w.metadata?.name || 'Unknown'));
+
+            document.getElementById('totalWarehouses').textContent = totalWarehouses;
+            document.getElementById('warehousesBreakdown').textContent = `${enabledWarehouses} enabled, ${totalWarehouses - enabledWarehouses} disabled`;
+            document.getElementById('warehouseTypes').textContent = types.size;
+            document.getElementById('enabledWarehouses').textContent = enabledWarehouses;
+
+            // Render table
+            renderWarehousesTable();
+        }
+
+        function renderWarehousesTable() {
+            const tbody = document.getElementById('warehousesTableBody');
+
+            tbody.innerHTML = warehousesData.map(warehouse => {
+                const metadata = warehouse.metadata || {};
+                const settings = warehouse.settings || {};
+                const enabled = warehouse.enabled;
+
+                const warehouseName = metadata.name || 'Unknown';
+                const configName = settings.name || 'Unnamed';
+
+                const logoUrl = metadata.logos?.default || '';
+                const logoDisplay = logoUrl
+                    ? `<img src="/proxy-logo?url=${encodeURIComponent(logoUrl)}" alt="" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; border-radius: 4px;" onerror="this.style.display='none'">`
+                    : '';
+
+                const statusBadge = enabled
+                    ? '<span class="badge enabled">Enabled</span>'
+                    : '<span class="badge disabled">Disabled</span>';
+
+                // Check connection state
+                const connectionState = warehouse.connectionState?.data?.connectionState || 'UNKNOWN';
+                const isConnected = connectionState === 'CONNECTED';
+                const connectionIndicator = isConnected
+                    ? '<div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #48bb78; box-shadow: 0 0 8px rgba(72, 187, 120, 0.6);"></div><span style="color: #48bb78; font-weight: 600;">Connected</span></div>'
+                    : '<div style="display: flex; align-items: center; gap: 8px;"><div style="width: 12px; height: 12px; border-radius: 50%; background: #f56565; box-shadow: 0 0 8px rgba(245, 101, 101, 0.6);"></div><span style="color: #f56565; font-weight: 600;">Disconnected</span></div>';
+
+                // Selective syncs - filter to last 24 hours only
+                const allSyncs = warehouse.selectiveSyncs || [];
+                const now = new Date();
+                const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+                const last24HourSyncs = allSyncs.filter(sync => {
+                    const syncStart = new Date(sync.start);
+                    return syncStart >= oneDayAgo;
+                });
+                const syncCount = last24HourSyncs.length;
+                const uniqueSources = [...new Set(last24HourSyncs.map(s => s.sourceId).filter(Boolean))];
+
+                const syncsDisplay = syncCount > 0
+                    ? `<button onclick="showSyncReports('${warehouse.id}')" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.8rem; background: white; border: 1px solid #e2e8f0;">
+                        ${syncCount} sync(s) · ${uniqueSources.length} source(s)
+                       </button>`
+                    : '<span style="color: #a0aec0; font-size: 0.85rem;">No syncs</span>';
+
+                return `
+                    <tr>
+                        <td>
+                            <div style="display: flex; align-items: center;">
+                                ${logoDisplay}
+                                <div>
+                                    <strong>${warehouseName}</strong>
+                                </div>
+                            </div>
+                        </td>
+                        <td>${connectionIndicator}</td>
+                        <td>${configName}</td>
+                        <td>${syncsDisplay}</td>
+                        <td>
+                            <button onclick="showWarehouseDetails('${warehouse.id}')" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.8rem;">
+                                View Details
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showWarehouseDetails(warehouseId) {
+            const warehouse = warehousesData.find(w => w.id === warehouseId);
+            if (!warehouse) return;
+
+            const metadata = warehouse.metadata || {};
+            const settings = warehouse.settings || {};
+            const warehouseName = metadata.name || 'Unknown';
+            const warehouseSlug = metadata.slug || '';
+
+            // Check connection state
+            const connectionState = warehouse.connectionState?.data?.connectionState || 'UNKNOWN';
+            const isConnected = connectionState === 'CONNECTED';
+            const connectionIndicator = isConnected
+                ? '<div style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #f0fff4; border-radius: 6px; border: 1px solid #9ae6b4;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #48bb78;"></div><span style="color: #22543d; font-weight: 600;">Connected</span></div>'
+                : '<div style="display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; background: #fff5f5; border-radius: 6px; border: 1px solid #fc8181;"><div style="width: 10px; height: 10px; border-radius: 50%; background: #f56565;"></div><span style="color: #742a2a; font-weight: 600;">Disconnected</span></div>';
+
+            let detailsHTML = `
+                <h2 style="margin-bottom: 20px; color: #2d3748;">${warehouseName}</h2>
+                <div style="background: #f7fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="font-size: 0.9rem; color: #718096; margin-bottom: 8px;">Type: <strong style="color: #2d3748;">${warehouseSlug}</strong></div>
+                    <div style="font-size: 0.9rem; color: #718096; margin-bottom: 8px;">Status: ${warehouse.enabled ? '<span class="badge enabled">Enabled</span>' : '<span class="badge disabled">Disabled</span>'}</div>
+                    <div style="font-size: 0.9rem; color: #718096;">Connection: ${connectionIndicator}</div>
+                </div>
+                <h3 style="margin: 20px 0 10px 0; color: #2d3748;">Configuration</h3>
+                <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px;">
+            `;
+
+            // Show different fields based on warehouse type
+            if (warehouseSlug === 'bigquery') {
+                detailsHTML += `
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Name</div>
+                        <div style="font-size: 0.95rem; color: #2d3748;">${settings.name || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">GC Project</div>
+                        <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings['gc-project'] || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Location</div>
+                        <div style="font-size: 0.95rem; color: #2d3748;">${settings.location || 'N/A'}</div>
+                    </div>
+                `;
+            } else if (warehouseSlug === 'snowflake') {
+                detailsHTML += `
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Name</div>
+                        <div style="font-size: 0.95rem; color: #2d3748;">${settings.name || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Account</div>
+                        <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings.account || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Database</div>
+                        <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings.database || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Warehouse</div>
+                        <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings.warehouse || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Username</div>
+                        <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings.username || 'N/A'}</div>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Auth Type</div>
+                        <div style="font-size: 0.95rem; color: #2d3748;">${settings.auth_type || 'N/A'}</div>
+                    </div>
+                `;
+            } else {
+                // Generic display for other warehouse types
+                detailsHTML += `
+                    <div style="margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">Name</div>
+                        <div style="font-size: 0.95rem; color: #2d3748;">${settings.name || 'N/A'}</div>
+                    </div>
+                `;
+
+                // Show all other settings (excluding encrypted/ciphertext)
+                Object.keys(settings).forEach(key => {
+                    if (key !== 'name' && key !== 'encrypted' && key !== 'ciphertext') {
+                        detailsHTML += `
+                            <div style="margin-bottom: 12px;">
+                                <div style="font-size: 0.85rem; color: #718096; font-weight: 600;">${key}</div>
+                                <div style="font-size: 0.95rem; color: #2d3748; font-family: monospace;">${settings[key] || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                });
+            }
+
+            detailsHTML += `</div>`;
+
+            document.getElementById('modalContent').innerHTML = detailsHTML;
+            document.getElementById('warehouseModal').style.display = 'flex';
+        }
+
+        let hideZeroRecordSyncs = false;
+
+        function showSyncReports(warehouseId) {
+            const warehouse = warehousesData.find(w => w.id === warehouseId);
+            if (!warehouse) return;
+
+            const warehouseName = warehouse.settings?.name || 'Warehouse';
+            const allSyncs = warehouse.selectiveSyncs || [];
+
+            // Filter to only last 24 hours
+            const now = new Date();
+            const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            const last24HourSyncs = allSyncs.filter(sync => {
+                const syncStart = new Date(sync.start);
+                return syncStart >= oneDayAgo;
+            });
+
+            // Group syncs by source
+            const syncsBySource = {};
+            last24HourSyncs.forEach(sync => {
+                const sourceId = sync.sourceId || 'Unknown';
+                if (!syncsBySource[sourceId]) {
+                    syncsBySource[sourceId] = [];
+                }
+                syncsBySource[sourceId].push(sync);
+            });
+
+            const totalSources = Object.keys(syncsBySource).length;
+
+            let html = `
+                <h2 style="margin: 0 0 10px 0; color: #2d3748;">Sync Reports - ${warehouseName}</h2>
+                <p style="margin: 0 0 20px 0; color: #718096; font-size: 0.9rem;">Showing last 24 hours of sync activity (${totalSources} source${totalSources !== 1 ? 's' : ''})</p>
+
+                <div style="margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; display: flex; gap: 20px; flex-wrap: wrap;">
+                    <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.9rem;">
+                        <input type="checkbox" id="hideZeroRecords" onchange="toggleZeroRecordFilter('${warehouseId}')" style="margin-right: 8px; width: 16px; height: 16px; cursor: pointer;">
+                        <span>Hide syncs with 0 records</span>
+                    </label>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="expandAllSources('${warehouseId}')" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.85rem; background: white; border: 1px solid #e2e8f0;">
+                            Expand All Sources
+                        </button>
+                        <button onclick="collapseAllSources('${warehouseId}')" class="btn btn-sm" style="padding: 4px 12px; font-size: 0.85rem; background: white; border: 1px solid #e2e8f0;">
+                            Collapse All Sources
+                        </button>
+                    </div>
+                </div>
+
+                <div id="syncReportsContainer">
+            `;
+
+            Object.keys(syncsBySource).forEach(sourceId => {
+                const syncs = syncsBySource[sourceId];
+
+                // Get source name from mapping
+                const sourceName = sourceIdToName[sourceId] || sourceId;
+
+                // Count status types
+                const statusCounts = {};
+                syncs.forEach(sync => {
+                    const status = sync.status || 'unknown';
+                    statusCounts[status] = (statusCounts[status] || 0) + 1;
+                });
+                const statusSummary = Object.entries(statusCounts)
+                    .map(([status, count]) => `${status}: ${count}`)
+                    .join(', ');
+
+                html += `
+                    <div class="source-section" data-warehouse="${warehouseId}" style="margin-bottom: 15px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                        <h3 onclick="toggleSourceReports('${warehouseId}', '${sourceId}')" style="margin: 0; padding: 12px 15px; background: #edf2f7; color: #2d3748; font-size: 0.95rem; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center;">
+                            <span>
+                                <span id="source-arrow-${warehouseId}-${sourceId}" style="display: inline-block; margin-right: 8px; transition: transform 0.2s;">▶</span>
+                                ${sourceName}
+                                <span style="font-weight: normal; color: #718096; font-size: 0.85rem; margin-left: 8px;">(${syncs.length} reports - ${statusSummary})</span>
+                            </span>
+                        </h3>
+                        <div id="source-reports-${warehouseId}-${sourceId}" style="display: none; overflow-x: auto; padding: 15px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                <thead>
+                                    <tr style="background: #f7fafc; border-bottom: 2px solid #e2e8f0;">
+                                        <th style="padding: 8px; text-align: left; font-weight: 600;">Status</th>
+                                        <th style="padding: 8px; text-align: left; font-weight: 600;">Start Time</th>
+                                        <th style="padding: 8px; text-align: left; font-weight: 600;">End Time</th>
+                                        <th style="padding: 8px; text-align: right; font-weight: 600;">Duration</th>
+                                        <th style="padding: 8px; text-align: right; font-weight: 600;">Records</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+
+                syncs.forEach(sync => {
+                    const statusColor = sync.status === 'done' ? '#48bb78' : sync.status === 'failed' ? '#f56565' : '#718096';
+                    const recordCount = sync.count !== undefined ? sync.count : 0;
+                    const recordClass = recordCount === 0 ? 'zero-record-sync' : '';
+
+                    // Format duration to 2 decimal places
+                    let formattedDuration = 'N/A';
+                    if (sync.humanDuration) {
+                        // Parse humanDuration like "16.485039s" and round to 2 decimals
+                        const match = sync.humanDuration.match(/([\d.]+)s?/);
+                        if (match) {
+                            formattedDuration = parseFloat(match[1]).toFixed(2) + 's';
+                        }
+                    } else if (sync.duration !== undefined) {
+                        formattedDuration = sync.duration.toFixed(2) + 's';
+                    }
+
+                    html += `
+                        <tr class="${recordClass}" style="border-bottom: 1px solid #e2e8f0;">
+                            <td style="padding: 8px;">
+                                <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; background: ${statusColor}20; color: ${statusColor}; font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">
+                                    ${sync.status || 'unknown'}
+                                </span>
+                            </td>
+                            <td style="padding: 8px; color: #4a5568;">${new Date(sync.start).toLocaleString()}</td>
+                            <td style="padding: 8px; color: #4a5568;">${new Date(sync.end).toLocaleString()}</td>
+                            <td style="padding: 8px; text-align: right; color: #4a5568;">${formattedDuration}</td>
+                            <td style="padding: 8px; text-align: right; color: #4a5568; font-weight: 600;">${recordCount.toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div>`;
+
+            document.getElementById('syncModalContent').innerHTML = html;
+            document.getElementById('syncModal').style.display = 'flex';
+        }
+
+        function toggleZeroRecordFilter(warehouseId) {
+            const checkbox = document.getElementById('hideZeroRecords');
+            hideZeroRecordSyncs = checkbox.checked;
+
+            const zeroRecordRows = document.querySelectorAll('.zero-record-sync');
+            zeroRecordRows.forEach(row => {
+                row.style.display = hideZeroRecordSyncs ? 'none' : 'table-row';
+            });
+        }
+
+        function closeSyncModal() {
+            document.getElementById('syncModal').style.display = 'none';
+            hideZeroRecordSyncs = false;
+        }
+
+        function toggleSourceReports(warehouseId, sourceId) {
+            const reportsDiv = document.getElementById(`source-reports-${warehouseId}-${sourceId}`);
+            const arrow = document.getElementById(`source-arrow-${warehouseId}-${sourceId}`);
+
+            if (reportsDiv.style.display === 'none') {
+                reportsDiv.style.display = 'block';
+                arrow.style.transform = 'rotate(90deg)';
+            } else {
+                reportsDiv.style.display = 'none';
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function expandAllSources(warehouseId) {
+            const sections = document.querySelectorAll(`.source-section[data-warehouse="${warehouseId}"]`);
+            sections.forEach(section => {
+                const reportsDiv = section.querySelector('[id^="source-reports-"]');
+                const arrow = section.querySelector('[id^="source-arrow-"]');
+                if (reportsDiv && arrow) {
+                    reportsDiv.style.display = 'block';
+                    arrow.style.transform = 'rotate(90deg)';
+                }
+            });
+        }
+
+        function collapseAllSources(warehouseId) {
+            const sections = document.querySelectorAll(`.source-section[data-warehouse="${warehouseId}"]`);
+            sections.forEach(section => {
+                const reportsDiv = section.querySelector('[id^="source-reports-"]');
+                const arrow = section.querySelector('[id^="source-arrow-"]');
+                if (reportsDiv && arrow) {
+                    reportsDiv.style.display = 'none';
+                    arrow.style.transform = 'rotate(0deg)';
+                }
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('warehouseModal').style.display = 'none';
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('errorMessage').textContent = message;
+        }
+
+        // Navigation dropdown
         function toggleNavDropdown() {
             const menu = document.getElementById('navDropdownMenu');
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
@@ -66,6 +553,22 @@
                 menu.style.display = 'none';
             }
         });
+
+        // Close modal when clicking outside
+        document.getElementById('warehouseModal').addEventListener('click', function(event) {
+            if (event.target === this) {
+                closeModal();
+            }
+        });
+
+        document.getElementById('syncModal').addEventListener('click', function(event) {
+            if (event.target === this) {
+                closeSyncModal();
+            }
+        });
+
+        // Load data on page load
+        window.addEventListener('DOMContentLoaded', loadData);
     </script>
 </body>
 </html>

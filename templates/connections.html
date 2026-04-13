@@ -73,7 +73,12 @@
 
                     <!-- Right: Filters -->
                     <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search..." oninput="updateDiagram()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem; width: 180px;">
+                        <div style="position: relative;">
+                            <input type="text" id="sourceSearchBox" placeholder="🔍 Add source to compare..." onkeypress="handleSourceSearchEnter(event)" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem; width: 200px;">
+                            <div id="selectedSourceTags" style="display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; min-height: 0;">
+                                <!-- Selected source tags will appear here -->
+                            </div>
+                        </div>
 
                         <label style="display: flex; align-items: center; gap: 5px; font-size: 0.85rem; color: #4a5568; cursor: pointer; user-select: none;">
                             <input type="checkbox" id="showEnabledOnly" onchange="updateDiagram()" style="cursor: pointer;">
@@ -130,18 +135,44 @@
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="margin: 0;">Connection Details</h2>
-                    <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
-                        <button id="btnTableSources" onclick="toggleTableView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
-                            Sources
-                        </button>
-                        <button id="btnTableEngage" onclick="toggleTableView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
-                            Engage Sources
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <div style="background: #f7fafc; border-radius: 8px; padding: 4px; display: flex; gap: 4px;">
+                            <button id="btnTableSources" onclick="toggleTableView('custom')" class="btn btn-sm" style="background: #667eea; color: white; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Sources
+                            </button>
+                            <button id="btnTableEngage" onclick="toggleTableView('engage')" class="btn btn-sm" style="background: white; color: #2d3748; border: none; padding: 6px 14px; font-size: 0.85rem;">
+                                Engage Sources
+                            </button>
+                        </div>
+
+                        <!-- Space Filter -->
+                        <div id="spaceFilterContainer" style="position: relative; display: none;">
+                            <button id="spaceFilterBtn" onclick="toggleSpaceFilter()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: white; cursor: pointer; font-size: 0.85rem; color: #4a5568; white-space: nowrap;">
+                                📍 Spaces (<span id="selectedSpaceCount">All</span>)
+                            </button>
+                            <div id="spaceFilterMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); padding: 15px; min-width: 250px; max-height: 400px; overflow-y: auto; z-index: 1000;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 2px solid #e2e8f0;">
+                                    <strong style="font-size: 0.95rem; color: #2d3748;">Filter by Space</strong>
+                                    <div style="display: flex; gap: 5px;">
+                                        <button onclick="selectAllSpaces()" style="font-size: 0.75rem; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer;">All</button>
+                                        <button onclick="deselectAllSpaces()" style="font-size: 0.75rem; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: white; cursor: pointer;">None</button>
+                                    </div>
+                                </div>
+                                <div id="spaceCheckboxes" style="display: flex; flex-direction: column; gap: 8px;">
+                                    <!-- Checkboxes will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Export CSV Button -->
+                        <button onclick="exportTableToCSV()" class="btn btn-sm" style="padding: 8px 12px; font-size: 0.85rem; background: white; border: 2px solid #e2e8f0; color: #4a5568;">
+                            📥 Export CSV
                         </button>
                     </div>
                 </div>
                 <div class="table-container">
                     <table id="connectionsTable">
-                        <thead>
+                        <thead id="connectionsTableHead">
                             <tr>
                                 <th>Source</th>
                                 <th>Type</th>
@@ -170,6 +201,9 @@
         let sourcesData = [];
         let allDestinations = new Set();
         let selectedDestinations = new Set();
+        let allSpaces = new Set();
+        let selectedSpaces = new Set();
+        let selectedSourceFilters = []; // Array of source name filters to compare
         let currentSourceView = 'custom'; // 'custom' or 'engage' - for diagram
         let currentTableView = 'custom'; // 'custom' or 'engage' - for table
         let colorStrategy = 'destinations'; // 'sources' or 'destinations'
@@ -189,11 +223,22 @@
                     destinations.forEach(d => allDestinations.add(d));
                 });
 
-                // Initially select all destinations
+                // Extract all unique spaces (from Engage sources)
+                sourcesData.forEach(source => {
+                    const isEngage = (source['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    const space = source['Space'];
+                    if (isEngage && space && space.trim()) {
+                        allSpaces.add(space.trim());
+                    }
+                });
+
+                // Initially select all destinations and spaces
                 selectedDestinations = new Set(allDestinations);
+                selectedSpaces = new Set(allSpaces);
 
                 renderDashboard();
                 buildDestinationFilter();
+                buildSpaceFilter();
             } catch (error) {
                 showError(error.message);
             }
@@ -250,12 +295,181 @@
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
         }
 
+        // Space filter functions
+        function buildSpaceFilter() {
+            const container = document.getElementById('spaceCheckboxes');
+            const sortedSpaces = Array.from(allSpaces).sort();
+
+            container.innerHTML = sortedSpaces.map(space => `
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px; border-radius: 4px; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">
+                    <input type="checkbox" value="${space}" checked onchange="toggleSpace('${space.replace(/'/g, "\\'")}' )" style="cursor: pointer;">
+                    <span style="font-size: 0.9rem; color: #2d3748;">${space}</span>
+                </label>
+            `).join('');
+
+            updateSelectedSpaceCount();
+        }
+
+        function toggleSpace(space) {
+            if (selectedSpaces.has(space)) {
+                selectedSpaces.delete(space);
+            } else {
+                selectedSpaces.add(space);
+            }
+            updateSelectedSpaceCount();
+            renderConnectionsTable();
+        }
+
+        function selectAllSpaces() {
+            selectedSpaces = new Set(allSpaces);
+            document.querySelectorAll('#spaceCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = true;
+            });
+            updateSelectedSpaceCount();
+            renderConnectionsTable();
+        }
+
+        function deselectAllSpaces() {
+            selectedSpaces.clear();
+            document.querySelectorAll('#spaceCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectedSpaceCount();
+            renderConnectionsTable();
+        }
+
+        function updateSelectedSpaceCount() {
+            const count = selectedSpaces.size === allSpaces.size ? 'All' : selectedSpaces.size;
+            document.getElementById('selectedSpaceCount').textContent = count;
+        }
+
+        function toggleSpaceFilter() {
+            const menu = document.getElementById('spaceFilterMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Source filter functions (multi-select search)
+        function handleSourceSearchEnter(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const input = document.getElementById('sourceSearchBox');
+                const searchTerm = input.value.trim();
+
+                if (searchTerm && !selectedSourceFilters.includes(searchTerm)) {
+                    selectedSourceFilters.push(searchTerm);
+                    input.value = '';
+                    renderSourceTags();
+                    updateDiagram();
+                }
+            }
+        }
+
+        function removeSourceFilter(filter) {
+            selectedSourceFilters = selectedSourceFilters.filter(f => f !== filter);
+            renderSourceTags();
+            updateDiagram();
+        }
+
+        function renderSourceTags() {
+            const container = document.getElementById('selectedSourceTags');
+
+            if (selectedSourceFilters.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'flex';
+            container.innerHTML = selectedSourceFilters.map(filter => `
+                <span style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; background: #667eea; color: white; border-radius: 6px; font-size: 0.8rem; white-space: nowrap;">
+                    ${filter}
+                    <button onclick="removeSourceFilter('${filter.replace(/'/g, "\\'")}' )" style="background: none; border: none; color: white; cursor: pointer; padding: 0; margin: 0; font-size: 1rem; line-height: 1; display: flex; align-items: center;" title="Remove">×</button>
+                </span>
+            `).join('');
+        }
+
+        // CSV Export function
+        function exportTableToCSV() {
+            // Get current filtered data
+            let displaySources;
+            const isEngageView = currentTableView === 'engage';
+
+            if (currentTableView === 'custom') {
+                displaySources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    return !isEngage;
+                });
+            } else {
+                displaySources = sourcesData.filter(s => {
+                    const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
+                    if (!isEngage) return false;
+
+                    // Apply space filter
+                    const space = s['Space'] || '';
+                    if (selectedSpaces.size < allSpaces.size) {
+                        if (!space || !selectedSpaces.has(space)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+            }
+
+            // Sort by destination count
+            const sortedSources = [...displaySources].sort((a, b) => {
+                return parseInt(b['Destination Count'] || 0) - parseInt(a['Destination Count'] || 0);
+            });
+
+            // Build CSV content
+            const headers = isEngageView
+                ? ['Source', 'Type', 'Status', 'Space', 'Connected Destinations', 'Count']
+                : ['Source', 'Type', 'Status', 'Connected Destinations', 'Count'];
+
+            let csv = headers.join(',') + '\n';
+
+            sortedSources.forEach(source => {
+                const row = [
+                    `"${(source['Source Name'] || '').replace(/"/g, '""')}"`,
+                    `"${(source.Type || '').replace(/"/g, '""')}"`,
+                    source.Enabled.toLowerCase() === 'true' ? 'Enabled' : 'Disabled',
+                ];
+
+                if (isEngageView) {
+                    row.push(`"${(source['Space'] || '').replace(/"/g, '""')}"`);
+                }
+
+                row.push(
+                    `"${(source['Connected Destinations'] || '').replace(/"/g, '""')}"`,
+                    source['Destination Count'] || 0
+                );
+
+                csv += row.join(',') + '\n';
+            });
+
+            // Create download
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            const viewType = currentTableView === 'custom' ? 'sources' : 'engage_sources';
+            link.setAttribute('href', url);
+            link.setAttribute('download', `connection_details_${viewType}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
         // Close dropdown when clicking outside
         document.addEventListener('click', function(event) {
-            const btn = document.getElementById('destinationFilterBtn');
-            const menu = document.getElementById('destinationFilterMenu');
-            if (btn && menu && !btn.contains(event.target) && !menu.contains(event.target)) {
-                menu.style.display = 'none';
+            const destBtn = document.getElementById('destinationFilterBtn');
+            const destMenu = document.getElementById('destinationFilterMenu');
+            if (destBtn && destMenu && !destBtn.contains(event.target) && !destMenu.contains(event.target)) {
+                destMenu.style.display = 'none';
+            }
+
+            const spaceBtn = document.getElementById('spaceFilterBtn');
+            const spaceMenu = document.getElementById('spaceFilterMenu');
+            if (spaceBtn && spaceMenu && !spaceBtn.contains(event.target) && !spaceMenu.contains(event.target)) {
+                spaceMenu.style.display = 'none';
             }
         });
 
@@ -396,17 +610,22 @@
             // Update button styles
             const btnSources = document.getElementById('btnTableSources');
             const btnEngage = document.getElementById('btnTableEngage');
+            const spaceFilterContainer = document.getElementById('spaceFilterContainer');
 
             if (view === 'custom') {
                 btnSources.style.background = '#667eea';
                 btnSources.style.color = 'white';
                 btnEngage.style.background = 'white';
                 btnEngage.style.color = '#2d3748';
+                // Hide space filter for custom sources
+                spaceFilterContainer.style.display = 'none';
             } else {
                 btnSources.style.background = 'white';
                 btnSources.style.color = '#2d3748';
                 btnEngage.style.background = '#667eea';
                 btnEngage.style.color = 'white';
+                // Show space filter for engage sources
+                spaceFilterContainer.style.display = allSpaces.size > 0 ? 'block' : 'none';
             }
 
             // Update both table and stats
@@ -439,7 +658,6 @@
         function updateDiagram() {
             const showEnabledOnly = document.getElementById('showEnabledOnly').checked;
             const hideEmpty = document.getElementById('hideEmpty').checked;
-            const sourceSearchTerm = document.getElementById('sourceSearchBox').value.toLowerCase().trim();
 
             // Filter data based on current view
             let filteredSources = sourcesData;
@@ -459,15 +677,20 @@
                 });
             }
 
-            // Apply search filter
-            if (sourceSearchTerm) {
+            // Apply multi-select source filter (only show sources matching any of the selected filters)
+            if (selectedSourceFilters.length > 0) {
                 filteredSources = filteredSources.filter(s => {
                     const sourceName = (s['Source Name'] || '').toLowerCase();
                     const sourceType = (s.Type || '').toLowerCase();
                     const sourceSlug = (s.Slug || '').toLowerCase();
-                    return sourceName.includes(sourceSearchTerm) ||
-                           sourceType.includes(sourceSearchTerm) ||
-                           sourceSlug.includes(sourceSearchTerm);
+
+                    // Check if source matches any of the selected filters
+                    return selectedSourceFilters.some(filter => {
+                        const filterLower = filter.toLowerCase();
+                        return sourceName.includes(filterLower) ||
+                               sourceType.includes(filterLower) ||
+                               sourceSlug.includes(filterLower);
+                    });
                 });
             }
 
@@ -495,23 +718,72 @@
             // Create a map to store source colors for later link coloring
             const sourceColorMap = {};
 
-            // Add source nodes
-            filteredSources.forEach((source, idx) => {
+            // Add source nodes - group Engage sources by space
+            const engageSourcesBySpace = new Map(); // Group engage sources by space
+            const regularSources = [];
+
+            filteredSources.forEach(source => {
+                const isEngage = (source['Is Engage'] || '').toString().toLowerCase() === 'true';
+                const spaceName = source['Space'];
+
+                if (isEngage && spaceName) {
+                    // Group Engage sources by space
+                    if (!engageSourcesBySpace.has(spaceName)) {
+                        engageSourcesBySpace.set(spaceName, []);
+                    }
+                    engageSourcesBySpace.get(spaceName).push(source);
+                } else {
+                    // Regular source or unmapped Engage source
+                    regularSources.push(source);
+                }
+            });
+
+            let nodeIdx = 0;
+
+            // Add regular source nodes
+            regularSources.forEach(source => {
                 const sourceName = source['Source Name'];
                 if (!nodeMap.has(sourceName)) {
-                    const sourceColor = sourceColors[idx % sourceColors.length];
+                    const sourceColor = sourceColors[nodeIdx % sourceColors.length];
                     sourceColorMap[sourceName] = sourceColor;
                     nodeMap.set(sourceName, nodes.length);
                     nodes.push({
                         label: sourceName,
-                        color: colorStrategy === 'sources' ? sourceColor : '#a0aec0', // Gray if coloring by destinations
+                        color: colorStrategy === 'sources' ? sourceColor : '#a0aec0',
                         type: 'source'
                     });
+                    nodeIdx++;
+                }
+            });
+
+            // Add grouped Engage source nodes (one node per space)
+            engageSourcesBySpace.forEach((sources, spaceName) => {
+                const groupLabel = `${spaceName} (${sources.length} Engage source${sources.length > 1 ? 's' : ''})`;
+                if (!nodeMap.has(groupLabel)) {
+                    const sourceColor = sourceColors[nodeIdx % sourceColors.length];
+                    // Store mapping for all sources in this space
+                    sources.forEach(source => {
+                        const sourceName = source['Source Name'];
+                        sourceColorMap[sourceName] = sourceColor;
+                        nodeMap.set(sourceName, nodes.length); // All sources in space map to same node
+                    });
+                    nodeMap.set(groupLabel, nodes.length);
+                    nodes.push({
+                        label: groupLabel,
+                        color: colorStrategy === 'sources' ? sourceColor : '#a0aec0',
+                        type: 'source-engage-group',
+                        spaceName: spaceName,
+                        sourceCount: sources.length
+                    });
+                    nodeIdx++;
                 }
             });
 
             // Track destination nodes
             const destinationNodes = new Set();
+
+            // Track aggregated links to avoid duplicates (space -> destination)
+            const linkAggregation = new Map(); // key: "sourceIdx-destIdx", value: count
 
             // Add links and destination nodes (only for selected destinations)
             filteredSources.forEach(source => {
@@ -533,7 +805,7 @@
                         nodeMap.set(dest, nodes.length);
                         nodes.push({
                             label: dest,
-                            color: colorStrategy === 'destinations' ? destColor : '#a0aec0', // Gray if coloring by sources
+                            color: colorStrategy === 'destinations' ? destColor : '#a0aec0',
                             type: 'destination'
                         });
                         destinationNodes.add(dest);
@@ -541,24 +813,34 @@
 
                     const destIdx = nodeMap.get(dest);
 
+                    // Create link key for aggregation
+                    const linkKey = `${sourceIdx}-${destIdx}`;
+
                     // Choose link color based on color strategy
                     let linkColor;
                     if (colorStrategy === 'sources') {
-                        // Color flows from source to destination
-                        linkColor = (sourceColorMap[sourceName] || '#a0aec0') + 'cc'; // 80% opacity
+                        linkColor = (sourceColorMap[sourceName] || '#a0aec0') + 'cc';
                     } else {
-                        // Color flows from destination to source (default)
                         const destColor = destinationColorMap[dest] || '#48bb78';
-                        linkColor = destColor + 'cc'; // 80% opacity
+                        linkColor = destColor + 'cc';
                     }
 
-                    links.push({
-                        source: sourceIdx,
-                        target: destIdx,
-                        value: 1,
-                        color: linkColor
-                    });
+                    // Aggregate links (for grouped engage sources, this prevents duplicates)
+                    if (!linkAggregation.has(linkKey)) {
+                        linkAggregation.set(linkKey, {
+                            source: sourceIdx,
+                            target: destIdx,
+                            value: 0,
+                            color: linkColor
+                        });
+                    }
+                    linkAggregation.get(linkKey).value += 1;
                 });
+            });
+
+            // Convert aggregated links to array
+            linkAggregation.forEach(link => {
+                links.push(link);
             });
 
             // Create Plotly Sankey diagram
@@ -611,9 +893,12 @@
 
         function renderConnectionsTable() {
             const tbody = document.getElementById('connectionsTableBody');
+            const thead = document.getElementById('connectionsTableHead');
 
             // Filter based on TABLE view
             let displaySources;
+            const isEngageView = currentTableView === 'engage';
+
             if (currentTableView === 'custom') {
                 displaySources = sourcesData.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
@@ -622,9 +907,31 @@
             } else {
                 displaySources = sourcesData.filter(s => {
                     const isEngage = (s['Is Engage'] || '').toString().toLowerCase() === 'true';
-                    return isEngage;
+                    if (!isEngage) return false;
+
+                    // Apply space filter
+                    const space = s['Space'] || '';
+                    if (selectedSpaces.size < allSpaces.size) {
+                        // If not all spaces selected, filter by selected spaces
+                        if (!space || !selectedSpaces.has(space)) {
+                            return false;
+                        }
+                    }
+                    return true;
                 });
             }
+
+            // Update table header based on view
+            thead.innerHTML = `
+                <tr>
+                    <th>Source</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    ${isEngageView ? '<th>Space</th>' : ''}
+                    <th>Connected Destinations</th>
+                    <th>Count</th>
+                </tr>
+            `;
 
             // Sort by destination count descending
             const sortedSources = [...displaySources].sort((a, b) => {
@@ -640,10 +947,16 @@
                 const destinations = source['Connected Destinations'] || 'None';
                 const count = source['Destination Count'] || 0;
                 const logoUrl = source['Logo URL'] || '';
+                const spaceName = source['Space'] || '';
 
                 // Create logo display using proxy with fallback
                 const logoDisplay = logoUrl
                     ? `<img src="/proxy-logo?url=${encodeURIComponent(logoUrl)}" alt="${source['Source Name']}" style="width: 24px; height: 24px; object-fit: contain; margin-right: 8px; vertical-align: middle; border-radius: 4px;" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22%23cbd5e0%22/><text x=%2212%22 y=%2216%22 text-anchor=%22middle%22 font-size=%2212%22 fill=%22%23fff%22>?</text></svg>'; this.title='Logo unavailable'">`
+                    : '';
+
+                // Display space name for Engage sources view
+                const spaceCell = isEngageView
+                    ? `<td>${spaceName ? `<span style="color: #4a5568; font-size: 0.9rem;">${spaceName}</span>` : '<span style="color: #a0aec0;">Unknown</span>'}</td>`
                     : '';
 
                 return `
@@ -651,6 +964,7 @@
                         <td><div style="display: flex; align-items: center;">${logoDisplay}<strong>${source['Source Name']}</strong></div></td>
                         <td>${source.Type}</td>
                         <td>${statusBadge}</td>
+                        ${spaceCell}
                         <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${destinations}">${destinations}</td>
                         <td>${count}</td>
                     </tr>
