@@ -57,6 +57,32 @@ Dashboard shows: 4 active spaces
 - Always run a full audit to ensure sources data is available
 - The warehouse page automatically loads the sources mapping when available
 
+## Audience Destinations - Feature Temporarily Disabled
+
+**Status:** COMMENTED OUT - Not production-ready
+
+**Reason:** The Segment Public API endpoint for audience-to-destination mapping (`GET /spaces/{spaceId}/audiences/{audienceId}/destinations`) is currently in Alpha testing and not available to all workspaces.
+
+**Background:**
+- This endpoint requires the Audience feature to be enabled in the workspace
+- Alpha API access is not widely available
+- Rate limit is only 50 requests/min (vs standard 100/min)
+- May require special permissions from Segment customer success team
+
+**Current Status:**
+- Feature code is commented out in `app.py`
+- CSV does not include "Connected Destinations" or "Destination Count" columns
+- Markdown export does not include audience activation analysis
+
+**Future Plans:**
+- Re-enable when Segment releases this endpoint to general availability
+- Alternative: Investigate GraphQL API for audience-destination mapping
+- This feature is visible in the Segment UI, so the data exists - just need production-ready API access
+
+**Workaround:**
+- View audience destinations manually in the Segment UI
+- Check the Connections page to see destination → audience mappings from the destination side
+
 ## Delivery Metrics - REST API Access
 
 **Issue:** The delivery metrics feature uses the REST API endpoint `GET /destinations/{destinationId}/delivery-metrics`.

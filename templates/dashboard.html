@@ -135,8 +135,8 @@
                             <option value="status-disabled">Status: Disabled First</option>
                             <option value="size-desc">Size: Largest First</option>
                             <option value="size-asc">Size: Smallest First</option>
-                            <option value="name-asc">Name: A-Z</option>
-                            <option value="name-desc">Name: Z-A</option>
+                            <option value="destinations-desc">Destinations: Most First</option>
+                            <option value="destinations-asc">Destinations: Least First</option>
                             <option value="created-desc">Created: Newest First</option>
                             <option value="created-asc">Created: Oldest First</option>
                             <option value="updated-desc">Updated: Newest First</option>
@@ -154,6 +154,8 @@
                                 <th>Status</th>
                                 <th>Name</th>
                                 <th>Size</th>
+                                <th style="white-space: nowrap;">Dest Count</th>
+                                <th>Destinations</th>
                                 <th>Description</th>
                                 <th>Created</th>
                                 <th>Updated</th>
@@ -524,6 +526,20 @@
                             return aSize - bSize;
                         });
                         break;
+                    case 'destinations-desc':
+                        filteredAudiences.sort((a, b) => {
+                            const aCount = parseInt(a['Destination Count'] || 0);
+                            const bCount = parseInt(b['Destination Count'] || 0);
+                            return bCount - aCount;
+                        });
+                        break;
+                    case 'destinations-asc':
+                        filteredAudiences.sort((a, b) => {
+                            const aCount = parseInt(a['Destination Count'] || 0);
+                            const bCount = parseInt(b['Destination Count'] || 0);
+                            return aCount - bCount;
+                        });
+                        break;
                     case 'name-asc':
                         filteredAudiences.sort((a, b) => {
                             const aName = (a.Name || '').toLowerCase();
@@ -621,11 +637,31 @@
                     updated = isNaN(updatedDate.getTime()) ? 'N/A' : updatedDate.toLocaleDateString();
                 }
 
+                // Format destinations columns
+                const destinationCount = parseInt(aud['Destination Count'] || 0);
+                const destinations = aud['Connected Destinations'] || '';
+
+                // Count column
+                const countDisplay = destinationCount > 0
+                    ? `<span style="font-weight: 600; color: #2d3748;">${destinationCount}</span>`
+                    : '<span style="color: #a0aec0;">0</span>';
+
+                // Destinations column
+                let destinationsDisplay = '';
+                if (destinationCount > 0) {
+                    const truncatedDest = destinations.length > 50 ? destinations.substring(0, 50) + '...' : destinations;
+                    destinationsDisplay = `<span title="${destinations}" style="cursor: help;">${truncatedDest}</span>`;
+                } else {
+                    destinationsDisplay = '<span style="color: #a0aec0;">None</span>';
+                }
+
                 return `
                     <tr>
                         <td>${statusBadge}</td>
                         <td>${nameDisplay}</td>
                         <td>${size}</td>
+                        <td style="text-align: center;">${countDisplay}</td>
+                        <td>${destinationsDisplay}</td>
                         <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${aud.Description || ''}">${description}</td>
                         <td>${created}</td>
                         <td>${updated}</td>

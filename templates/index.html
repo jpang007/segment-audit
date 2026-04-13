@@ -34,7 +34,7 @@
                     <div>
                         <form id="auditForm" method="POST" action="/run-audit">
                         <div class="form-group">
-                            <label for="api_token">Segment API Token *</label>
+                            <label for="api_token">Segment Public API Token *</label>
                             <input
                                 type="password"
                                 id="api_token"
@@ -42,6 +42,20 @@
                                 placeholder="sgp_..."
                                 required>
                             <small>Get your token from Segment: Settings → Workspace Settings → Access Management → Tokens. We'll automatically fetch your workspace and all spaces.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gateway_token">Gateway API Token (Optional - Enhanced Audience Data)</label>
+                            <input
+                                type="password"
+                                id="gateway_token"
+                                name="gateway_token"
+                                placeholder="eyJhbGciOiJFUzI1NiI...">
+                            <small>
+                                <strong>🎯 Why provide this?</strong> Gets audience destinations & definition queries (not available in Public API).<br>
+                                <strong>How to get:</strong> Open Segment UI → DevTools (F12) → Network tab → Any GraphQL request → Copy Authorization header (Bearer token).<br>
+                                <strong>Note:</strong> Token expires after ~7 days. Audit works without it, but won't show which destinations are connected to audiences.
+                            </small>
                         </div>
 
                         <div class="form-group">
@@ -106,7 +120,7 @@
 
                             <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; backdrop-filter: blur(10px);">
                                 <div style="font-weight: 600; margin-bottom: 5px; font-size: 0.95rem;">👥 Audiences</div>
-                                <p style="font-size: 0.85rem; margin: 0; opacity: 0.9;">Analyze segments with size, status, and filtering capabilities.</p>
+                                <p style="font-size: 0.85rem; margin: 0; opacity: 0.9;">Analyze segments with size, status, connected destinations (via Gateway API), and filtering capabilities.</p>
                             </div>
 
                             <div style="background: rgba(255,255,255,0.15); padding: 12px; border-radius: 8px; backdrop-filter: blur(10px);">

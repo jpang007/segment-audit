@@ -48,18 +48,32 @@ audit_status = {
 class SegmentAuditor:
     """Collects Segment workspace data"""
 
-    def __init__(self, api_token, workspace_id=None, space_id=None, skip_ssl_verify=False):
+    def __init__(self, api_token, workspace_id=None, space_id=None, skip_ssl_verify=False, gateway_token=None, workspace_slug=None):
         self.api_token = api_token
+        self.gateway_token = gateway_token
         self.workspace_id = workspace_id
+        self.workspace_slug = workspace_slug
         self.space_id = space_id
         self.skip_ssl_verify = skip_ssl_verify
         self.verify = not skip_ssl_verify  # If skip_ssl_verify=True, verify=False
         self.v1_base = "https://api.segmentapis.com"
         self.platform_base = "https://platform.segmentapis.com/v1beta"
+        self.gateway_api_base = "https://app.segment.com/gateway-api"
         self.headers = {
             "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json"
         }
+
+        # Gateway API headers (if token provided)
+        if gateway_token:
+            self.gateway_headers = {
+                "Authorization": f"Bearer {gateway_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "x-requested-with": "fetch"
+            }
+        else:
+            self.gateway_headers = None
 
         # Suppress SSL warnings if verification is disabled
         if skip_ssl_verify:
@@ -188,6 +202,215 @@ class SegmentAuditor:
             return []
         url = f"{self.v1_base}/spaces/{self.space_id}/audiences"
         return self._paginate(url, 'data')
+
+    # COMMENTED OUT: Audience destinations API is in Alpha and not production-ready
+    # TODO: Re-enable when Segment releases this endpoint to general availability or implement via GraphQL
+    # def get_audience_destinations(self, audience_id):
+    #     """Get all destinations connected to an audience
+    #
+    #     Note: This endpoint is in Alpha and may not be available for all workspaces.
+    #     Requires the Audience feature to be enabled in the workspace.
+    #     Rate limit: 50 requests per minute.
+    #     """
+    #     if not self.space_id:
+    #         return []
+    #     url = f"{self.v1_base}/spaces/{self.space_id}/audiences/{audience_id}/destinations"
+    #
+    #     try:
+    #         response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
+    #
+    #         if response.status_code == 403:
+    #             # Alpha endpoint not available or workspace lacks Audience feature
+    #             print(f"⚠️ Cannot access audience destinations (Alpha API): 403 Forbidden. This workspace may not have the Audience feature enabled or API token lacks permissions.")
+    #             return None  # Return None to signal this is a permission issue, not just empty
+    #         elif response.status_code == 404:
+    #             # Audience not found or endpoint not available
+    #             return []
+    #         elif response.status_code == 429:
+    #             # Rate limited (50 requests per minute for this Alpha endpoint)
+    #             print(f"⚠️ Rate limited on audience destinations API (50/min limit)")
+    #             return []
+    #         elif response.status_code != 200:
+    #             print(f"⚠️ Audience destinations API returned {response.status_code}: {response.text[:200]}")
+    #             return []
+    #
+    #         data = response.json()
+    #
+    #         # API returns destinations in data.destinations
+    #         destinations_wrapper = data.get('data', {})
+    #
+    #         if isinstance(destinations_wrapper, dict):
+    #             destinations = destinations_wrapper.get('destinations', [])
+    #             return destinations
+    #         elif isinstance(destinations_wrapper, list):
+    #             return destinations_wrapper
+    #         return []
+    #     except Exception as e:
+    #         print(f"Warning: Could not fetch destinations for audience {audience_id}: {e}")
+    #         return []
+
+    def get_audiences_gateway(self, workspace_slug, space_id):
+        """Fetch audiences with destinations via Gateway API (GraphQL)
+
+        Returns a dict mapping audience_id to enhanced data:
+        {
+            'audience_id_123': {
+                'destinations': ['Destination 1', 'Destination 2'],
+                'destination_count': 2,
+                'definition_type': 'ast',
+                'definition_options': {...},
+                'collection': 'USERS',
+                'status': 'SUCCEEDED'
+            }
+        }
+        """
+        if not self.gateway_headers:
+            print("⚠️ Gateway API token not provided, skipping audience destinations fetch")
+            return {}
+
+        url = f"{self.gateway_api_base}/graphql"
+
+        # GraphQL query to fetch audiences with destinations
+        query = """
+        query GetAudiences($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            space(id: $spaceId) {
+              id
+              name
+              slug
+              audiencesAndFolders(cursor: $cursor) {
+                cursor {
+                  hasMore
+                  next
+                }
+                data {
+                  __typename
+                  ... on RealtimeAudience {
+                    id
+                    name
+                    key
+                    enabled
+                    collection
+                    status
+                    size
+                    definition {
+                      type
+                      options
+                    }
+                    destinations {
+                      id
+                      name
+                      enabled
+                    }
+                  }
+                  ... on RetlAudience {
+                    id
+                    name
+                    key
+                    enabled
+                    collection
+                    status
+                    size
+                    destinations {
+                      id
+                      name
+                      enabled
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": workspace_slug,
+            "spaceId": space_id,
+            "cursor": {
+                "limit": 1000
+            }
+        }
+
+        payload = {
+            "query": query,
+            "variables": variables
+        }
+
+        try:
+            response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
+
+            if response.status_code == 401:
+                print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without audience destinations.")
+                return {}
+            elif response.status_code != 200:
+                print(f"⚠️ Gateway API returned {response.status_code}. Continuing without audience destinations.")
+                return {}
+
+            data = response.json()
+
+            # Check for GraphQL errors
+            if 'errors' in data:
+                print(f"⚠️ Gateway API GraphQL errors:")
+                for error in data['errors']:
+                    print(f"   - {error.get('message', error)}")
+                return {}
+
+            # Parse response
+            workspace_data = data.get('data', {}).get('workspace')
+            if not workspace_data:
+                print("⚠️ No workspace data in Gateway API response")
+                return {}
+
+            space_data = workspace_data.get('space')
+            if not space_data:
+                print("⚠️ No space data in Gateway API response")
+                return {}
+
+            audiences_and_folders = space_data.get('audiencesAndFolders', {})
+            data_items = audiences_and_folders.get('data', [])
+
+            # Build mapping of audience_id to enhanced data
+            audience_map = {}
+            for item in data_items:
+                typename = item.get('__typename', '')
+
+                # Skip folders
+                if typename == 'Folder':
+                    continue
+
+                audience_id = item.get('id')
+                if not audience_id:
+                    continue
+
+                # Extract destinations
+                destinations = item.get('destinations', []) or []
+                destination_names = [d.get('name', '') for d in destinations if d.get('name')]
+
+                # Extract definition
+                definition = item.get('definition', {}) or {}
+                definition_type = definition.get('type', '')
+                definition_options = definition.get('options', {})
+
+                audience_map[audience_id] = {
+                    'destinations': destination_names,
+                    'destination_count': len(destination_names),
+                    'definition_type': definition_type,
+                    'definition_options': str(definition_options) if definition_options else '',
+                    'collection': item.get('collection', ''),
+                    'status': item.get('status', '')
+                }
+
+            print(f"✅ Gateway API: Fetched enhanced data for {len(audience_map)} audiences")
+            return audience_map
+
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Gateway API request failed: {e}. Continuing without audience destinations.")
+            return {}
+        except Exception as e:
+            print(f"⚠️ Gateway API error: {e}. Continuing without audience destinations.")
+            return {}
 
     def get_computed_traits(self):
         """Get all computed traits"""
@@ -445,7 +668,7 @@ def infer_computed_trait_type(definition):
     else:
         return 'Custom'
 
-def run_audit(api_token, skip_ssl_verify=False):
+def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
     """Run the audit in background thread"""
     global audit_status
 
@@ -455,6 +678,11 @@ def run_audit(api_token, skip_ssl_verify=False):
         token_suffix = api_token[-10:] if len(api_token) > 40 else ""
         print(f"=== AUDIT STARTING WITH TOKEN: {token_prefix}...{token_suffix}", flush=True)
         print(f"=== TOKEN LENGTH: {len(api_token)}", flush=True)
+
+        if gateway_token:
+            print(f"=== GATEWAY API TOKEN PROVIDED: {gateway_token[:30]}...{gateway_token[-10:]}", flush=True)
+        else:
+            print("=== GATEWAY API TOKEN NOT PROVIDED (audience destinations will not be fetched)", flush=True)
 
         audit_status = {
             'running': True,
@@ -481,12 +709,15 @@ def run_audit(api_token, skip_ssl_verify=False):
                 file_path.unlink()
 
         # Fetch workspace info from token
-        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify)
+        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify, gateway_token=gateway_token)
         workspace = auditor.get_workspace()
 
         workspace_id = workspace.get('id')
         workspace_slug = workspace.get('slug', workspace.get('name'))
         workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
+
+        # Update auditor with workspace_slug for Gateway API calls
+        auditor.workspace_slug = workspace_slug
 
         audit_status['progress'] = 5
         audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
@@ -522,7 +753,9 @@ def run_audit(api_token, skip_ssl_verify=False):
         audit_status['message'] = 'Collecting source data...'
         audit_status['progress'] = 20
 
-        auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
+        # Re-use the existing auditor that already has gateway_token
+        # auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
+        auditor.workspace_id = workspace_id  # Update with workspace_id for sources collection
         sources = auditor.get_sources()
 
         # Collect Reverse ETL models
@@ -818,13 +1051,30 @@ def run_audit(api_token, skip_ssl_verify=False):
         spaces_with_audiences = []
         print(f"=== DEBUG: Total spaces to process: {total_spaces}, space_list: {space_list}", flush=True)
 
+        # Pre-fetch Gateway API data for all spaces (if token provided)
+        gateway_data_by_space = {}
+        if gateway_token and workspace_slug:
+            audit_status['message'] = f'Fetching audience destinations via Gateway API...'
+            print(f"=== Fetching audience destinations via Gateway API for {total_spaces} spaces", flush=True)
+            for space_id in space_list:
+                try:
+                    gateway_audiences = auditor.get_audiences_gateway(workspace_slug, space_id)
+                    if gateway_audiences:
+                        gateway_data_by_space[space_id] = gateway_audiences
+                        print(f"=== Gateway API: Got {len(gateway_audiences)} audiences for space {space_id}", flush=True)
+                except Exception as e:
+                    print(f"⚠️ Gateway API failed for space {space_id}: {e}", flush=True)
+
         for idx, space_id in enumerate(space_list):
             audit_status['message'] = f'Collecting audiences from space {idx+1}/{total_spaces}...'
             audit_status['progress'] = 30 + (40 * idx // total_spaces)
             print(f"=== DEBUG: Processing space {idx+1}/{total_spaces}: {space_id}", flush=True)
 
-            auditor = SegmentAuditor(api_token, space_id=space_id, skip_ssl_verify=skip_ssl_verify)
+            auditor = SegmentAuditor(api_token, space_id=space_id, skip_ssl_verify=skip_ssl_verify, gateway_token=gateway_token, workspace_slug=workspace_slug)
             audiences = auditor.get_audiences()
+
+            # Get Gateway API data for this space
+            gateway_audiences = gateway_data_by_space.get(space_id, {})
 
             # Track non-empty spaces
             if len(audiences) > 0:
@@ -832,7 +1082,7 @@ def run_audit(api_token, skip_ssl_verify=False):
             else:
                 print(f"=== DEBUG: Space {space_id} has no audiences (possibly deleted)", flush=True)
 
-            for audience in audiences:
+            for aud_idx, audience in enumerate(audiences):
                 # Extract size.count from size object
                 size_obj = audience.get('size', {})
                 size_count = size_obj.get('count', 0) if isinstance(size_obj, dict) else size_obj
@@ -841,14 +1091,32 @@ def run_audit(api_token, skip_ssl_verify=False):
                 definition = audience.get('definition', {})
                 definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
 
+                # Get audience ID for Gateway API lookup
+                audience_id = audience.get('id', '')
+
+                # Merge Gateway API data (if available)
+                gateway_info = gateway_audiences.get(audience_id, {})
+                destination_names = gateway_info.get('destinations', [])
+                destination_count = gateway_info.get('destination_count', 0)
+                definition_type = gateway_info.get('definition_type', '')
+                definition_options = gateway_info.get('definition_options', '')
+                collection_type = gateway_info.get('collection', '')
+                status = gateway_info.get('status', '')
+
                 audience_data = {
-                    'ID': audience.get('id', ''),
+                    'ID': audience_id,
                     'Enabled': audience.get('enabled', False),
                     'Name': audience.get('name'),
                     'Key': audience.get('key'),
                     'Size': size_count,
                     'Description': audience.get('description', ''),
                     'Definition Query': definition_query,
+                    'Connected Destinations': ', '.join(destination_names) if destination_names else '',
+                    'Destination Count': destination_count,
+                    'Definition Type': definition_type,
+                    'Definition Options': definition_options,
+                    'Collection': collection_type,
+                    'Status': status,
                     'Created By': audience.get('createdBy', ''),
                     'Created At': audience.get('createdAt', ''),
                     'Updated At': audience.get('updatedAt', ''),
@@ -1108,6 +1376,7 @@ def run_audit_route():
 
     # Get form data
     api_token = request.form.get('api_token')
+    gateway_token = request.form.get('gateway_token', '').strip()  # Optional
     skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
 
     # Validate
@@ -1117,6 +1386,7 @@ def run_audit_route():
     # Store credentials in session for later use (workspace details will be fetched during audit)
     session.permanent = True  # Keep session alive for configured lifetime (7 days)
     session['api_token'] = api_token
+    session['gateway_token'] = gateway_token if gateway_token else None
     session['skip_ssl'] = skip_ssl
 
     # Reset status
@@ -1131,7 +1401,7 @@ def run_audit_route():
     # Run audit in background thread (everything will be fetched automatically from token)
     thread = threading.Thread(
         target=run_audit,
-        args=(api_token, skip_ssl)
+        args=(api_token, skip_ssl, gateway_token)
     )
     thread.daemon = True
     thread.start()
@@ -1491,6 +1761,37 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     # Group audiences by status
     enabled_audiences = [a for a in audiences if a.get('Enabled', '').lower() == 'true']
 
+    # Audience activation analysis (now available via Gateway API)
+    audiences_with_destinations = [a for a in enabled_audiences if int(a.get('Destination Count', 0)) > 0]
+    audiences_without_destinations = [a for a in enabled_audiences if int(a.get('Destination Count', 0)) == 0]
+
+    md_content += f"### Audience Activation Summary\n\n"
+    md_content += f"- **Total Active Audiences:** {len(enabled_audiences)}\n"
+    if enabled_audiences:
+        md_content += f"- **Activated to Destinations:** {len(audiences_with_destinations)} ({len(audiences_with_destinations)/len(enabled_audiences)*100:.1f}%)\n"
+        md_content += f"- **Not Activated:** {len(audiences_without_destinations)} ({len(audiences_without_destinations)/len(enabled_audiences)*100:.1f}%)\n\n"
+
+        if audiences_without_destinations:
+            md_content += f"⚠️ **Note:** {len(audiences_without_destinations)} active audience(s) are not connected to any destinations. These audiences are defined but not being used for activation.\n\n"
+
+    # Breakdown by destination count
+    dest_counts = {}
+    for aud in audiences:
+        count = int(aud.get('Destination Count', 0))
+        dest_counts[count] = dest_counts.get(count, 0) + 1
+
+    if dest_counts:
+        md_content += f"### Audiences by Destination Count\n\n"
+        for count in sorted(dest_counts.keys(), reverse=True):
+            audience_count = dest_counts[count]
+            if count == 0:
+                md_content += f"- **0 destinations:** {audience_count} audience(s) (not activated)\n"
+            elif count == 1:
+                md_content += f"- **1 destination:** {audience_count} audience(s)\n"
+            else:
+                md_content += f"- **{count} destinations:** {audience_count} audience(s)\n"
+        md_content += "\n"
+
     md_content += f"### Active Audiences ({len(enabled_audiences)})\n\n"
 
     for audience in sorted(enabled_audiences, key=lambda x: int(x.get('Size', 0) or 0), reverse=True)[:20]:
@@ -1498,10 +1799,18 @@ This workspace contains **{len(sources)} data sources** collecting customer data
         aud_size = audience.get('Size', '0')
         aud_desc = audience.get('Description', 'No description')
         aud_query = audience.get('Definition Query', '')
+        aud_destinations = audience.get('Connected Destinations', '')
+        aud_dest_count = int(audience.get('Destination Count', 0))
 
         md_content += f"#### {aud_name}\n"
         md_content += f"- **Size:** {int(aud_size):,} users\n"
         md_content += f"- **Description:** {aud_desc}\n"
+
+        # Connected destinations (now available via Gateway API)
+        if aud_destinations:
+            md_content += f"- **Connected Destinations ({aud_dest_count}):** {aud_destinations}\n"
+        else:
+            md_content += f"- **Connected Destinations:** None (not activated to any destinations)\n"
 
         # Add query definition (truncate if too long)
         if aud_query:
