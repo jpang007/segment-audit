@@ -412,6 +412,166 @@ class SegmentAuditor:
             print(f"⚠️ Gateway API error: {e}. Continuing without audience destinations.")
             return {}
 
+    def get_journeys_gateway(self, workspace_slug, space_id):
+        """Fetch journeys via Gateway API (GraphQL)
+
+        Returns a list of journey objects with all relevant data
+        """
+        if not self.gateway_headers:
+            print("⚠️ Gateway API token not provided, skipping journeys fetch")
+            return []
+
+        url = f"{self.gateway_api_base}/graphql"
+
+        # GraphQL query to fetch journeys and campaigns (using campaignSearch)
+        query = """
+        query GetJourneys($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            space(id: $spaceId) {
+              id
+              campaignSearch(spaceId: $spaceId, cursor: $cursor) {
+                cursor {
+                  hasMore
+                  next
+                }
+                data {
+                  __typename
+                  ... on Campaign {
+                    containerId
+                    version
+                    versionCount
+                    updatedAt
+                    name
+                    variant
+                    state
+                    definition
+                    createdBy {
+                      id
+                      name
+                    }
+                    hasPublishedVersion
+                    campaignsDestinations: destinations {
+                      id
+                      metadataId
+                      name
+                      logo
+                    }
+                  }
+                  ... on Journey {
+                    id
+                    name
+                    description
+                    containerId
+                    version
+                    maxVersion
+                    spaceId
+                    executionState
+                    status
+                    emailActionCount
+                    smsActionCount
+                    whatsAppActionCount
+                    mobilePushActionCount
+                    destinations {
+                      id
+                      metadata {
+                        ... on IntegrationMetadata {
+                          id
+                          name
+                        }
+                        ... on WarehouseMetadata {
+                          id
+                          name
+                        }
+                      }
+                    }
+                    createdBy {
+                      id
+                      name
+                    }
+                    updatedAt
+                    container {
+                      maxVersion
+                      isLocked
+                      updatedAt
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": workspace_slug,
+            "spaceId": space_id,
+            "cursor": {
+                "limit": 1000
+            }
+        }
+
+        payload = {
+            "query": query,
+            "variables": variables
+        }
+
+        try:
+            response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
+
+            if response.status_code == 401:
+                print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without journeys.")
+                return []
+            elif response.status_code != 200:
+                print(f"⚠️ Gateway API returned {response.status_code} for journeys.")
+                try:
+                    error_data = response.json()
+                    errors = error_data.get('errors', [])
+                    if errors and any('GRAPHQL_VALIDATION_FAILED' in str(e) for e in errors):
+                        print(f"   Note: This workspace may not have Engage (Journeys) feature enabled.")
+                    else:
+                        print(f"   Error: {error_data}")
+                except:
+                    print(f"   Response: {response.text[:500]}")
+                return []
+
+            data = response.json()
+
+            # Check for GraphQL errors
+            if 'errors' in data:
+                print(f"⚠️ Gateway API GraphQL errors:")
+                for error in data['errors']:
+                    print(f"   - {error.get('message', error)}")
+                return []
+
+            # Parse response
+            workspace_data = data.get('data', {}).get('workspace')
+            if not workspace_data:
+                print("⚠️ No workspace data in Gateway API response")
+                return []
+
+            space_data = workspace_data.get('space')
+            if not space_data:
+                print("⚠️ No space data in Gateway API response")
+                return []
+
+            campaign_search = space_data.get('campaignSearch', {})
+            all_items = campaign_search.get('data', [])
+
+            # Return all items (Journeys and Campaigns)
+            journeys = [item for item in all_items if item.get('__typename') == 'Journey']
+            campaigns = [item for item in all_items if item.get('__typename') == 'Campaign']
+
+            print(f"✅ Gateway API: Fetched {len(journeys)} journeys, {len(campaigns)} campaigns")
+            return all_items  # Return both journeys and campaigns
+
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Gateway API request failed: {e}. Continuing without journeys.")
+            return []
+        except Exception as e:
+            print(f"⚠️ Gateway API error: {e}. Continuing without journeys.")
+            return []
+
     def get_computed_traits(self):
         """Get all computed traits"""
         if not self.space_id:
@@ -742,6 +902,7 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
 
         all_audiences = []
         all_computed_traits = []
+        all_journeys = []
         computed_traits_access_error = None
         all_events = Counter()
         all_traits = Counter()
@@ -1054,8 +1215,8 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
         # Pre-fetch Gateway API data for all spaces (if token provided)
         gateway_data_by_space = {}
         if gateway_token and workspace_slug:
-            audit_status['message'] = f'Fetching audience destinations via Gateway API...'
-            print(f"=== Fetching audience destinations via Gateway API for {total_spaces} spaces", flush=True)
+            audit_status['message'] = f'Fetching audience destinations and journeys via Gateway API...'
+            print(f"=== Fetching audience destinations and journeys via Gateway API for {total_spaces} spaces", flush=True)
             for space_id in space_list:
                 try:
                     gateway_audiences = auditor.get_audiences_gateway(workspace_slug, space_id)
@@ -1064,6 +1225,17 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
                         print(f"=== Gateway API: Got {len(gateway_audiences)} audiences for space {space_id}", flush=True)
                 except Exception as e:
                     print(f"⚠️ Gateway API failed for space {space_id}: {e}", flush=True)
+
+                try:
+                    journeys = auditor.get_journeys_gateway(workspace_slug, space_id)
+                    if journeys:
+                        # Add space_id to each journey for reference
+                        for journey in journeys:
+                            journey['space_id'] = space_id
+                        all_journeys.extend(journeys)
+                        print(f"=== Gateway API: Got {len(journeys)} journeys for space {space_id}", flush=True)
+                except Exception as e:
+                    print(f"⚠️ Gateway API journey fetch failed for space {space_id}: {e}", flush=True)
 
         for idx, space_id in enumerate(space_list):
             audit_status['message'] = f'Collecting audiences from space {idx+1}/{total_spaces}...'
@@ -1232,6 +1404,90 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
                 writer = csv.DictWriter(f, fieldnames=all_audiences[0].keys())
                 writer.writeheader()
                 writer.writerows(all_audiences)
+
+        # Journeys and Campaigns
+        if all_journeys:
+            # Flatten nested objects for CSV export
+            journeys_flat = []
+            for item in all_journeys:
+                item_type = item.get('__typename', '')
+                space_id = item.get('space_id', '')
+                space_name = space_mapping.get(space_id, space_id)
+
+                if item_type == 'Journey':
+                    # Journey fields
+                    container = item.get('container', {})
+
+                    # Parse definition to get step count
+                    definition = item.get('definition', {})
+                    step_count = 0
+                    if definition and isinstance(definition, dict):
+                        states = definition.get('states', {})
+                        step_count = len(states) if states else 0
+
+                    flat_item = {
+                        'Type': 'Journey',
+                        'Name': item.get('name', ''),
+                        'Space': space_name,
+                        'State': item.get('executionState', ''),
+                        'Status': item.get('status', ''),
+                        'Current Version': item.get('version', ''),
+                        'Step Count': step_count,
+                        'Destination Count': len(item.get('destinations', [])),
+                        'Destinations': ', '.join([
+                            d.get('metadata', {}).get('name', '') or d.get('name', '')
+                            for d in item.get('destinations', [])
+                            if d.get('metadata', {}).get('name') or d.get('name')
+                        ]),
+                        'Created By': item.get('createdBy', {}).get('name', '') if item.get('createdBy') else '',
+                        'Updated At': item.get('updatedAt', ''),
+                        'Description': item.get('description', ''),
+                        'Container ID': item.get('containerId', ''),
+                        'Is Locked': 'Yes' if container.get('isLocked') else 'No',
+                        'Definition': json.dumps(definition) if definition else '',
+                        'ID': item.get('id', ''),
+                        'Space ID': space_id,
+                    }
+                elif item_type == 'Campaign':
+                    # Campaign fields
+                    destinations = item.get('campaignsDestinations', [])
+
+                    # Parse definition
+                    definition = item.get('definition', {})
+                    step_count = 0
+                    if definition and isinstance(definition, dict):
+                        states = definition.get('states', {})
+                        step_count = len(states) if states else 0
+
+                    flat_item = {
+                        'Type': 'Campaign',
+                        'Name': item.get('name', ''),
+                        'Space': space_name,
+                        'State': item.get('state', ''),
+                        'Status': item.get('state', '').upper() if item.get('state') else '',
+                        'Current Version': item.get('version', ''),
+                        'Step Count': step_count,
+                        'Destination Count': len(destinations),
+                        'Destinations': ', '.join([d.get('name', '') for d in destinations]),
+                        'Created By': item.get('createdBy', {}).get('name', '') if item.get('createdBy') else '',
+                        'Updated At': item.get('updatedAt', ''),
+                        'Description': '',
+                        'Container ID': item.get('containerId', ''),
+                        'Is Locked': '',
+                        'Definition': json.dumps(definition) if definition else '',
+                        'ID': item.get('containerId', ''),
+                        'Space ID': space_id,
+                    }
+                else:
+                    continue
+
+                journeys_flat.append(flat_item)
+
+            if journeys_flat:
+                with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=journeys_flat[0].keys())
+                    writer.writeheader()
+                    writer.writerows(journeys_flat)
 
         # Computed Traits
         if all_computed_traits:
@@ -1463,6 +1719,12 @@ def audiences():
 def dashboard():
     """Legacy redirect to audiences"""
     return redirect('/audiences', code=301)
+
+@app.route('/journeys')
+def journeys():
+    """Journeys view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('journeys.html', customer_name=customer_name)
 
 @app.route('/sources')
 def sources():
@@ -1871,6 +2133,96 @@ This workspace contains **{len(sources)} data sources** collecting customer data
         else:
             md_content += "No computed traits configured in this workspace.\n"
 
+    # Journeys section
+    journeys_file = DATA_DIR / 'segment_journeys_audit.csv'
+    journeys = []
+    if journeys_file.exists():
+        with open(journeys_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            journeys = list(reader)
+
+    if journeys:
+        md_content += "\n---\n\n## Journeys & Campaigns\n\n"
+        md_content += f"This workspace has **{len(journeys)} journeys and campaigns** configured for customer engagement.\n\n"
+
+        # Count by type and state
+        from collections import Counter
+        type_counts = Counter()
+        state_counts = Counter()
+        for j in journeys:
+            j_type = j.get('Type', 'Unknown')
+            j_state = j.get('State', 'Unknown')
+            type_counts[j_type] += 1
+            state_counts[j_state] += 1
+
+        md_content += "### Overview\n\n"
+        for j_type, count in type_counts.most_common():
+            md_content += f"- **{j_type}s:** {count}\n"
+
+        md_content += "\n### By State\n\n"
+        for state, count in state_counts.most_common():
+            md_content += f"- **{state.title()}:** {count}\n"
+
+        # Show published journeys
+        published = [j for j in journeys if j.get('State', '').lower() == 'published']
+        if published:
+            md_content += f"\n### Published Journeys ({len(published)})\n\n"
+            for journey in published:
+                j_name = journey.get('Name', '')
+                j_type = journey.get('Type', 'Journey')
+                j_space = journey.get('Space', '')
+                j_version = journey.get('Current Version', '')
+                j_steps = journey.get('Step Count', '0')
+                j_dests = journey.get('Destinations', 'None')
+                j_created_by = journey.get('Created By', '')
+                j_definition = journey.get('Definition', '')
+
+                md_content += f"#### {j_name}\n"
+                md_content += f"- **Type:** {j_type}\n"
+                md_content += f"- **Space:** {j_space}\n"
+                md_content += f"- **Version:** {j_version}\n"
+                md_content += f"- **Steps:** {j_steps}\n"
+                md_content += f"- **Destinations:** {j_dests}\n"
+                md_content += f"- **Created By:** {j_created_by}\n"
+
+                # Parse and show journey definition structure
+                if j_definition:
+                    try:
+                        definition_obj = json.loads(j_definition)
+                        if definition_obj and isinstance(definition_obj, dict):
+                            states = definition_obj.get('states', {})
+                            if states:
+                                md_content += f"- **Journey Structure:** {len(states)} state(s)\n"
+                                # List state names and types
+                                state_types = []
+                                for state_id, state_data in states.items():
+                                    meta = state_data.get('meta', {})
+                                    state_type = meta.get('type', 'unknown')
+                                    state_name = meta.get('name', state_id)
+                                    state_types.append(f"{state_name} ({state_type})")
+                                if state_types:
+                                    md_content += f"  - States: {', '.join(state_types[:5])}"
+                                    if len(state_types) > 5:
+                                        md_content += f" ...and {len(state_types) - 5} more"
+                                    md_content += "\n"
+                    except:
+                        pass
+
+                md_content += "\n"
+
+        # Show draft journeys summary
+        drafts = [j for j in journeys if j.get('State', '').lower() == 'draft']
+        if drafts:
+            md_content += f"\n### Draft Journeys ({len(drafts)})\n\n"
+            md_content += "The following journeys are in draft state:\n\n"
+            for journey in drafts[:10]:  # Show first 10
+                j_name = journey.get('Name', '')
+                j_space = journey.get('Space', '')
+                j_steps = journey.get('Step Count', '0')
+                md_content += f"- **{j_name}** ({j_space}) - {j_steps} step(s)\n"
+            if len(drafts) > 10:
+                md_content += f"\n_...and {len(drafts) - 10} more draft journeys_\n"
+
     md_content += "\n---\n\n## Event & Trait Coverage\n\n"
     md_content += "### Top Events Referenced in Audiences\n\n"
 
@@ -1946,50 +2298,60 @@ This workspace contains **{len(sources)} data sources** collecting customer data
             fourteen_day = event_volumes.get('fourteen_day', {}) if isinstance(event_volumes.get('fourteen_day'), dict) else {}
             seven_day_by_source = event_volumes.get('seven_day_by_source', {}) if isinstance(event_volumes.get('seven_day_by_source'), dict) else {}
 
-            # Calculate workspace-level totals - with validation
-            seven_day_data = seven_day.get('data', []) if isinstance(seven_day.get('data'), list) else []
-            fourteen_day_data = fourteen_day.get('data', []) if isinstance(fourteen_day.get('data'), list) else []
-            seven_day_by_source_data = seven_day_by_source.get('data', []) if isinstance(seven_day_by_source.get('data'), list) else []
+            # Parse the nested data structure
+            # Structure: {data: {result: [{total: X, series: [{time, count}, ...]}]}}
+            seven_day_result = seven_day.get('data', {}).get('result', [])
+            fourteen_day_result = fourteen_day.get('data', {}).get('result', [])
+            seven_day_by_source_result = seven_day_by_source.get('data', {}).get('result', [])
 
-            seven_day_total = sum(day.get('value', 0) if isinstance(day, dict) else 0 for day in seven_day_data)
-            fourteen_day_total = sum(day.get('value', 0) if isinstance(day, dict) else 0 for day in fourteen_day_data)
+            # Get totals
+            seven_day_total = seven_day_result[0].get('total', 0) if len(seven_day_result) > 0 else 0
+            fourteen_day_total = fourteen_day_result[0].get('total', 0) if len(fourteen_day_result) > 0 else 0
+
+            # Get series data for daily breakdown
+            seven_day_series = seven_day_result[0].get('series', []) if len(seven_day_result) > 0 else []
+            fourteen_day_series = fourteen_day_result[0].get('series', []) if len(fourteen_day_result) > 0 else []
 
             md_content += f"### Workspace Event Volume\n\n"
+            md_content += f"_Data collected from Segment Public API (same data used in the Observability dashboard)_\n\n"
+
             md_content += f"**Last 7 Days:** {seven_day_total:,} events\n\n"
             md_content += f"**Last 14 Days:** {fourteen_day_total:,} events\n\n"
 
             # Calculate daily averages
-            if len(seven_day_data) > 0:
-                daily_avg_7d = seven_day_total / len(seven_day_data)
+            if len(seven_day_series) > 0:
+                daily_avg_7d = seven_day_total / len(seven_day_series)
                 md_content += f"**Daily Average (7d):** {daily_avg_7d:,.0f} events/day\n\n"
 
-            if len(fourteen_day_data) > 0:
-                daily_avg_14d = fourteen_day_total / len(fourteen_day_data)
+            if len(fourteen_day_series) > 0:
+                daily_avg_14d = fourteen_day_total / len(fourteen_day_series)
                 md_content += f"**Daily Average (14d):** {daily_avg_14d:,.0f} events/day\n\n"
 
             # Analyze volume by source
-            md_content += f"### Event Volume by Source\n\n"
+            md_content += f"### Event Volume by Source (Last 7 Days)\n\n"
 
-            # Group by source and calculate totals
+            # Parse source-level volumes
             source_volumes = {}
-            for entry in seven_day_by_source_data:
+            for entry in seven_day_by_source_result:
                 if isinstance(entry, dict):
-                    source_id = entry.get('sourceId', 'Unknown')
-                    volume = entry.get('value', 0)
-                    if source_id not in source_volumes:
-                        source_volumes[source_id] = 0
-                    source_volumes[source_id] += volume
+                    source_info = entry.get('source', {})
+                    source_id = source_info.get('id', 'Unknown')
+                    source_name = source_info.get('name', source_id)
+                    volume = entry.get('total', 0)
+                    source_volumes[source_id] = {
+                        'name': source_name,
+                        'volume': volume
+                    }
 
             # Sort by volume
-            sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1], reverse=True)
+            sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1]['volume'], reverse=True)
 
-            if sorted_sources:
+            if sorted_sources and len(sorted_sources) > 0:
                 md_content += "Sources ranked by 7-day event volume:\n\n"
 
-                for source_id, volume in sorted_sources[:15]:  # Top 15 sources
-                    # Find source name
-                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                    source_name = source.get('Source Name', source_id) if source else source_id
+                for source_id, source_data in sorted_sources[:15]:  # Top 15 sources
+                    source_name = source_data['name']
+                    volume = source_data['volume']
 
                     # Calculate percentage of total
                     percentage = (volume / seven_day_total * 100) if seven_day_total > 0 else 0
@@ -1997,28 +2359,29 @@ This workspace contains **{len(sources)} data sources** collecting customer data
                     md_content += f"- **{source_name}:** {volume:,} events ({percentage:.1f}%)\n"
 
                 if len(sorted_sources) > 15:
-                    remaining_volume = sum(v for _, v in sorted_sources[15:])
+                    remaining_volume = sum(v['volume'] for _, v in sorted_sources[15:])
                     remaining_percentage = (remaining_volume / seven_day_total * 100) if seven_day_total > 0 else 0
                     md_content += f"\n_...and {len(sorted_sources) - 15} more source(s) with {remaining_volume:,} events ({remaining_percentage:.1f}%)_\n"
+            else:
+                md_content += "_No source-level event volume data available for the 7-day period._\n"
 
             # Identify low volume sources
-            md_content += f"\n### Low Volume Sources\n\n"
-            low_volume_threshold = 100  # Less than 100 events in 7 days
-            low_volume_sources = [(sid, vol) for sid, vol in sorted_sources if vol < low_volume_threshold]
+            if sorted_sources and len(sorted_sources) > 0:
+                md_content += f"\n### Low Volume Sources\n\n"
+                low_volume_threshold = 100  # Less than 100 events in 7 days
+                low_volume_sources = [(sid, sdata) for sid, sdata in sorted_sources if sdata['volume'] < low_volume_threshold]
 
-            if low_volume_sources:
-                md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
-                for source_id, volume in low_volume_sources[:10]:
-                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                    source_name = source.get('Source Name', source_id) if source else source_id
-                    md_content += f"- **{source_name}:** {volume:,} events\n"
+                if low_volume_sources:
+                    md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
+                    for source_id, source_data in low_volume_sources[:10]:
+                        md_content += f"- **{source_data['name']}:** {source_data['volume']:,} events\n"
 
-                if len(low_volume_sources) > 10:
-                    md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
+                    if len(low_volume_sources) > 10:
+                        md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
 
-                md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
-            else:
-                md_content += "All sources have healthy event volumes.\n"
+                    md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
+                else:
+                    md_content += "All sources have healthy event volumes (≥100 events in 7 days).\n"
 
             # Analyze volume trends
             md_content += f"\n### Volume Trends\n\n"
@@ -2122,7 +2485,7 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     md_content += "**Note:** This workspace includes both custom sources (user-created) and Engage sources (system-generated by Segment's Personas/Engage product).\n\n"
 
     # Analyze Personas sources and group by space
-    engage_sources = [s for s in sources if s.get('Is Engage')]
+    engage_sources = [s for s in sources if s.get('Type') == 'Personas']
     total_engage_sources = len(engage_sources)
 
     if total_engage_sources > 0:
@@ -2357,33 +2720,358 @@ This workspace contains **{len(sources)} data sources** collecting customer data
     else:
         md_content += "Delivery metrics data not available. This data is collected during workspace audits.\n\n"
 
-    md_content += "\n---\n\n## Recommendations for AI Analysis\n\n"
-    md_content += """When analyzing this workspace, consider:
+    md_content += "\n---\n\n## Segment Architecture & Best Practices Context\n\n"
+    md_content += """### Understanding Segment's Data Flow
 
-1. **Data Flow Patterns:** Examine which sources feed into which destinations to understand data routing
-2. **Audience Strategy:** Review audience definitions and sizes to understand segmentation approach
-3. **Event Coverage:** Look at which events are most frequently used in audiences to identify key behaviors
-4. **Event Volume Health:** Analyze event volume trends and identify sources with low activity that may need attention
-5. **Volume Distribution:** Review if event volume is concentrated in a few sources or well-distributed across the workspace
-6. **Delivery Health:** Review the delivery metrics table to identify connections with high failure rates, retries, or latency issues
-7. **Data Quality:** Check for empty audiences, disabled sources, or connections with high discard rates that may indicate data quality issues
-8. **Use Case Alignment:** Evaluate if the current setup aligns with stated business objectives
-9. **Performance Optimization:** Investigate connections with high retry rates or latency for potential infrastructure improvements
-10. **Scaling Opportunities:** Identify underutilized destinations or audience patterns that could be expanded
+**Segment Architecture Overview:**
+
+Segment acts as a customer data platform (CDP) that collects, transforms, and routes customer data. The architecture consists of:
+
+1. **Sources** - Data collection points:
+   - **Client-side sources** (Analytics.js, iOS/Android SDKs): Track user interactions in web/mobile apps
+   - **Server-side sources** (Node, Python, Go, etc. SDKs): Track backend events and server-side actions
+   - **Cloud sources** (Stripe, Zendesk, etc.): Import data from third-party tools
+   - **Engage/Personas sources**: System-generated sources for audience activation
+
+2. **Segment Processing Layer**:
+   - Event validation and schema enforcement
+   - Identity resolution (user stitching across devices)
+   - Data transformations and enrichment
+   - Filtering and sampling
+
+3. **Destinations** - Data activation endpoints:
+   - **Analytics tools** (Amplitude, Mixpanel, Google Analytics)
+   - **Marketing tools** (Facebook Ads, Google Ads, email platforms)
+   - **Data warehouses** (Snowflake, BigQuery, Redshift)
+   - **CRM systems** (Salesforce, HubSpot)
+
+4. **Personas/Engage Layer** (if enabled):
+   - **Identity Resolution**: Unifies customer profiles across touchpoints
+   - **Audiences**: SQL-based segmentation engine for user cohorts
+   - **Computed Traits**: Real-time user attributes calculated from events
+   - **Journeys**: Multi-step, event-triggered campaigns
+   - **Reverse ETL**: Syncs warehouse data back into operational tools
+
+### Key Segment Concepts
+
+**Event Tracking Methodology:**
+
+Segment uses a structured event format based on the Segment Spec:
+- **Track**: User actions (e.g., "Product Viewed", "Order Completed")
+- **Page**: Page views in web applications
+- **Screen**: Screen views in mobile applications
+- **Identify**: User profile updates
+- **Group**: Account/organization associations
+- **Alias**: Link anonymous users to identified users
+
+**Identity Resolution:**
+
+Segment's identity graph merges user profiles across devices and touchpoints:
+- Anonymous users are tracked via `anonymousId`
+- Identified users have a `userId` (set via `.identify()`)
+- Cross-device tracking via ID merging
+- Personas enhances this with SQL-based identity rules
+
+**Data Quality Best Practices:**
+
+1. **Naming Conventions:**
+   - Use Object-Action format for events (e.g., "Product Clicked", "Cart Viewed")
+   - Be consistent with casing (recommend Title Case for events)
+   - Avoid generic names like "Clicked Button" - be specific
+
+2. **Property Hygiene:**
+   - Use consistent property names across events
+   - Send the same data types for the same properties
+   - Document property definitions in a tracking plan
+
+3. **Event Volume Management:**
+   - Implement client-side sampling for high-volume events if needed
+   - Use server-side events for critical business logic
+   - Archive or disable unused sources
+
+4. **Destination Configuration:**
+   - Enable only necessary destinations per source
+   - Use destination filters to reduce unnecessary data sends
+   - Monitor delivery metrics for each connection
+
+### Personas/Engage Architecture
+
+**Audience Architecture:**
+
+Audiences in Segment are SQL-based cohorts that:
+- Run on a compute cluster analyzing your event stream
+- Can use real-time events or batch-computed traits
+- Support complex boolean logic and time-based conditions
+- Sync to destinations as user list updates
+
+**Shadow Sources Explained:**
+
+When you activate audiences to multiple destination types (e.g., Facebook Ads + Google Ads + email platforms), Segment automatically creates multiple "Engage" sources—one per destination type. This is because:
+- Segment's architecture limitation: one source can only send to one destination type
+- Each shadow source handles a specific activation channel
+- This is **by design**, not a misconfiguration
+- More shadow sources = more diverse multi-channel activation (which is good!)
+
+**Computed Traits:**
+
+Computed traits are user-level attributes calculated in real-time from events:
+- **Event counter**: Count occurrences (e.g., "cart_adds_last_30_days")
+- **Aggregation**: Sum values (e.g., "lifetime_revenue")
+- **Most/least frequent**: Track patterns (e.g., "most_viewed_category")
+- **First/last**: Capture temporal data (e.g., "first_purchase_date")
+
+**Journeys vs Campaigns:**
+
+- **Journeys**: Multi-step, branching workflows with wait conditions
+- **Campaigns**: Single-send, one-time audience broadcasts
+- Both use the same underlying state machine architecture
+
+### Common Anti-Patterns to Avoid
+
+**Data Collection Anti-Patterns:**
+
+1. **Over-instrumentation**: Tracking every possible user action creates noise
+2. **Under-documentation**: Events without clear definitions lead to confusion
+3. **Inconsistent implementation**: Different naming across platforms breaks analysis
+4. **Missing context**: Events without proper properties limit segmentation
+5. **Client-side only tracking**: Critical business events should use server-side
+
+**Audience Anti-Patterns:**
+
+1. **Over-segmentation**: Too many narrow audiences increases complexity
+2. **Stale audiences**: Audiences no one uses should be archived
+3. **Duplicate logic**: Same SQL in multiple audiences suggests need for computed trait
+4. **No testing**: Always test audiences in draft before publishing
+5. **Missing descriptions**: Future team members need context
+
+**Destination Anti-Patterns:**
+
+1. **Send everything everywhere**: Use destination filters to reduce noise
+2. **No monitoring**: Set up alerts for delivery failures
+3. **Ignore latency**: High latency destinations impact user experience
+4. **Single point of failure**: Have backup destinations for critical data
+5. **Warehouse as only destination**: Real-time tools need direct connections
+
+### Implementation Maturity Assessment
+
+Based on this workspace, evaluate maturity across these dimensions:
+
+**Level 1 - Basic Tracking:**
+- Single source collecting basic page views and clicks
+- Few or no destinations configured
+- No audience segmentation
+- Manual data exports
+
+**Level 2 - Multi-Tool Integration:**
+- Multiple sources across platforms
+- Several destinations for analytics and marketing
+- Basic audiences for broad segments
+- Some automation via destinations
+
+**Level 3 - Advanced Segmentation:**
+- Comprehensive source coverage (web, mobile, server)
+- Strategic destination routing with filters
+- Computed traits for user enrichment
+- Dynamic audience segmentation
+- Reverse ETL for warehouse activation
+
+**Level 4 - Full CDP Maturity:**
+- Unified identity graph across all touchpoints
+- Real-time personalization via audiences
+- Multi-step journey orchestration
+- Predictive traits and ML-powered segments
+- Complete event governance and data quality monitoring
+
+"""
+
+    # Add workspace-specific insights and recommendations
+    md_content += "\n---\n\n## Workspace-Specific Insights & Recommendations\n\n"
+
+    # Calculate some key metrics for recommendations
+    total_sources_count = len(sources)
+    enabled_sources_count = len([s for s in sources if s.get('Enabled')])
+    total_audiences_count = len(audiences)
+    enabled_audiences_count = len([a for a in audiences if a.get('Enabled', '').lower() == 'true'])
+    empty_audiences_count = len([a for a in audiences if int(a.get('Size', 0)) == 0 and a.get('Enabled', '').lower() == 'true'])
+
+    engaged_enabled = len([s for s in sources if s.get('Is Engage') and s.get('Enabled')])
+    custom_sources_enabled = enabled_sources_count - engaged_enabled
+
+    md_content += "### Workspace Health Score\n\n"
+
+    # Source health
+    if enabled_sources_count > 0:
+        source_health = "✅ Active" if custom_sources_enabled > 0 else "⚠️ No active custom sources"
+        md_content += f"**Source Health:** {source_health}\n"
+        md_content += f"- {custom_sources_enabled} active custom source(s) collecting data\n"
+        if engaged_enabled > 0:
+            md_content += f"- {engaged_enabled} active Engage source(s) for audience activation\n"
+        md_content += "\n"
+
+    # Audience health
+    if total_audiences_count > 0:
+        audience_health = "✅ Active" if enabled_audiences_count > 0 else "⚠️ No enabled audiences"
+        md_content += f"**Audience Health:** {audience_health}\n"
+        md_content += f"- {enabled_audiences_count} of {total_audiences_count} audiences are enabled\n"
+        if empty_audiences_count > 0:
+            md_content += f"- ⚠️ {empty_audiences_count} enabled audience(s) are empty - consider reviewing query logic\n"
+        md_content += "\n"
+
+    # Activation health
+    activated_audiences = [a for a in audiences if int(a.get('Destination Count', 0)) > 0]
+    if total_audiences_count > 0:
+        activation_rate = (len(activated_audiences) / total_audiences_count) * 100
+        if activation_rate > 75:
+            activation_health = "✅ Strong"
+        elif activation_rate > 50:
+            activation_health = "⚠️ Moderate"
+        else:
+            activation_health = "❌ Weak"
+        md_content += f"**Activation Health:** {activation_health}\n"
+        md_content += f"- {len(activated_audiences)} of {total_audiences_count} audiences ({activation_rate:.0f}%) are connected to destinations\n"
+        unactivated = total_audiences_count - len(activated_audiences)
+        if unactivated > 0:
+            md_content += f"- {unactivated} audience(s) are not activated to any destination - consider if they're still needed\n"
+        md_content += "\n"
+
+    md_content += "### Priority Recommendations\n\n"
+
+    # Generate smart recommendations based on the data
+    recommendations = []
+
+    # Check for empty audiences
+    if empty_audiences_count > 3:
+        recommendations.append(f"**Review Empty Audiences**: {empty_audiences_count} enabled audiences have 0 users. This may indicate issues with audience queries, missing event data, or audiences that are no longer relevant. Consider auditing these audiences.")
+
+    # Check for unactivated audiences
+    if total_audiences_count > 0 and (len(activated_audiences) / total_audiences_count) < 0.6:
+        recommendations.append(f"**Low Audience Activation Rate**: Only {(len(activated_audiences) / total_audiences_count * 100):.0f}% of audiences are connected to destinations. Audiences that aren't being activated may not be providing value. Review and either activate them or archive them.")
+
+    # Check for disabled sources
+    disabled_sources = total_sources_count - enabled_sources_count
+    if disabled_sources > 5:
+        recommendations.append(f"**Source Cleanup**: {disabled_sources} sources are disabled. Consider archiving sources that are no longer needed to reduce workspace clutter and improve maintainability.")
+
+    # Check for Personas usage
+    if total_audiences_count > 10 and len(computed_traits) == 0:
+        recommendations.append("**Computed Traits Opportunity**: With {} audiences, you may have repeated logic across audience definitions. Consider using Computed Traits to centralize common calculations (e.g., 'lifetime_revenue', 'days_since_last_purchase') and simplify audience queries.".format(total_audiences_count))
+
+    # Check for journey usage
+    if len(journeys) == 0 and total_audiences_count > 5:
+        recommendations.append("**Journey/Campaign Opportunity**: You have {} audiences but no active journeys or campaigns. Consider using Journeys to orchestrate multi-step engagement flows based on your audience segments.".format(total_audiences_count))
+
+    # Check for RETL usage
+    if len(retl_models) == 0 and len([s for s in sources if 'warehouse' in s.get('Category', '').lower() or 'warehouse' in s.get('Type', '').lower()]) > 0:
+        recommendations.append("**Reverse ETL Opportunity**: You have warehouse connections but no Reverse ETL models. Reverse ETL can sync enriched warehouse data (ML scores, LTV predictions, support tickets) back into operational tools for activation.")
+
+    if recommendations:
+        for i, rec in enumerate(recommendations, 1):
+            md_content += f"{i}. {rec}\n\n"
+    else:
+        md_content += "No critical issues identified. This workspace appears to be well-configured.\n\n"
+
+    md_content += "### Best Practice Checklist\n\n"
+    md_content += """Use this checklist to evaluate workspace health:
+
+**Data Collection:**
+- [ ] All business-critical user actions have corresponding Track events
+- [ ] Events follow consistent naming conventions (Object-Action format)
+- [ ] Event properties are documented in a tracking plan
+- [ ] Both client-side and server-side sources are implemented where appropriate
+- [ ] User identification (`.identify()` calls) happens at key moments (login, signup)
+
+**Audience Strategy:**
+- [ ] Audiences have clear, descriptive names and descriptions
+- [ ] No duplicate audience logic - common calculations use Computed Traits
+- [ ] Enabled audiences all have > 0 users
+- [ ] Audiences are connected to at least one destination (if intended for activation)
+- [ ] Audience SQL is optimized (uses indexes, avoids unnecessary joins)
+
+**Destination Management:**
+- [ ] Only necessary destinations are enabled per source
+- [ ] Destination filters prevent unnecessary data sends
+- [ ] Delivery metrics are monitored (success rate > 95%)
+- [ ] Critical destinations have monitoring/alerts configured
+- [ ] Destination latency is acceptable (< 1 second for real-time use cases)
+
+**Data Quality:**
+- [ ] Source schemas are defined and enforced
+- [ ] Event volume is stable (no unexpected drops or spikes)
+- [ ] No sources with 0 events over extended periods
+- [ ] Identity resolution is working (users being properly merged)
+- [ ] Data types are consistent across properties
+
+**Governance:**
+- [ ] Tracking plan is maintained and accessible
+- [ ] Team members understand Segment's role in the data stack
+- [ ] Unused sources/audiences/destinations are archived
+- [ ] Access controls are properly configured
+- [ ] Regular audits are performed (quarterly recommended)
+
+"""
+
+    md_content += "\n---\n\n## How to Use This Analysis\n\n"
+    md_content += """This comprehensive workspace audit provides:
+
+**For Data Engineers:**
+- Source-to-destination connection mapping
+- Delivery metrics and performance insights
+- Event volume trends and anomaly detection
+- Infrastructure health indicators
+
+**For Product/Analytics Teams:**
+- Audience segmentation strategy overview
+- Event coverage and usage patterns
+- Computed trait definitions
+- User behavior tracking completeness
+
+**For Marketing Teams:**
+- Journey and campaign inventory
+- Audience activation rates
+- Destination routing for each campaign
+- Multi-channel orchestration setup
+
+**For Leadership:**
+- CDP maturity assessment
+- Data quality and governance status
+- Use case alignment evaluation
+- Resource utilization insights
+
+**Recommended Actions:**
+
+1. **Share with stakeholders**: This document provides a snapshot of your CDP configuration
+2. **Identify quick wins**: Look for unactivated audiences, empty audiences, or misconfigured connections
+3. **Plan improvements**: Use the recommendations section to prioritize next quarter's work
+4. **Monitor trends**: Run this audit quarterly to track improvements over time
+5. **Document decisions**: Add context to this analysis explaining why certain configurations exist
+
+**For AI/LLM Analysis:**
+
+When using an AI tool to analyze this document:
+- Ask about specific optimization opportunities based on your use case
+- Request explanations of complex configurations or patterns
+- Get recommendations for audience strategies
+- Explore data quality issues and their root causes
+- Generate implementation plans for improvements
+- Compare against industry best practices
 
 ---
 
-## Additional Context
+## Additional Resources
 
-This markdown file was generated from a Segment workspace audit and is optimized for AI analysis. You can use this data to:
+**Segment Documentation:**
+- Segment Spec: https://segment.com/docs/connections/spec/
+- Personas Documentation: https://segment.com/docs/engage/
+- Destination Catalog: https://segment.com/docs/connections/destinations/
+- Best Practices: https://segment.com/docs/getting-started/implementation-guide/
 
-- Understand the current state of data collection and routing
-- Identify optimization opportunities
-- Plan migrations or architecture changes
-- Document the workspace for stakeholders
-- Generate insights about user behavior and segmentation strategies
+**This Analysis:**
+- Generated from Segment Public API and Gateway API data
+- Reflects point-in-time state - configurations may have changed since audit
+- Some features (event schemas, profiles, debugger) are not accessible via API
+- For complete visibility, review data in Segment UI alongside this analysis
 
-For more detailed analysis, consider reviewing the source schemas directly in Segment or examining raw event data in your data warehouse.
+For questions about this audit or Segment configuration, consult your Customer Success Manager or Segment documentation.
 """
 
     # Create response
