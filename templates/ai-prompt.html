@@ -5,6 +5,124 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ customer_name }} - AI Prompt Ideas</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .prompt-category {
+            margin-bottom: 40px;
+            padding: 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .prompt-category h2 {
+            margin-top: 0;
+            color: #667eea;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .prompt-card {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-left: 4px solid #667eea;
+            border-radius: 8px;
+        }
+        .prompt-card h3 {
+            margin-top: 0;
+            color: #2d3748;
+            font-size: 1.1rem;
+        }
+        .prompt-text {
+            background: white;
+            padding: 16px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: #2d3748;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            position: relative;
+            border: 1px solid #e2e8f0;
+            margin: 12px 0;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 6px 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        .copy-btn:hover {
+            background: #5568d3;
+            transform: translateY(-1px);
+        }
+        .copy-btn.copied {
+            background: #48bb78;
+        }
+        .intro-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+        }
+        .intro-box h1 {
+            margin-top: 0;
+            font-size: 2rem;
+        }
+        .intro-box p {
+            font-size: 1.1rem;
+            opacity: 0.95;
+            line-height: 1.6;
+        }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .step {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        .step-number {
+            font-size: 2rem;
+            font-weight: bold;
+            opacity: 0.7;
+        }
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            background: #edf2f7;
+            color: #4a5568;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        .tag.quick {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        .tag.deep {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+        .tag.technical {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+    </style>
 </head>
 <body class="dashboard-page">
     <div class="container">
@@ -15,7 +133,7 @@
             </div>
             <div class="header-actions">
                 <button onclick="window.location.href='/export-workspace-markdown'" class="btn btn-ai" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; border: none; box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4); font-weight: 600; transition: all 0.3s; padding: 8px 16px; font-size: 0.875rem;" onmouseover="this.style.boxShadow='0 6px 20px rgba(167, 139, 250, 0.6)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='0 4px 12px rgba(167, 139, 250, 0.4)'; this.style.transform='translateY(0)'">
-                    ✨ AI Export
+                    ✨ Export Markdown First
                 </button>
                 <div class="nav-dropdown" style="position: relative; display: inline-block;">
                     <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -40,16 +158,227 @@
             </div>
         </div>
 
-        <div id="content">
-            <div class="chart-section" style="text-align: center; padding: 60px 20px;">
-                <h2 style="color: #a78bfa; margin-bottom: 20px;">🤖 AI Prompt Builder</h2>
-                <p style="color: #718096; font-size: 1.1rem; line-height: 1.6; max-width: 600px; margin: 0 auto;">
-                    Interactive AI prompt generation for workspace analysis coming soon.
-                </p>
-                <p style="color: #a0aec0; font-size: 0.95rem; margin-top: 20px;">
-                    This section will allow you to craft custom AI prompts based on your workspace data.
-                </p>
+        <div class="intro-box">
+            <h1>🤖 AI-Powered Workspace Analysis</h1>
+            <p>Use these prompt templates with Claude or ChatGPT to get deep insights from your Segment workspace audit. Each prompt is designed to extract specific, actionable recommendations from your data.</p>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <strong>Export Markdown</strong><br>
+                    <small>Click "✨ Export" above</small>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <strong>Pick a Prompt</strong><br>
+                    <small>Browse categories below</small>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <strong>Copy & Paste</strong><br>
+                    <small>Into Claude or ChatGPT</small>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <strong>Get Insights</strong><br>
+                    <small>Actionable recommendations</small>
+                </div>
             </div>
+        </div>
+
+        <!-- Quick Start Prompts -->
+        <div class="prompt-category">
+            <h2>🎯 Quick Start</h2>
+
+            <div class="prompt-card">
+                <h3>General Health Check</h3>
+                <span class="tag quick">Quick Win</span>
+                <span class="tag">All Roles</span>
+                <div class="prompt-text">I'm attaching my Segment workspace audit. Please analyze it and provide:
+1. Top 3 critical issues that need immediate attention
+2. Top 3 quick wins for optimization
+3. Overall health score with justification
+4. Priority action items ranked by impact vs. effort<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Executive Summary</h3>
+                <span class="tag">Leadership</span>
+                <div class="prompt-text">Please review this Segment workspace audit and create an executive summary for leadership covering:
+- Current state assessment (3-5 bullets)
+- Key risks and their business impact
+- ROI opportunities from optimization
+- Recommended budget/resource allocation for next quarter
+- Comparison against industry best practices<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Deep Dive Analysis -->
+        <div class="prompt-category">
+            <h2>🔍 Deep Dive Analysis</h2>
+
+            <div class="prompt-card">
+                <h3>Data Quality & Governance</h3>
+                <span class="tag deep">Deep Analysis</span>
+                <span class="tag technical">Technical</span>
+                <div class="prompt-text">Analyze this Segment workspace for data quality and governance issues:
+1. Identify naming convention inconsistencies across sources, events, and destinations
+2. Flag potential duplicate or redundant tracking (same events from multiple sources)
+3. Assess identity resolution configuration for gaps or conflicts
+4. Review computed traits for optimization opportunities (can any be simplified?)
+5. Identify sources or destinations that appear misconfigured or underutilized
+6. Recommend a data governance framework based on current state
+
+Focus on actionable recommendations with specific examples from the data.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Architecture Review</h3>
+                <span class="tag deep">Deep Analysis</span>
+                <span class="tag technical">Technical</span>
+                <div class="prompt-text">Review the Segment architecture in this audit and provide:
+1. Source architecture analysis: Are sources properly organized by environment/purpose?
+2. Destination strategy: Identify redundant destinations or missing critical destinations
+3. Data flow optimization: Suggest consolidation opportunities
+4. Personas/Engage architecture: Assess space strategy and shadow source patterns
+5. Warehouse setup: Evaluate warehouse connections and sync patterns
+6. Scalability assessment: Will this architecture handle 10x growth?
+
+Include a recommended target architecture diagram (in text/ASCII).<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Cost Optimization</h3>
+                <span class="tag quick">Quick Win</span>
+                <div class="prompt-text">Analyze this workspace for cost optimization opportunities:
+1. Calculate MTU usage patterns across sources (identify spikes or waste)
+2. Identify low-value destinations that could be retired
+3. Find computed traits or audiences that are unused or redundant
+4. Assess RETL model efficiency
+5. Recommend consolidation opportunities for sources
+6. Estimate potential cost savings for each recommendation
+
+Prioritize recommendations by potential savings vs. implementation effort.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Use Case Specific -->
+        <div class="prompt-category">
+            <h2>🚀 Use Case Specific</h2>
+
+            <div class="prompt-card">
+                <h3>Marketing Activation Analysis</h3>
+                <span class="tag">Marketing</span>
+                <div class="prompt-text">I'm a marketing leader reviewing this Segment workspace. Please analyze:
+1. Which audience destinations are set up and how effectively are they used?
+2. Are there gaps in our marketing tool stack based on the destinations?
+3. Review journey/campaign setup - are we maximizing Engage capabilities?
+4. Identify opportunities for better personalization using existing data
+5. Recommend new destinations or integrations to improve marketing performance
+6. Assess if identity resolution is sufficient for cross-channel attribution
+
+Provide recommendations that balance quick wins with strategic improvements.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Product Analytics Setup</h3>
+                <span class="tag">Product</span>
+                <div class="prompt-text">As a product manager, I want to understand our analytics setup:
+1. Which product analytics tools are we sending data to?
+2. Are we tracking the right events for product insights (funnels, retention, etc.)?
+3. Identify gaps in user behavior tracking
+4. Assess if we have proper experiment/feature flag tracking
+5. Review if computed traits support product-led growth metrics
+6. Recommend improvements to support better product decisions
+
+Focus on actionable changes that improve product team velocity.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>CDP Strategy</h3>
+                <span class="tag deep">Deep Analysis</span>
+                <div class="prompt-text">Evaluate this workspace as a CDP implementation:
+1. How well does the architecture support a unified customer view?
+2. Is identity resolution configured optimally for this business?
+3. Are we effectively using Personas/Profiles capabilities?
+4. Assess real-time vs batch data strategies
+5. Evaluate if the warehouse is being used as a strategic data asset
+6. Identify gaps between CDP capabilities and actual implementation
+7. Recommend a roadmap to maximize CDP value
+
+Consider this workspace's industry and use case in your assessment.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Technical Implementation -->
+        <div class="prompt-category">
+            <h2>🛠️ Technical Implementation</h2>
+
+            <div class="prompt-card">
+                <h3>Migration Planning</h3>
+                <span class="tag technical">Technical</span>
+                <div class="prompt-text">We're planning to migrate/consolidate sources in this workspace. Please:
+1. Identify sources that are good candidates for consolidation
+2. Create a migration risk assessment for each source
+3. Recommend a migration sequence (dependencies, lowest risk first)
+4. Identify downstream impacts on destinations and computed traits
+5. Estimate migration complexity and effort for each source
+6. Create a testing checklist for post-migration validation
+
+Provide a step-by-step migration plan with rollback procedures.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Troubleshooting Guide</h3>
+                <span class="tag technical">Technical</span>
+                <div class="prompt-text">Based on this workspace configuration, create a troubleshooting guide for common issues:
+1. If events aren't appearing in destination X, what should I check?
+2. If MTUs spike unexpectedly, where should I investigate?
+3. If identity resolution isn't working, what are likely culprits?
+4. If computed traits aren't computing, what could be wrong?
+5. If warehouse syncs are failing, what should I verify?
+
+Include specific commands, API calls, or queries to diagnose issues.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <!-- Advanced -->
+        <div class="prompt-category">
+            <h2>🎓 Advanced Analysis</h2>
+
+            <div class="prompt-card">
+                <h3>Segment Maturity Assessment</h3>
+                <span class="tag deep">Deep Analysis</span>
+                <div class="prompt-text">Assess this workspace's maturity across Segment's capabilities:
+1. Rate maturity (1-5) for: Sources, Destinations, Identity Resolution, Personas, Protocols, Warehouses
+2. For each area, explain the rating with specific evidence
+3. Compare against the maturity framework in the audit
+4. Create a roadmap to advance one level in each area
+5. Identify prerequisites and blockers for advancing
+6. Estimate effort/time for each maturity increase
+
+Provide a visual maturity matrix if possible.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+
+            <div class="prompt-card">
+                <h3>Chain-of-Thought Analysis</h3>
+                <span class="tag deep">Deep Analysis</span>
+                <div class="prompt-text">Analyze this Segment workspace using chain-of-thought reasoning:
+
+First, summarize what type of business this appears to be based on source names and event patterns.
+
+Then, evaluate if the Segment implementation matches expected patterns for this business type.
+
+Next, identify the top 3 gaps between best practices and current state.
+
+Finally, create a prioritized action plan with clear reasoning for each priority.
+
+Show your reasoning at each step.<button class="copy-btn" onclick="copyPrompt(this)">Copy</button></div>
+            </div>
+        </div>
+
+        <div style="margin-top: 40px; padding: 20px; background: #f7fafc; border-radius: 8px; text-align: center;">
+            <p style="color: #4a5568; margin: 0;"><strong>💡 Pro Tip:</strong> Combine prompts or customize them for your specific needs. Add context like your industry, team size, or business goals for even better results.</p>
         </div>
     </div>
 
@@ -59,14 +388,25 @@
             menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
         }
 
-        // Close dropdown when clicking outside
         document.addEventListener('click', function(event) {
-            const btn = document.getElementById('navDropdownBtn');
+            const dropdown = document.querySelector('.nav-dropdown');
             const menu = document.getElementById('navDropdownMenu');
-            if (btn && menu && !btn.contains(event.target) && !menu.contains(event.target)) {
+            if (dropdown && !dropdown.contains(event.target)) {
                 menu.style.display = 'none';
             }
         });
+
+        function copyPrompt(button) {
+            const promptText = button.parentElement.textContent.replace('Copy', '').trim();
+            navigator.clipboard.writeText(promptText).then(() => {
+                button.textContent = 'Copied!';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.textContent = 'Copy';
+                    button.classList.remove('copied');
+                }, 2000);
+            });
+        }
     </script>
 </body>
 </html>
