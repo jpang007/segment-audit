@@ -252,6 +252,8 @@ class SegmentAuditor:
     def get_audiences_gateway(self, workspace_slug, space_id):
         """Fetch audiences with destinations via Gateway API (GraphQL)
 
+        Uses the correct query structure from Segment UI that supports folder recursion.
+
         Returns a dict mapping audience_id to enhanced data:
         {
             'audience_id_123': {
@@ -270,52 +272,47 @@ class SegmentAuditor:
 
         url = f"{self.gateway_api_base}/graphql"
 
-        # GraphQL query to fetch audiences with destinations
+        # The correct query from Segment UI HAR file - supports folderId parameter
         query = """
-        query GetAudiences($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!) {
+        query AudiencesAndFolders($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!, $folderId: String) {
           workspace(slug: $workspaceSlug) {
             id
             space(id: $spaceId) {
               id
-              name
-              slug
-              audiencesAndFolders(cursor: $cursor) {
+              audiencesAndFolders(cursor: $cursor, folderId: $folderId) {
                 cursor {
-                  hasMore
+                  limit
                   next
+                  hasMore
                 }
                 data {
                   __typename
-                  ... on RealtimeAudience {
-                    id
-                    name
-                    key
-                    enabled
-                    collection
-                    status
-                    size
-                    definition {
-                      type
-                      options
-                    }
-                    destinations {
-                      id
-                      name
-                      enabled
-                    }
+                  ... on Folder {
+                    folderId: id
+                    displayName
+                    audienceCount
                   }
-                  ... on RetlAudience {
-                    id
-                    name
+                  ... on Audience {
+                    audienceId: id
                     key
+                    name
                     enabled
                     collection
-                    status
                     size
+                    status
                     destinations {
                       id
                       name
                       enabled
+                    }
+                    ... on RealtimeAudience {
+                      definition {
+                        type
+                        options
+                      }
+                    }
+                    ... on RetlAudience {
+                      statusV2
                     }
                   }
                 }
@@ -325,39 +322,41 @@ class SegmentAuditor:
         }
         """
 
-        variables = {
-            "workspaceSlug": workspace_slug,
-            "spaceId": space_id,
-            "cursor": {
-                "limit": 1000
-            }
-        }
-
-        payload = {
-            "query": query,
-            "variables": variables
-        }
+        audience_map = {}
+        folders_to_process = []
 
         try:
+            # STEP 1: Get top-level items (folders and unfiled audiences)
+            print(f"=== Gateway API: Fetching top-level folders and audiences for space {space_id}")
+
+            variables = {
+                "workspaceSlug": workspace_slug,
+                "spaceId": space_id,
+                "cursor": {"limit": 200}
+            }
+
+            payload = {
+                "query": query,
+                "variables": variables
+            }
+
             response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
 
             if response.status_code == 401:
-                print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without audience destinations.")
+                print("⚠️ Gateway API authentication failed (401). Token may be expired.")
                 return {}
             elif response.status_code != 200:
-                print(f"⚠️ Gateway API returned {response.status_code}. Continuing without audience destinations.")
+                print(f"⚠️ Gateway API returned {response.status_code}.")
                 return {}
 
             data = response.json()
 
-            # Check for GraphQL errors
             if 'errors' in data:
                 print(f"⚠️ Gateway API GraphQL errors:")
                 for error in data['errors']:
                     print(f"   - {error.get('message', error)}")
                 return {}
 
-            # Parse response
             workspace_data = data.get('data', {}).get('workspace')
             if not workspace_data:
                 print("⚠️ No workspace data in Gateway API response")
@@ -371,38 +370,112 @@ class SegmentAuditor:
             audiences_and_folders = space_data.get('audiencesAndFolders', {})
             data_items = audiences_and_folders.get('data', [])
 
-            # Build mapping of audience_id to enhanced data
-            audience_map = {}
+            # Process top-level items
             for item in data_items:
                 typename = item.get('__typename', '')
 
-                # Skip folders
                 if typename == 'Folder':
-                    continue
+                    # Collect folder for recursive processing
+                    folder_id = item.get('folderId')
+                    folder_name = item.get('displayName', 'Unnamed')
+                    folder_count = item.get('audienceCount', 0)
+                    if folder_id and folder_count > 0:
+                        folders_to_process.append({
+                            'id': folder_id,
+                            'name': folder_name,
+                            'count': folder_count
+                        })
+                        print(f"   📁 Found folder: {folder_name} ({folder_count} audiences)")
 
-                audience_id = item.get('id')
-                if not audience_id:
-                    continue
+                elif typename in ['RealtimeAudience', 'RetlAudience', 'Audience']:
+                    # Process top-level audience
+                    audience_id = item.get('audienceId') or item.get('id')
+                    if audience_id:
+                        destinations = item.get('destinations', []) or []
+                        destination_names = [d.get('name', '') for d in destinations if d.get('name')]
 
-                # Extract destinations
-                destinations = item.get('destinations', []) or []
-                destination_names = [d.get('name', '') for d in destinations if d.get('name')]
+                        definition = item.get('definition', {}) or {}
+                        definition_type = definition.get('type', '')
+                        definition_options = definition.get('options', {})
 
-                # Extract definition
-                definition = item.get('definition', {}) or {}
-                definition_type = definition.get('type', '')
-                definition_options = definition.get('options', {})
+                        audience_map[audience_id] = {
+                            'destinations': destination_names,
+                            'destination_count': len(destination_names),
+                            'definition_type': definition_type,
+                            'definition_options': str(definition_options) if definition_options else '',
+                            'collection': item.get('collection', ''),
+                            'status': item.get('status', '')
+                        }
 
-                audience_map[audience_id] = {
-                    'destinations': destination_names,
-                    'destination_count': len(destination_names),
-                    'definition_type': definition_type,
-                    'definition_options': str(definition_options) if definition_options else '',
-                    'collection': item.get('collection', ''),
-                    'status': item.get('status', '')
+            print(f"   ✅ Found {len(folders_to_process)} folders and {len(audience_map)} top-level audiences")
+
+            # STEP 2: Recursively fetch audiences from each folder
+            for folder in folders_to_process:
+                folder_id = folder['id']
+                folder_name = folder['name']
+                expected_count = folder['count']
+
+                print(f"   📂 Fetching audiences from folder: {folder_name} (expecting {expected_count})")
+
+                variables = {
+                    "workspaceSlug": workspace_slug,
+                    "spaceId": space_id,
+                    "folderId": folder_id,
+                    "cursor": {"limit": 200}
                 }
 
-            print(f"✅ Gateway API: Fetched enhanced data for {len(audience_map)} audiences")
+                payload = {
+                    "query": query,
+                    "variables": variables
+                }
+
+                response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
+
+                if response.status_code != 200:
+                    print(f"      ⚠️ Failed to fetch folder {folder_name}: {response.status_code}")
+                    continue
+
+                data = response.json()
+
+                if 'errors' in data:
+                    print(f"      ⚠️ Errors fetching folder {folder_name}")
+                    continue
+
+                workspace_data = data.get('data', {}).get('workspace', {})
+                space_data = workspace_data.get('space', {})
+                audiences_and_folders = space_data.get('audiencesAndFolders', {})
+                data_items = audiences_and_folders.get('data', [])
+
+                folder_audience_count = 0
+                for item in data_items:
+                    typename = item.get('__typename', '')
+
+                    if typename in ['RealtimeAudience', 'RetlAudience', 'Audience']:
+                        audience_id = item.get('audienceId') or item.get('id')
+                        if audience_id:
+                            destinations = item.get('destinations', []) or []
+                            destination_names = [d.get('name', '') for d in destinations if d.get('name')]
+
+                            definition = item.get('definition', {}) or {}
+                            definition_type = definition.get('type', '')
+                            definition_options = definition.get('options', {})
+
+                            audience_map[audience_id] = {
+                                'destinations': destination_names,
+                                'destination_count': len(destination_names),
+                                'definition_type': definition_type,
+                                'definition_options': str(definition_options) if definition_options else '',
+                                'collection': item.get('collection', ''),
+                                'status': item.get('status', '')
+                            }
+                            folder_audience_count += 1
+
+                print(f"      ✅ Collected {folder_audience_count} audiences from {folder_name}")
+
+                # Add small delay between folder requests
+                time.sleep(0.2)
+
+            print(f"✅ Gateway API: Fetched enhanced data for {len(audience_map)} total audiences")
             return audience_map
 
         except requests.exceptions.RequestException as e:
@@ -503,66 +576,91 @@ class SegmentAuditor:
         }
         """
 
-        variables = {
-            "workspaceSlug": workspace_slug,
-            "spaceId": space_id,
-            "cursor": {
-                "limit": 1000
-            }
-        }
-
-        payload = {
-            "query": query,
-            "variables": variables
-        }
+        all_items = []
+        next_cursor = None
+        page_count = 0
 
         try:
-            response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
+            # Paginate through all journeys and campaigns
+            while True:
+                page_count += 1
 
-            if response.status_code == 401:
-                print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without journeys.")
-                return []
-            elif response.status_code != 200:
-                print(f"⚠️ Gateway API returned {response.status_code} for journeys.")
-                try:
-                    error_data = response.json()
-                    errors = error_data.get('errors', [])
-                    if errors and any('GRAPHQL_VALIDATION_FAILED' in str(e) for e in errors):
-                        print(f"   Note: This workspace may not have Engage (Journeys) feature enabled.")
-                    else:
-                        print(f"   Error: {error_data}")
-                except:
-                    print(f"   Response: {response.text[:500]}")
-                return []
+                variables = {
+                    "workspaceSlug": workspace_slug,
+                    "spaceId": space_id,
+                    "cursor": {
+                        "limit": 200,
+                        "next": next_cursor
+                    } if next_cursor else {
+                        "limit": 200
+                    }
+                }
 
-            data = response.json()
+                payload = {
+                    "query": query,
+                    "variables": variables
+                }
 
-            # Check for GraphQL errors
-            if 'errors' in data:
-                print(f"⚠️ Gateway API GraphQL errors:")
-                for error in data['errors']:
-                    print(f"   - {error.get('message', error)}")
-                return []
+                response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
 
-            # Parse response
-            workspace_data = data.get('data', {}).get('workspace')
-            if not workspace_data:
-                print("⚠️ No workspace data in Gateway API response")
-                return []
+                if response.status_code == 401:
+                    print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without journeys.")
+                    return []
+                elif response.status_code != 200:
+                    print(f"⚠️ Gateway API returned {response.status_code} for journeys.")
+                    try:
+                        error_data = response.json()
+                        errors = error_data.get('errors', [])
+                        if errors and any('GRAPHQL_VALIDATION_FAILED' in str(e) for e in errors):
+                            print(f"   Note: This workspace may not have Engage (Journeys) feature enabled.")
+                        else:
+                            print(f"   Error: {error_data}")
+                    except:
+                        print(f"   Response: {response.text[:500]}")
+                    return []
 
-            space_data = workspace_data.get('space')
-            if not space_data:
-                print("⚠️ No space data in Gateway API response")
-                return []
+                data = response.json()
 
-            campaign_search = space_data.get('campaignSearch', {})
-            all_items = campaign_search.get('data', [])
+                # Check for GraphQL errors
+                if 'errors' in data:
+                    print(f"⚠️ Gateway API GraphQL errors:")
+                    for error in data['errors']:
+                        print(f"   - {error.get('message', error)}")
+                    return []
+
+                # Parse response
+                workspace_data = data.get('data', {}).get('workspace')
+                if not workspace_data:
+                    print("⚠️ No workspace data in Gateway API response")
+                    return []
+
+                space_data = workspace_data.get('space')
+                if not space_data:
+                    print("⚠️ No space data in Gateway API response")
+                    return []
+
+                campaign_search = space_data.get('campaignSearch', {})
+                data_items = campaign_search.get('data', [])
+                cursor_info = campaign_search.get('cursor', {})
+
+                # Add items to the list
+                all_items.extend(data_items)
+
+                # Check if there are more pages
+                has_more = cursor_info.get('hasMore', False)
+                next_cursor = cursor_info.get('next')
+
+                if not has_more or not next_cursor:
+                    break
+
+                # Add small delay between requests
+                time.sleep(0.3)
 
             # Return all items (Journeys and Campaigns)
             journeys = [item for item in all_items if item.get('__typename') == 'Journey']
             campaigns = [item for item in all_items if item.get('__typename') == 'Campaign']
 
-            print(f"✅ Gateway API: Fetched {len(journeys)} journeys, {len(campaigns)} campaigns")
+            print(f"✅ Gateway API: Fetched {len(journeys)} journeys, {len(campaigns)} campaigns across {page_count} pages")
             return all_items  # Return both journeys and campaigns
 
         except requests.exceptions.RequestException as e:
@@ -1406,9 +1504,10 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
                 writer.writerows(all_audiences)
 
         # Journeys and Campaigns
+        # Always write journeys CSV (even if empty) to avoid showing stale cached data
+        journeys_flat = []
         if all_journeys:
             # Flatten nested objects for CSV export
-            journeys_flat = []
             for item in all_journeys:
                 item_type = item.get('__typename', '')
                 space_id = item.get('space_id', '')
@@ -1483,11 +1582,18 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
 
                 journeys_flat.append(flat_item)
 
-            if journeys_flat:
-                with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.DictWriter(f, fieldnames=journeys_flat[0].keys())
-                    writer.writeheader()
-                    writer.writerows(journeys_flat)
+        # Always write the CSV file to prevent stale data from showing
+        if journeys_flat:
+            with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=journeys_flat[0].keys())
+                writer.writeheader()
+                writer.writerows(journeys_flat)
+        else:
+            # Write empty CSV with just headers to indicate no journeys
+            with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
+                # Write minimal headers for empty state
+                writer = csv.writer(f)
+                writer.writerow(['Name', 'State', 'Type', 'Destinations'])
 
         # Computed Traits
         if all_computed_traits:
@@ -2429,9 +2535,14 @@ This workspace contains **{len(sources)} data sources** collecting customer data
 
                     # Get daily volumes for this source from seven_day_by_source
                     daily_volumes = []
-                    for entry in seven_day_by_source_data:
-                        if isinstance(entry, dict) and entry.get('sourceId') == source_id:
-                            daily_volumes.append(entry.get('value', 0))
+                    for entry in seven_day_by_source_result:
+                        if isinstance(entry, dict):
+                            source_info = entry.get('source', {})
+                            if source_info.get('id') == source_id:
+                                # Get series data for this source
+                                series = entry.get('series', [])
+                                daily_volumes = [s.get('count', 0) for s in series if isinstance(s, dict)]
+                                break
 
                     if len(daily_volumes) > 1:
                         # Calculate average and standard deviation
@@ -2703,6 +2814,13 @@ This workspace contains **{len(sources)} data sources** collecting customer data
                         retry_pct = (conn['retries'] / conn['total_attempts'] * 100) if conn['total_attempts'] > 0 else 0
                         md_content += f"- **{conn['source']} → {conn['destination']}:** {retry_pct:.1f}% retry rate ({conn['retries']:,} retries)\n"
                     md_content += "\n"
+                    md_content += "**Common Causes of High Retry Rates:**\n\n"
+                    md_content += "- **Destination API Rate Limits:** The destination may be rate limiting incoming requests, requiring Segment to retry\n"
+                    md_content += "- **Temporary Network Issues:** Intermittent connectivity problems between Segment and the destination\n"
+                    md_content += "- **Destination Service Degradation:** The destination service may be experiencing performance issues or downtime\n"
+                    md_content += "- **Authentication Issues:** API keys or credentials may be expiring or rotating, causing temporary failures\n"
+                    md_content += "- **Payload Size or Format Issues:** Events may occasionally exceed destination limits or fail schema validation\n\n"
+                    md_content += "_**Investigation Steps:** Check destination status pages, review API rate limits in destination documentation, and verify authentication credentials are current._\n\n"
 
                 # Slow connections (high latency)
                 slow_connections = [c for c in all_connections if c['avg_latency'] > 1000]

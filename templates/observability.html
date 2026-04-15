@@ -416,25 +416,25 @@
             // Summary cards
             let html = `
                 <div class="stats-grid" style="margin-bottom: 24px;">
-                    <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
-                        <div class="label">Total Successes</div>
-                        <div class="value">${formatNumber(totalSuccesses)}</div>
-                        <div class="subtext">Delivered events</div>
+                    <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                        <div class="label" style="color: white;">Total Successes</div>
+                        <div class="value" style="color: white;">${formatNumber(totalSuccesses)}</div>
+                        <div class="subtext" style="color: rgba(255, 255, 255, 0.9);">Delivered events</div>
                     </div>
-                    <div class="stat-card" style="background: ${totalRetries > 0 ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : '#f7fafc'}; color: ${totalRetries > 0 ? 'white' : '#2d3748'};">
-                        <div class="label">Total Retries</div>
-                        <div class="value">${formatNumber(totalRetries)}</div>
-                        <div class="subtext">Events retried</div>
+                    <div class="stat-card" style="background: ${totalRetries > 0 ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : '#f7fafc'};">
+                        <div class="label" style="color: ${totalRetries > 0 ? 'white' : '#2d3748'};">Total Retries</div>
+                        <div class="value" style="color: ${totalRetries > 0 ? 'white' : '#2d3748'};">${formatNumber(totalRetries)}</div>
+                        <div class="subtext" style="color: ${totalRetries > 0 ? 'rgba(255, 255, 255, 0.9)' : '#718096'};">Events retried</div>
                     </div>
-                    <div class="stat-card" style="background: ${totalExpired > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'}; color: ${totalExpired > 0 ? 'white' : '#2d3748'};">
-                        <div class="label">Expired</div>
-                        <div class="value">${formatNumber(totalExpired)}</div>
-                        <div class="subtext">Failed to deliver</div>
+                    <div class="stat-card" style="background: ${totalExpired > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'};">
+                        <div class="label" style="color: ${totalExpired > 0 ? 'white' : '#2d3748'};">Expired</div>
+                        <div class="value" style="color: ${totalExpired > 0 ? 'white' : '#2d3748'};">${formatNumber(totalExpired)}</div>
+                        <div class="subtext" style="color: ${totalExpired > 0 ? 'rgba(255, 255, 255, 0.9)' : '#718096'};">Failed to deliver</div>
                     </div>
-                    <div class="stat-card" style="background: ${totalDiscarded > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'}; color: ${totalDiscarded > 0 ? 'white' : '#2d3748'};">
-                        <div class="label">Discarded</div>
-                        <div class="value">${formatNumber(totalDiscarded)}</div>
-                        <div class="subtext">Invalid events</div>
+                    <div class="stat-card" style="background: ${totalDiscarded > 0 ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' : '#f7fafc'};">
+                        <div class="label" style="color: ${totalDiscarded > 0 ? 'white' : '#2d3748'};">Discarded</div>
+                        <div class="value" style="color: ${totalDiscarded > 0 ? 'white' : '#2d3748'};">${formatNumber(totalDiscarded)}</div>
+                        <div class="subtext" style="color: ${totalDiscarded > 0 ? 'rgba(255, 255, 255, 0.9)' : '#718096'};">Invalid events</div>
                     </div>
                 </div>
             `;
