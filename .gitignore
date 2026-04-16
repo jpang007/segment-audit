@@ -58,3 +58,4 @@ Thumbs.db
 *.xlsx
 *.docx
 *.pdf
+app_public_api_backup.py

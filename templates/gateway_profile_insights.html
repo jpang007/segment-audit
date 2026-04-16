@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Profile Insights</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Profile Insights</h1>
+                <p class="subtitle" id="reportDate">Loading...</p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block; margin-right: 10px;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>🔍 Profile Insights</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 180px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; background: #f7fafc;">🔍 Profile Insights</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading profile insights data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Entitlements Section -->
+            <div class="chart-section">
+                <h2>Workspace Entitlements</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
+                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Personas Enabled</div>
+                        <div style="font-size: 2rem; font-weight: 700;" id="personasEnabled">-</div>
+                    </div>
+                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Profiles Enabled</div>
+                        <div style="font-size: 2rem; font-weight: 700;" id="profilesEnabled">-</div>
+                    </div>
+                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                        <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Linked Audiences</div>
+                        <div style="font-size: 2rem; font-weight: 700;" id="linkedAudiencesEnabled">-</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Identity Resolution Config Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Identity Resolution Configuration</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="spaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div id="noDataMessage" style="display: none; text-align: center; padding: 40px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px;">
+                    <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="color: #856404; margin-bottom: 10px; font-size: 1.2rem;">No Profile Insights Data</h3>
+                    <p style="color: #856404; font-size: 0.95rem;">This workspace doesn't have profile insights configured.</p>
+                </div>
+
+                <div class="table-container" id="identityTable" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Space</th>
+                                <th>ID Type</th>
+                                <th style="text-align: center;">Priority</th>
+                                <th style="text-align: center;">Limit</th>
+                                <th style="text-align: center;">Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="identityTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+
+            <!-- Profile Violations Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Profile Violations & Errors</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="violationSearchBox" placeholder="🔍 Search violations..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="violationSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <button onclick="exportViolationsCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div id="noViolationsMessage" style="display: none; text-align: center; padding: 40px; background: #d4edda; border: 2px solid #28a745; border-radius: 12px;">
+                    <div style="font-size: 3rem; margin-bottom: 15px;">✅</div>
+                    <h3 style="color: #155724; margin-bottom: 10px; font-size: 1.2rem;">No Violations Found</h3>
+                    <p style="color: #155724; font-size: 0.95rem;">No profile violations or errors detected in the workspace.</p>
+                </div>
+
+                <div class="table-container" id="violationsTable" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Space</th>
+                                <th>Time</th>
+                                <th>Event Type</th>
+                                <th>Violation Type</th>
+                                <th>External IDs</th>
+                                <th>Dropped Identifiers</th>
+                            </tr>
+                        </thead>
+                        <tbody id="violationsTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="violationsPaginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+
+            <!-- Space Sources Table (Inbound) -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Space Sources (Inbound)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="sourceSearchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="sourceSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <button onclick="exportSourcesCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div id="noSourcesMessage" style="display: none; text-align: center; padding: 40px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px;">
+                    <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="color: #856404; margin-bottom: 10px; font-size: 1.2rem;">No Inbound Sources Data</h3>
+                    <p style="color: #856404; font-size: 0.95rem;">No inbound sources are configured for the spaces.</p>
+                </div>
+
+                <div class="table-container" id="sourcesTable" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Space</th>
+                                <th>Source Name</th>
+                                <th style="white-space: nowrap;">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sourcesTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="sourcesPaginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+
+            <!-- Profile Source Debuggers Table (Outbound) -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>Profile Source Debuggers (Outbound)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="debuggerSearchBox" placeholder="🔍 Search debuggers..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="debuggerSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <button onclick="exportDebuggersCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div id="noDebuggersMessage" style="display: none; text-align: center; padding: 40px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px;">
+                    <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="color: #856404; margin-bottom: 10px; font-size: 1.2rem;">No Profile Debuggers Data</h3>
+                    <p style="color: #856404; font-size: 0.95rem;">No profile debuggers are configured for the spaces.</p>
+                </div>
+
+                <div class="table-container" id="debuggersTable" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Space</th>
+                                <th>Source Name</th>
+                                <th style="white-space: nowrap;">Status</th>
+                                <th>Destinations</th>
+                            </tr>
+                        </thead>
+                        <tbody id="debuggersTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="debuggersPaginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        let allIdentityConfigs = [];
+        let filteredConfigs = [];
+        let allSpaceSources = [];
+        let inboundSources = [];
+        let debuggerSources = [];
+        let allViolations = [];
+        let filteredSources = [];
+        let filteredDebuggers = [];
+        let filteredViolations = [];
+        let currentPage = 1;
+        let currentSourcePage = 1;
+        let currentDebuggerPage = 1;
+        let currentViolationPage = 1;
+        const pageSize = 50;
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && !dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        async function loadProfileInsightsData() {
+            try {
+                // Load identity config CSV
+                const identityResponse = await fetch('/audit_data/gateway_profile_insights.csv');
+
+                if (identityResponse.ok) {
+                    const csvText = await identityResponse.text();
+                    allIdentityConfigs = parseCSV(csvText);
+                }
+
+                // Load personas entitlements JSON
+                const entitlementsResponse = await fetch('/audit_data/gateway_personas_entitlements.json');
+                if (entitlementsResponse.ok) {
+                    const entitlements = await entitlementsResponse.json();
+                    updateEntitlements(entitlements);
+                }
+
+                // Load space sources CSV
+                const sourcesResponse = await fetch('/audit_data/gateway_space_sources.csv');
+                if (sourcesResponse.ok) {
+                    const csvText = await sourcesResponse.text();
+                    allSpaceSources = parseCSV(csvText);
+
+                    // Split into inbound sources and debuggers
+                    inboundSources = allSpaceSources.filter(s => s['Type'] !== 'Personas');
+                    debuggerSources = allSpaceSources.filter(s => s['Type'] === 'Personas');
+                }
+
+                // Load profile violations CSV
+                const violationsResponse = await fetch('/audit_data/gateway_profile_violations.csv');
+                if (violationsResponse.ok) {
+                    const csvText = await violationsResponse.text();
+                    allViolations = parseCSV(csvText);
+                }
+
+                await loadSummary();
+
+                if (allIdentityConfigs.length === 0) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noDataMessage').style.display = 'block';
+                    document.getElementById('content').style.display = 'block';
+                    return;
+                }
+
+                populateFilters();
+                filteredConfigs = [...allIdentityConfigs];
+                renderTable();
+                renderPagination();
+
+                // Handle inbound sources
+                if (inboundSources.length > 0) {
+                    populateSourceFilters();
+                    filteredSources = [...inboundSources];
+                    renderSourcesTable();
+                    renderSourcesPagination();
+                    document.getElementById('sourcesTable').style.display = 'block';
+                } else {
+                    document.getElementById('noSourcesMessage').style.display = 'block';
+                }
+
+                // Handle debugger sources
+                if (debuggerSources.length > 0) {
+                    populateDebuggerFilters();
+                    filteredDebuggers = [...debuggerSources];
+                    renderDebuggersTable();
+                    renderDebuggersPagination();
+                    document.getElementById('debuggersTable').style.display = 'block';
+                } else {
+                    document.getElementById('noDebuggersMessage').style.display = 'block';
+                }
+
+                // Handle violations
+                if (allViolations.length > 0) {
+                    populateViolationFilters();
+                    filteredViolations = [...allViolations];
+                    renderViolationsTable();
+                    renderViolationsPagination();
+                    document.getElementById('violationsTable').style.display = 'block';
+                } else {
+                    document.getElementById('noViolationsMessage').style.display = 'block';
+                }
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                document.getElementById('identityTable').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading profile insights:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').textContent = 'Error loading profile insights data: ' + error.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const headers = parseCSVLine(lines[0]);
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length === headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index];
+                    });
+                    data.push(row);
+                }
+            }
+
+            return data;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+
+                if (char === '"' && inQuotes && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+
+            result.push(current.trim());
+            return result;
+        }
+
+        async function loadSummary() {
+            try {
+                const response = await fetch('/audit_data/gateway_summary.json');
+                if (response.ok) {
+                    const summary = await response.json();
+                    const auditDate = new Date(summary.audit_date);
+                    document.getElementById('reportDate').textContent = `Audit Date: ${auditDate.toLocaleDateString()} ${auditDate.toLocaleTimeString()}`;
+                    document.getElementById('customerName').textContent = `${summary.customer_name} - Profile Insights`;
+                }
+            } catch (e) {
+                console.error('Error loading summary:', e);
+            }
+        }
+
+        function updateEntitlements(data) {
+            const features = data.entitlements?.features || {};
+            const billing = data.billing || {};
+
+            document.getElementById('personasEnabled').textContent = features.personas ? 'Yes' : 'No';
+            document.getElementById('profilesEnabled').textContent = features.profiles ? 'Yes' : 'No';
+            document.getElementById('linkedAudiencesEnabled').textContent = features.linkedAudiences ? 'Yes' : 'No';
+        }
+
+        function populateFilters() {
+            const spaces = new Set(allIdentityConfigs.map(c => c['Space']).filter(s => s));
+            const spaceFilter = document.getElementById('spaceFilter');
+
+            Array.from(spaces).sort().forEach(space => {
+                const option = document.createElement('option');
+                option.value = space;
+                option.textContent = space;
+                spaceFilter.appendChild(option);
+            });
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('identityTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredConfigs.slice(start, end);
+
+            pageData.forEach(config => {
+                const row = document.createElement('tr');
+
+                const space = config['Space'] || '';
+                const idType = config['ID Type'] || '';
+                const priority = config['Priority'] || '—';
+                const limit = config['Limit'] || '—';
+                const seen = config['Seen'] || 'No';
+
+                // Format seen badge
+                let seenBadge = '—';
+                if (seen === 'Yes') {
+                    seenBadge = '<span style="background: #48bb78; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600;">YES</span>';
+                } else if (seen === 'No') {
+                    seenBadge = '<span style="background: #a0aec0; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600;">NO</span>';
+                }
+
+                row.innerHTML = `
+                    <td>${space}</td>
+                    <td><code style="background: #f7fafc; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${idType}</code></td>
+                    <td style="text-align: center;">${priority}</td>
+                    <td style="text-align: center;">${limit}</td>
+                    <td style="text-align: center;">${seenBadge}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredConfigs.length / pageSize);
+            const controls = document.getElementById('paginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable();
+                    renderPagination();
+                }
+            };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            pageInfo.style.padding = '8px 16px';
+            pageInfo.style.color = '#2d3748';
+            pageInfo.style.fontWeight = '600';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable();
+                    renderPagination();
+                }
+            };
+            controls.appendChild(nextBtn);
+        }
+
+        function applyFiltersAndSort() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const spaceFilter = document.getElementById('spaceFilter').value;
+
+            filteredConfigs = allIdentityConfigs.filter(config => {
+                const space = (config['Space'] || '').toLowerCase();
+                const idType = (config['ID Type'] || '').toLowerCase();
+
+                const matchesSearch = space.includes(searchTerm) || idType.includes(searchTerm);
+                const matchesSpace = !spaceFilter || config['Space'] === spaceFilter;
+
+                return matchesSearch && matchesSpace;
+            });
+
+            // Sort by Space then Priority
+            filteredConfigs.sort((a, b) => {
+                const spaceA = a['Space'] || '';
+                const spaceB = b['Space'] || '';
+                if (spaceA !== spaceB) {
+                    return spaceA.localeCompare(spaceB);
+                }
+                const priorityA = parseInt(a['Priority']) || 999;
+                const priorityB = parseInt(b['Priority']) || 999;
+                return priorityA - priorityB;
+            });
+
+            currentPage = 1;
+            renderTable();
+            renderPagination();
+        }
+
+        function exportToCSV() {
+            const headers = Object.keys(allIdentityConfigs[0]);
+            const csvRows = [headers.join(',')];
+
+            filteredConfigs.forEach(config => {
+                const values = headers.map(header => {
+                    const value = config[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_profile_insights_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Space Sources Functions (Inbound)
+        function populateSourceFilters() {
+            const spaces = new Set(inboundSources.map(s => s['Space']).filter(sp => sp));
+            const spaceFilter = document.getElementById('sourceSpaceFilter');
+
+            Array.from(spaces).sort().forEach(space => {
+                const option = document.createElement('option');
+                option.value = space;
+                option.textContent = space;
+                spaceFilter.appendChild(option);
+            });
+        }
+
+        function renderSourcesTable() {
+            const tbody = document.getElementById('sourcesTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentSourcePage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredSources.slice(start, end);
+
+            pageData.forEach(source => {
+                const row = document.createElement('tr');
+
+                const space = source['Space'] || '';
+                const sourceName = source['Source Name'] || '';
+                const status = source['Status'] || '';
+
+                // Format status badge
+                let statusBadge = '—';
+                if (status.toUpperCase() === 'ENABLED') {
+                    statusBadge = '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>';
+                } else if (status.toUpperCase() === 'DISABLED') {
+                    statusBadge = '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
+                } else if (status) {
+                    statusBadge = `<span style="background: #e2e8f0; color: #2d3748; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${status.toUpperCase()}</span>`;
+                }
+
+                row.innerHTML = `
+                    <td>${space}</td>
+                    <td>${sourceName}</td>
+                    <td style="white-space: nowrap;">${statusBadge}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderSourcesPagination() {
+            const totalPages = Math.ceil(filteredSources.length / pageSize);
+            const controls = document.getElementById('sourcesPaginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentSourcePage === 1;
+            prevBtn.onclick = () => {
+                if (currentSourcePage > 1) {
+                    currentSourcePage--;
+                    renderSourcesTable();
+                    renderSourcesPagination();
+                }
+            };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentSourcePage} of ${totalPages}`;
+            pageInfo.style.padding = '8px 16px';
+            pageInfo.style.color = '#2d3748';
+            pageInfo.style.fontWeight = '600';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentSourcePage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentSourcePage < totalPages) {
+                    currentSourcePage++;
+                    renderSourcesTable();
+                    renderSourcesPagination();
+                }
+            };
+            controls.appendChild(nextBtn);
+        }
+
+        function applySourceFilters() {
+            const searchTerm = document.getElementById('sourceSearchBox').value.toLowerCase();
+            const spaceFilter = document.getElementById('sourceSpaceFilter').value;
+
+            filteredSources = inboundSources.filter(source => {
+                const space = (source['Space'] || '').toLowerCase();
+                const sourceName = (source['Source Name'] || '').toLowerCase();
+
+                const matchesSearch = space.includes(searchTerm) || sourceName.includes(searchTerm);
+                const matchesSpace = !spaceFilter || source['Space'] === spaceFilter;
+
+                return matchesSearch && matchesSpace;
+            });
+
+            currentSourcePage = 1;
+            renderSourcesTable();
+            renderSourcesPagination();
+        }
+
+        // Profile Debugger Sources Functions (Outbound)
+        function populateDebuggerFilters() {
+            const spaces = new Set(debuggerSources.map(s => s['Space']).filter(sp => sp));
+            const spaceFilter = document.getElementById('debuggerSpaceFilter');
+
+            Array.from(spaces).sort().forEach(space => {
+                const option = document.createElement('option');
+                option.value = space;
+                option.textContent = space;
+                spaceFilter.appendChild(option);
+            });
+        }
+
+        function renderDebuggersTable() {
+            const tbody = document.getElementById('debuggersTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentDebuggerPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredDebuggers.slice(start, end);
+
+            pageData.forEach(source => {
+                const row = document.createElement('tr');
+
+                const space = source['Space'] || '';
+                const sourceName = source['Source Name'] || '';
+                const status = source['Status'] || '';
+                const destinations = source['Destinations'] || '';
+
+                // Format status badge
+                let statusBadge = '—';
+                if (status.toUpperCase() === 'ENABLED') {
+                    statusBadge = '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>';
+                } else if (status.toUpperCase() === 'DISABLED') {
+                    statusBadge = '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
+                } else if (status) {
+                    statusBadge = `<span style="background: #e2e8f0; color: #2d3748; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${status.toUpperCase()}</span>`;
+                }
+
+                const destinationsDisplay = destinations || '<span style="color: #a0aec0;">None</span>';
+
+                row.innerHTML = `
+                    <td>${space}</td>
+                    <td>${sourceName}</td>
+                    <td style="white-space: nowrap;">${statusBadge}</td>
+                    <td>${destinationsDisplay}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderDebuggersPagination() {
+            const totalPages = Math.ceil(filteredDebuggers.length / pageSize);
+            const controls = document.getElementById('debuggersPaginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentDebuggerPage === 1;
+            prevBtn.onclick = () => {
+                if (currentDebuggerPage > 1) {
+                    currentDebuggerPage--;
+                    renderDebuggersTable();
+                    renderDebuggersPagination();
+                }
+            };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentDebuggerPage} of ${totalPages}`;
+            pageInfo.style.padding = '8px 16px';
+            pageInfo.style.color = '#2d3748';
+            pageInfo.style.fontWeight = '600';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentDebuggerPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentDebuggerPage < totalPages) {
+                    currentDebuggerPage++;
+                    renderDebuggersTable();
+                    renderDebuggersPagination();
+                }
+            };
+            controls.appendChild(nextBtn);
+        }
+
+        function applyDebuggerFilters() {
+            const searchTerm = document.getElementById('debuggerSearchBox').value.toLowerCase();
+            const spaceFilter = document.getElementById('debuggerSpaceFilter').value;
+
+            filteredDebuggers = debuggerSources.filter(source => {
+                const space = (source['Space'] || '').toLowerCase();
+                const sourceName = (source['Source Name'] || '').toLowerCase();
+
+                const matchesSearch = space.includes(searchTerm) || sourceName.includes(searchTerm);
+                const matchesSpace = !spaceFilter || source['Space'] === spaceFilter;
+
+                return matchesSearch && matchesSpace;
+            });
+
+            currentDebuggerPage = 1;
+            renderDebuggersTable();
+            renderDebuggersPagination();
+        }
+
+        function exportDebuggersCSV() {
+            const headers = ['Space', 'Space ID', 'Source Name', 'Status', 'Destinations'];
+            const csvRows = [headers.join(',')];
+
+            filteredDebuggers.forEach(source => {
+                const values = headers.map(header => {
+                    const value = source[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_profile_debuggers_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function exportSourcesCSV() {
+            const headers = ['Space', 'Space ID', 'Source Name', 'Status'];
+            const csvRows = [headers.join(',')];
+
+            filteredSources.forEach(source => {
+                const values = headers.map(header => {
+                    const value = source[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_inbound_sources_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Violations Functions
+        function populateViolationFilters() {
+            const spaces = new Set(allViolations.map(v => v['Space']).filter(s => s));
+            const spaceFilter = document.getElementById('violationSpaceFilter');
+
+            Array.from(spaces).sort().forEach(space => {
+                const option = document.createElement('option');
+                option.value = space;
+                option.textContent = space;
+                spaceFilter.appendChild(option);
+            });
+        }
+
+        function renderViolationsTable() {
+            const tbody = document.getElementById('violationsTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentViolationPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredViolations.slice(start, end);
+
+            pageData.forEach(violation => {
+                const row = document.createElement('tr');
+
+                const space = violation['Space'] || '';
+                const time = violation['Time'] || '';
+                const eventType = violation['Event Type'] || '';
+                const violationType = violation['Violation Type'] || '';
+                const externalIds = violation['External IDs'] || '';
+                const droppedIds = violation['Dropped Identifiers'] || '';
+
+                // Format time
+                const timeDisplay = time ? new Date(parseInt(time)).toLocaleString() : '—';
+
+                row.innerHTML = `
+                    <td>${space}</td>
+                    <td style="white-space: nowrap;">${timeDisplay}</td>
+                    <td>${eventType}</td>
+                    <td><span style="background: #f56565; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${violationType || 'VIOLATION'}</span></td>
+                    <td style="font-size: 0.85rem;">${externalIds || '—'}</td>
+                    <td style="font-size: 0.85rem;">${droppedIds || '—'}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderViolationsPagination() {
+            const totalPages = Math.ceil(filteredViolations.length / pageSize);
+            const controls = document.getElementById('violationsPaginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentViolationPage === 1;
+            prevBtn.onclick = () => {
+                if (currentViolationPage > 1) {
+                    currentViolationPage--;
+                    renderViolationsTable();
+                    renderViolationsPagination();
+                }
+            };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentViolationPage} of ${totalPages}`;
+            pageInfo.style.padding = '8px 16px';
+            pageInfo.style.color = '#2d3748';
+            pageInfo.style.fontWeight = '600';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentViolationPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentViolationPage < totalPages) {
+                    currentViolationPage++;
+                    renderViolationsTable();
+                    renderViolationsPagination();
+                }
+            };
+            controls.appendChild(nextBtn);
+        }
+
+        function applyViolationFilters() {
+            const searchTerm = document.getElementById('violationSearchBox').value.toLowerCase();
+            const spaceFilter = document.getElementById('violationSpaceFilter').value;
+
+            filteredViolations = allViolations.filter(violation => {
+                const space = (violation['Space'] || '').toLowerCase();
+                const eventType = (violation['Event Type'] || '').toLowerCase();
+                const violationType = (violation['Violation Type'] || '').toLowerCase();
+
+                const matchesSearch = space.includes(searchTerm) || eventType.includes(searchTerm) || violationType.includes(searchTerm);
+                const matchesSpace = !spaceFilter || violation['Space'] === spaceFilter;
+
+                return matchesSearch && matchesSpace;
+            });
+
+            currentViolationPage = 1;
+            renderViolationsTable();
+            renderViolationsPagination();
+        }
+
+        function exportViolationsCSV() {
+            const headers = ['Space', 'Space ID', 'Type', 'Time', 'Event Type', 'Violation Type', 'External IDs', 'Dropped Identifiers'];
+            const csvRows = [headers.join(',')];
+
+            filteredViolations.forEach(violation => {
+                const values = headers.map(header => {
+                    const value = violation[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_profile_violations_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
+        document.getElementById('spaceFilter').addEventListener('change', applyFiltersAndSort);
+        document.getElementById('sourceSearchBox').addEventListener('input', applySourceFilters);
+        document.getElementById('sourceSpaceFilter').addEventListener('change', applySourceFilters);
+        document.getElementById('debuggerSearchBox').addEventListener('input', applyDebuggerFilters);
+        document.getElementById('debuggerSpaceFilter').addEventListener('change', applyDebuggerFilters);
+        document.getElementById('violationSearchBox').addEventListener('input', applyViolationFilters);
+        document.getElementById('violationSpaceFilter').addEventListener('change', applyViolationFilters);
+
+        loadProfileInsightsData();
+    </script>
+</body>
+</html>

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Journeys</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Journeys</h1>
+                <p class="subtitle" id="reportDate">Loading...</p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block; margin-right: 10px;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>🚀 Journeys</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 180px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading journeys data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Journeys</div>
+                    <div class="value" id="journeyCount">-</div>
+                    <div class="subtext">Workflows</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Connected Destinations</div>
+                    <div class="value" id="totalDestinations">-</div>
+                    <div class="subtext">Unique</div>
+                </div>
+            </div>
+
+            <!-- Journeys Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>All Journeys</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="dest-desc">Dest Count (High-Low)</option>
+                            <option value="dest-asc">Dest Count (Low-High)</option>
+                            <option value="updated-desc">Updated: Newest First</option>
+                            <option value="updated-asc">Updated: Oldest First</option>
+                        </select>
+                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div id="noJourneysMessage" style="display: none; text-align: center; padding: 40px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px; margin: 20px 0;">
+                    <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="color: #856404; margin-bottom: 10px; font-size: 1.2rem;">No Journeys Found</h3>
+                    <p style="color: #856404; font-size: 0.95rem;">This workspace doesn't have any journeys or campaigns, or the Engage feature may not be enabled.</p>
+                </div>
+
+                <div class="table-container" id="journeysTable" style="display: none;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="white-space: nowrap;">State</th>
+                                <th>Name</th>
+                                <th>Space</th>
+                                <th style="white-space: nowrap;">Last Published</th>
+                                <th style="text-align: center; white-space: nowrap;">Dest Count</th>
+                                <th>Destinations</th>
+                                <th style="white-space: nowrap;">Created By</th>
+                                <th style="white-space: nowrap;">Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody id="journeysTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        let allJourneys = [];
+        let filteredJourneys = [];
+        let currentPage = 1;
+        const pageSize = 50;
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && !dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        async function loadJourneysData() {
+            try {
+                const response = await fetch('/audit_data/gateway_journeys.csv');
+
+                if (!response.ok) {
+                    throw new Error('Journeys data not found');
+                }
+
+                const csvText = await response.text();
+                const allData = parseCSV(csvText);
+
+                // Filter to only show Journey type (exclude campaigns)
+                allJourneys = allData.filter(item => item['Type'] === 'Journey');
+
+                console.log('Loaded journeys:', allJourneys.length);
+
+                if (allJourneys.length === 0) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noJourneysMessage').style.display = 'block';
+                    document.getElementById('content').style.display = 'block';
+                    return;
+                }
+
+                await loadSummary();
+                updateStats();
+                filteredJourneys = [...allJourneys];
+                renderTable();
+                renderPagination();
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                document.getElementById('journeysTable').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading journeys:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').textContent = 'Error loading journeys data: ' + error.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const headers = parseCSVLine(lines[0]);
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length === headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index];
+                    });
+                    data.push(row);
+                }
+            }
+
+            return data;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+
+                if (char === '"' && inQuotes && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+
+            result.push(current.trim());
+            return result;
+        }
+
+        async function loadSummary() {
+            try {
+                const response = await fetch('/audit_data/gateway_summary.json');
+                if (response.ok) {
+                    const summary = await response.json();
+                    const auditDate = new Date(summary.audit_date);
+                    document.getElementById('reportDate').textContent = `Audit Date: ${auditDate.toLocaleDateString()} ${auditDate.toLocaleTimeString()}`;
+                    document.getElementById('customerName').textContent = `${summary.customer_name} - Journeys`;
+                }
+            } catch (e) {
+                console.error('Error loading summary:', e);
+            }
+        }
+
+        function updateStats() {
+            const journeys = allJourneys.filter(j => j['Type'] === 'Journey');
+            document.getElementById('journeyCount').textContent = journeys.length;
+
+            const allDests = new Set();
+            journeys.forEach(j => {
+                const dests = j['Destinations'] || '';
+                if (dests) {
+                    dests.split(',').forEach(d => allDests.add(d.trim()));
+                }
+            });
+
+            document.getElementById('totalDestinations').textContent = allDests.size;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('journeysTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredJourneys.slice(start, end);
+
+            pageData.forEach(journey => {
+                const row = document.createElement('tr');
+
+                const state = journey['State'] || '';
+                const version = journey['Current Version'] || '';
+
+                // Build state badge with journey emoji and version info
+                let stateBadge = '';
+                const typePrefix = '🚀 ';
+
+                if (state.toLowerCase().includes('published') || state.toLowerCase().includes('running') || state.toLowerCase().includes('active')) {
+                    const versionInfo = version ? ` v${Math.floor(parseFloat(version))}` : '';
+                    stateBadge = `<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${typePrefix}PUBLISHED${versionInfo}</span>`;
+                } else if (state.toLowerCase().includes('draft') || state.toLowerCase().includes('paused')) {
+                    stateBadge = `<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${typePrefix}DRAFT</span>`;
+                } else {
+                    stateBadge = `<span style="background: #e2e8f0; color: #2d3748; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${typePrefix}${state.toUpperCase()}</span>`;
+                }
+
+                const name = journey['Name'] || '';
+                const space = journey['Space'] || '';
+
+                // Show just major version number for Last Published column
+                const versionDisplay = version ? Math.floor(parseFloat(version)).toString() : '<span style="color: #a0aec0;">—</span>';
+
+                const destCount = parseInt(journey['Destination Count'] || 0);
+                const destinations = journey['Destinations'] || '';
+                const destDisplay = destCount > 0
+                    ? destinations
+                    : '<span style="color: #a0aec0;">None</span>';
+
+                const createdBy = journey['Created By'] || '<span style="color: #a0aec0;">—</span>';
+
+                const updatedAt = journey['Updated At'] || '';
+                const updatedDisplay = updatedAt ? new Date(updatedAt).toLocaleDateString() : '<span style="color: #a0aec0;">—</span>';
+
+                row.innerHTML = `
+                    <td style="white-space: nowrap;">${stateBadge}</td>
+                    <td>${name}</td>
+                    <td>${space}</td>
+                    <td style="text-align: center; white-space: nowrap;">${versionDisplay}</td>
+                    <td style="text-align: center;">${destCount}</td>
+                    <td>${destDisplay}</td>
+                    <td style="white-space: nowrap;">${createdBy}</td>
+                    <td style="white-space: nowrap;">${updatedDisplay}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredJourneys.length / pageSize);
+            const controls = document.getElementById('paginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    renderTable();
+                    renderPagination();
+                }
+            };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            pageInfo.style.padding = '8px 16px';
+            pageInfo.style.color = '#2d3748';
+            pageInfo.style.fontWeight = '600';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    renderTable();
+                    renderPagination();
+                }
+            };
+            controls.appendChild(nextBtn);
+        }
+
+        function applyFiltersAndSort() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const sortBy = document.getElementById('sortBy').value;
+
+            filteredJourneys = allJourneys.filter(journey => {
+                const name = (journey['Name'] || '').toLowerCase();
+                const space = (journey['Space'] || '').toLowerCase();
+                const type = (journey['Type'] || '').toLowerCase();
+
+                return name.includes(searchTerm) || space.includes(searchTerm) || type.includes(searchTerm);
+            });
+
+            filteredJourneys.sort((a, b) => {
+                switch(sortBy) {
+                    case 'name-asc':
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'name-desc':
+                        return (b['Name'] || '').localeCompare(a['Name'] || '');
+                    case 'dest-desc':
+                        return parseInt(b['Destination Count'] || 0) - parseInt(a['Destination Count'] || 0);
+                    case 'dest-asc':
+                        return parseInt(a['Destination Count'] || 0) - parseInt(b['Destination Count'] || 0);
+                    case 'updated-desc':
+                        return new Date(b['Updated At'] || 0) - new Date(a['Updated At'] || 0);
+                    case 'updated-asc':
+                        return new Date(a['Updated At'] || 0) - new Date(b['Updated At'] || 0);
+                    default:
+                        return 0;
+                }
+            });
+
+            currentPage = 1;
+            renderTable();
+            renderPagination();
+        }
+
+        function exportToCSV() {
+            const headers = Object.keys(allJourneys[0]);
+            const csvRows = [headers.join(',')];
+
+            filteredJourneys.forEach(journey => {
+                const values = headers.map(header => {
+                    const value = journey[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_journeys_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
+        document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+
+        loadJourneysData();
+    </script>
+</body>
+</html>

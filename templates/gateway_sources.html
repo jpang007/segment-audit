@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Sources (Gateway API)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Sources</h1>
+                <p class="subtitle" id="reportDate">Data from Gateway API • <span style="color: #667eea;">With Connection Mapping</span></p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>🔌 Sources</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">🔌 Sources</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading sources from Gateway API...</p>
+        </div>
+
+        <div id="noData" class="loading" style="display: none;">
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 4rem; margin-bottom: 20px;">🔌</div>
+                <h2 style="color: #2d3748; margin-bottom: 10px;">No Audit Data Yet</h2>
+                <p style="color: #718096; margin-bottom: 25px;">Run an audit first to see your source data</p>
+                <button onclick="window.location.href='/reset'" class="btn btn-primary">
+                    🚀 Start New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Sources</div>
+                    <div class="value" id="totalSources">-</div>
+                    <div class="subtext" id="sourcesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">With Destinations</div>
+                    <div class="value" id="sourcesWithDest">-</div>
+                    <div class="subtext">Connected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">With Warehouses</div>
+                    <div class="value" id="sourcesWithWH">-</div>
+                    <div class="subtext">Data storage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Source Types</div>
+                    <div class="value" id="sourceTypes">-</div>
+                    <div class="subtext">Unique types</div>
+                </div>
+            </div>
+
+            <!-- Type Distribution Chart -->
+            <div class="chart-section">
+                <h2>Source Type Distribution</h2>
+                <div style="width: 600px; margin: 0 auto; height: 400px;">
+                    <canvas id="sourceTypeChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Sources Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>All Sources</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 300px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="enabled-first">Enabled First</option>
+                            <option value="disabled-first">Disabled First</option>
+                            <option value="dest-desc">Dest Count (High-Low)</option>
+                            <option value="dest-asc">Dest Count (Low-High)</option>
+                        </select>
+                        <button onclick="exportToCSV(event)" class="btn btn-secondary btn-sm" id="exportBtn">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="text-align: center;">Status</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th style="text-align: center; white-space: nowrap;">Dest Count</th>
+                                <th>Destinations</th>
+                                <th>Warehouses</th>
+                                <th>Labels</th>
+                                <th style="text-align: center;">Schema</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sourcesTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <!-- Schema Modal -->
+    <div id="schemaModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; overflow-y: auto;">
+        <div style="background: white; margin: 50px auto; max-width: 900px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-height: 85vh; display: flex; flex-direction: column;">
+            <div style="padding: 25px; border-bottom: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="schemaModalTitle" style="margin: 0; color: #2d3748;">Source Schema</h2>
+                <button onclick="closeSchemaModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #718096; padding: 0; width: 30px; height: 30px;">&times;</button>
+            </div>
+            <div id="schemaModalContent" style="padding: 25px; overflow-y: auto; flex: 1;">
+                <div style="text-align: center; padding: 40px;">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 15px; color: #718096;">Loading schema...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allSources = [];
+        let filteredSources = [];
+        let currentPage = 1;
+        const pageSize = 50;
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && !dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        async function loadSources() {
+            try {
+                const response = await fetch('/audit_data/gateway_sources.csv');
+
+                if (!response.ok) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noData').style.display = 'block';
+                    return;
+                }
+
+                const csvText = await response.text();
+                allSources = parseCSV(csvText);
+                filteredSources = allSources;
+
+                if (allSources.length === 0) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noData').style.display = 'block';
+                    return;
+                }
+
+                updateStats();
+                renderChart();
+                renderTable();
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading sources:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('noData').style.display = 'block';
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length === headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index];
+                    });
+                    data.push(row);
+                }
+            }
+
+            return data;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+
+                if (char === '"' && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+
+            result.push(current.trim());
+            return result;
+        }
+
+        function updateStats() {
+            document.getElementById('totalSources').textContent = allSources.length;
+
+            const enabled = allSources.filter(s => s['Status'] === 'ENABLED').length;
+            const disabled = allSources.length - enabled;
+            document.getElementById('sourcesBreakdown').textContent = `${enabled} enabled, ${disabled} disabled`;
+
+            const withDest = allSources.filter(s => s['Connected Destinations']).length;
+            document.getElementById('sourcesWithDest').textContent = withDest;
+
+            const withWH = allSources.filter(s => s['Connected Warehouses']).length;
+            document.getElementById('sourcesWithWH').textContent = withWH;
+
+            const types = new Set(allSources.map(s => s['Type']).filter(t => t));
+            document.getElementById('sourceTypes').textContent = types.size;
+        }
+
+        function renderChart() {
+            const typeCounts = {};
+            allSources.forEach(source => {
+                const type = source['Type'] || 'Unknown';
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+
+            const sortedTypes = Object.entries(typeCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const ctx = document.getElementById('sourceTypeChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedTypes.map(t => t[0]),
+                    datasets: [{
+                        label: 'Source Count',
+                        data: sortedTypes.map(t => t[1]),
+                        backgroundColor: '#667eea',
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('sourcesTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredSources.slice(start, end);
+
+            pageData.forEach(source => {
+                const row = document.createElement('tr');
+
+                const status = source['Status'] === 'ENABLED' ? 'Enabled' : 'Disabled';
+                const statusBadge = status === 'Enabled'
+                    ? '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>'
+                    : '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
+
+                const destinations = source['Connected Destinations'] || '';
+                const warehouses = source['Connected Warehouses'] || '';
+                const destCount = destinations ? destinations.split(',').length : 0;
+
+                const destDisplay = destinations || '<span style="color: #a0aec0;">None</span>';
+                const whDisplay = warehouses || '<span style="color: #a0aec0;">None</span>';
+
+                const sourceSlug = source['Slug'] || '';
+
+                row.innerHTML = `
+                    <td style="text-align: center;">${statusBadge}</td>
+                    <td><strong>${source['Name'] || ''}</strong></td>
+                    <td><span style="background: #edf2f7; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 500;">${source['Type'] || ''}</span></td>
+                    <td style="text-align: center;"><span style="font-weight: 600; color: ${destCount > 0 ? '#667eea' : '#a0aec0'};">${destCount}</span></td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${destinations}">${destDisplay}</td>
+                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${warehouses}">${whDisplay}</td>
+                    <td style="font-size: 0.85rem; color: #718096;">${source['Labels'] || ''}</td>
+                    <td style="text-align: center;">
+                        <button onclick="openSchemaModal('${sourceSlug}', '${source['Name'].replace(/'/g, "\\'")}', event)" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;">
+                            📋 View
+                        </button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+
+            renderPagination();
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredSources.length / pageSize);
+            const controls = document.getElementById('paginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => { currentPage--; renderTable(); };
+            controls.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            pageInfo.style.padding = '0 15px';
+            pageInfo.style.color = '#4a5568';
+            controls.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => { currentPage++; renderTable(); };
+            controls.appendChild(nextBtn);
+        }
+
+        // Search functionality
+        document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
+        document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+
+        function applyFiltersAndSort() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const sortBy = document.getElementById('sortBy').value;
+
+            // Filter by search term
+            filteredSources = allSources.filter(source => {
+                return !searchTerm ||
+                    (source['Name'] || '').toLowerCase().includes(searchTerm) ||
+                    (source['Type'] || '').toLowerCase().includes(searchTerm) ||
+                    (source['Connected Destinations'] || '').toLowerCase().includes(searchTerm);
+            });
+
+            // Sort
+            filteredSources.sort((a, b) => {
+                const destCountA = (a['Connected Destinations'] || '').split(',').filter(d => d.trim()).length;
+                const destCountB = (b['Connected Destinations'] || '').split(',').filter(d => d.trim()).length;
+
+                switch(sortBy) {
+                    case 'name-asc':
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'name-desc':
+                        return (b['Name'] || '').localeCompare(a['Name'] || '');
+                    case 'enabled-first':
+                        if (a['Status'] === 'ENABLED' && b['Status'] !== 'ENABLED') return -1;
+                        if (a['Status'] !== 'ENABLED' && b['Status'] === 'ENABLED') return 1;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'disabled-first':
+                        if (a['Status'] !== 'ENABLED' && b['Status'] === 'ENABLED') return -1;
+                        if (a['Status'] === 'ENABLED' && b['Status'] !== 'ENABLED') return 1;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'dest-desc':
+                        if (destCountB !== destCountA) return destCountB - destCountA;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'dest-asc':
+                        if (destCountA !== destCountB) return destCountA - destCountB;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    default:
+                        return 0;
+                }
+            });
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        async function exportToCSV(event) {
+            if (!filteredSources.length) {
+                alert('No data to export');
+                return;
+            }
+
+            // Show loading indicator
+            const btn = event.target;
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ Fetching schemas...';
+            btn.disabled = true;
+
+            const headers = ['Status', 'Name', 'Type', 'Dest Count', 'Destinations', 'Warehouses', 'Labels', 'Total Events', 'Planned Events', 'Unplanned Events', 'Recent Events (7d)', 'Total Allowed', 'Total Blocked', 'All Events', 'Recent Events'];
+            const csvRows = [headers.join(',')];
+
+            for (const source of filteredSources) {
+                const status = source['Status'] || '';
+                const name = `"${(source['Name'] || '').replace(/"/g, '""')}"`;
+                const type = source['Type'] || '';
+                const destinations = source['Connected Destinations'] || '';
+                const destCount = destinations ? destinations.split(',').length : 0;
+                const destinationsQuoted = `"${destinations.replace(/"/g, '""')}"`;
+                const warehouses = `"${(source['Connected Warehouses'] || '').replace(/"/g, '""')}"`;
+                const labels = `"${(source['Labels'] || '').replace(/"/g, '""')}"`;
+
+                // Fetch schema data
+                let totalEvents = 0;
+                let plannedEvents = 0;
+                let unplannedEvents = 0;
+                let recentEvents = 0;
+                let totalAllowed = 0;
+                let totalBlocked = 0;
+                let allEventsList = '';
+                let recentEventsList = '';
+
+                const sourceSlug = source['Slug'] || '';
+                if (sourceSlug) {
+                    try {
+                        const response = await fetch(`/api/source-schema/${sourceSlug}`, {
+                            credentials: 'include'
+                        });
+                        if (response.ok) {
+                            const schemaData = await response.json();
+
+                            // Process schema data
+                            const allEvents = new Set();
+                            const recentEventsSet = new Set();
+
+                            // Collect all events from collections
+                            (schemaData.collections || []).forEach(collection => {
+                                (collection.events || []).forEach(event => {
+                                    allEvents.add(event.name);
+                                    if (event.isPlanned) plannedEvents++;
+                                });
+                            });
+
+                            // Process recent events
+                            (schemaData.events || []).forEach(event => {
+                                recentEventsSet.add(event.name);
+                                totalAllowed += event.counts?.allowed || 0;
+                                totalBlocked += event.counts?.denied || 0;
+
+                                // Add recent events that aren't in schema
+                                if (!allEvents.has(event.name)) {
+                                    allEvents.add(event.name);
+                                }
+                            });
+
+                            totalEvents = allEvents.size;
+                            recentEvents = recentEventsSet.size;
+                            unplannedEvents = totalEvents - plannedEvents;
+                            allEventsList = Array.from(allEvents).sort().join('; ');
+                            recentEventsList = Array.from(recentEventsSet).sort().join('; ');
+                        } else {
+                            const errorText = await response.text();
+                            console.error(`Failed to fetch schema for ${sourceSlug}: ${response.status}`, errorText);
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch schema for ${sourceSlug}:`, e);
+                    }
+                }
+
+                const allEventsQuoted = `"${allEventsList.replace(/"/g, '""')}"`;
+                const recentEventsQuoted = `"${recentEventsList.replace(/"/g, '""')}"`;
+
+                csvRows.push([status, name, type, destCount, destinationsQuoted, warehouses, labels, totalEvents, plannedEvents, unplannedEvents, recentEvents, totalAllowed, totalBlocked, allEventsQuoted, recentEventsQuoted].join(','));
+            }
+
+            // Restore button
+            btn.textContent = originalText;
+            btn.disabled = false;
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_sources_with_schema_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function openSchemaModal(sourceSlug, sourceName, event) {
+            event.stopPropagation();
+
+            const modal = document.getElementById('schemaModal');
+            const title = document.getElementById('schemaModalTitle');
+            const content = document.getElementById('schemaModalContent');
+
+            title.textContent = `${sourceName} - Event Schema`;
+            content.innerHTML = '<div style="text-align: center; padding: 40px;"><div class="spinner"></div><p style="margin-top: 15px; color: #718096;">Loading schema...</p></div>';
+            modal.style.display = 'block';
+
+            // Fetch schema data from Gateway API
+            fetchSourceSchema(sourceSlug, sourceName);
+        }
+
+        function closeSchemaModal() {
+            document.getElementById('schemaModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('schemaModal');
+            if (event.target === modal) {
+                closeSchemaModal();
+            }
+        });
+
+        async function fetchSourceSchema(sourceSlug, sourceName) {
+            const content = document.getElementById('schemaModalContent');
+
+            try {
+                // Call backend endpoint to get schema
+                const response = await fetch(`/api/source-schema/${sourceSlug}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Schema fetch failed:', response.status, errorText);
+                    throw new Error(`Failed to fetch schema (${response.status})`);
+                }
+
+                const data = await response.json();
+
+                // Render schema
+                renderSchema(data);
+
+            } catch (error) {
+                console.error('Error in fetchSourceSchema:', error);
+                content.innerHTML = `
+                    <div style="text-align: center; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                        <h3 style="color: #e53e3e; margin-bottom: 10px;">Error Loading Schema</h3>
+                        <p style="color: #718096;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderSchema(data) {
+            const content = document.getElementById('schemaModalContent');
+            const { events = [], collections = [] } = data;
+
+            // Create a map of recent event counts
+            const recentEventsMap = new Map();
+            events.forEach(e => {
+                recentEventsMap.set(e.name, {
+                    type: e.type,
+                    allowed: e.counts?.allowed || 0,
+                    denied: e.counts?.denied || 0
+                });
+            });
+
+            // Collect all events from all collections
+            const allEvents = [];
+            collections.forEach(collection => {
+                (collection.events || []).forEach(event => {
+                    const recentData = recentEventsMap.get(event.name);
+                    allEvents.push({
+                        name: event.name,
+                        type: 'TRACK', // Events from schema are typically track events
+                        isPlanned: event.isPlanned,
+                        isRecent: !!recentData,
+                        allowed: recentData?.allowed || 0,
+                        denied: recentData?.denied || 0
+                    });
+                });
+            });
+
+            // Add any recent events that aren't in the schema yet
+            events.forEach(recentEvent => {
+                const exists = allEvents.some(e => e.name === recentEvent.name);
+                if (!exists) {
+                    allEvents.push({
+                        name: recentEvent.name,
+                        type: recentEvent.type,
+                        isPlanned: false,
+                        isRecent: true,
+                        allowed: recentEvent.counts?.allowed || 0,
+                        denied: recentEvent.counts?.denied || 0
+                    });
+                }
+            });
+
+            // Sort: recent first, then alphabetical
+            allEvents.sort((a, b) => {
+                if (a.isRecent && !b.isRecent) return -1;
+                if (!a.isRecent && b.isRecent) return 1;
+                return a.name.localeCompare(b.name);
+            });
+
+            let html = '';
+
+            if (allEvents.length > 0) {
+                const recentCount = allEvents.filter(e => e.isRecent).length;
+                const plannedCount = allEvents.filter(e => e.isPlanned).length;
+                const unplannedCount = allEvents.length - plannedCount;
+                const totalAllowed = allEvents.reduce((sum, e) => sum + (e.allowed || 0), 0);
+                const totalDenied = allEvents.reduce((sum, e) => sum + (e.denied || 0), 0);
+
+                html += `
+                    <div style="display: flex; gap: 20px; margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; flex-wrap: wrap;">
+                        <div><strong style="color: #2d3748;">${allEvents.length}</strong> <span style="color: #718096;">total events</span></div>
+                        <div><strong style="color: #667eea;">${recentCount}</strong> <span style="color: #718096;">recent (7d)</span></div>
+                        <div><strong style="color: #48bb78;">${plannedCount}</strong> <span style="color: #718096;">planned</span></div>
+                        <div><strong style="color: #a0aec0;">${unplannedCount}</strong> <span style="color: #718096;">unplanned</span></div>
+                        <div style="border-left: 2px solid #e2e8f0; padding-left: 20px; margin-left: 10px;"><strong style="color: #48bb78;">${totalAllowed.toLocaleString()}</strong> <span style="color: #718096;">allowed</span></div>
+                        <div><strong style="color: ${totalDenied > 0 ? '#e53e3e' : '#a0aec0'};">${totalDenied.toLocaleString()}</strong> <span style="color: #718096;">blocked</span></div>
+                    </div>
+                `;
+
+                html += '<div style="max-height: 500px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">';
+                html += '<table style="width: 100%; border-collapse: collapse;">';
+                html += '<thead style="background: #f7fafc; position: sticky; top: 0; z-index: 10;"><tr><th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Event Name</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Type</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Allowed</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Blocked</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 180px;">Status</th></tr></thead>';
+                html += '<tbody>';
+
+                allEvents.forEach(event => {
+                    const rowBg = event.isRecent ? 'background: linear-gradient(90deg, #eef2ff 0%, #f7fafc 100%);' : '';
+                    const recentBadge = event.isRecent ? '<span style="background: #667eea; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; margin-right: 5px;">RECENT</span>' : '';
+                    const plannedBadge = event.isPlanned
+                        ? '<span style="background: #48bb78; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">PLANNED</span>'
+                        : '<span style="background: #a0aec0; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem;">UNPLANNED</span>';
+
+                    const allowedDisplay = event.isRecent ? `<strong style="color: #48bb78;">${event.allowed.toLocaleString()}</strong>` : '<span style="color: #a0aec0;">—</span>';
+                    const deniedDisplay = event.isRecent
+                        ? (event.denied > 0 ? `<strong style="color: #e53e3e;">${event.denied.toLocaleString()}</strong>` : '<span style="color: #a0aec0;">0</span>')
+                        : '<span style="color: #a0aec0;">—</span>';
+
+                    html += `
+                        <tr style="border-bottom: 1px solid #e2e8f0; ${rowBg}">
+                            <td style="padding: 12px;"><strong style="color: #2d3748;">${event.name}</strong></td>
+                            <td style="padding: 12px; text-align: center;"><span style="background: #edf2f7; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; color: #4a5568;">${event.type}</span></td>
+                            <td style="padding: 12px; text-align: center;">${allowedDisplay}</td>
+                            <td style="padding: 12px; text-align: center;">${deniedDisplay}</td>
+                            <td style="padding: 12px; text-align: center;">${recentBadge}${plannedBadge}</td>
+                        </tr>
+                    `;
+                });
+
+                html += '</tbody></table></div>';
+            } else {
+                html = '<div style="text-align: center; padding: 40px; color: #718096;">No schema data available for this source.</div>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        loadSources();
+    </script>
+</body>
+</html>

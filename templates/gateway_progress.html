@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gateway Audit Progress</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .progress-detail {
+            margin-top: 35px;
+            padding: 25px;
+            background: #f7fafc;
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
+        }
+        .progress-detail h3 {
+            margin: 0 0 15px 0;
+            color: #2d3748;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .progress-detail ul {
+            margin: 0;
+            padding-left: 25px;
+            color: #2d3748;
+            line-height: 2;
+        }
+        .progress-detail li {
+            margin: 8px 0;
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        .checkmark {
+            color: #667eea;
+            font-weight: bold;
+            margin-right: 8px;
+            font-size: 1.1rem;
+        }
+        .checkmark.done {
+            color: #48bb78;
+        }
+        .status-message {
+            color: #2d3748;
+            font-weight: 600;
+            font-size: 1.05rem;
+        }
+        .progress-bar-container {
+            background: #e2e8f0;
+            border-radius: 10px;
+            height: 18px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            box-shadow: 0 2px 4px rgba(102, 126, 234, 0.4);
+        }
+        .progress-text {
+            color: #2d3748;
+            font-weight: 700;
+            font-size: 1.2rem;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body class="progress-page">
+    <div class="container">
+        <div style="text-align: center; margin-bottom: 35px;">
+            <div style="font-size: 3.5rem; margin-bottom: 15px;">🔬</div>
+            <h1 style="margin: 0; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">Gateway API Audit</h1>
+            <p class="subtitle" style="color: white; margin-top: 8px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Collecting workspace data via Gateway API</p>
+        </div>
+
+        <div class="progress-container" style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 700px; margin: 0 auto;">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <p class="progress-text" id="progressText" style="text-align: center;">0%</p>
+
+            <div class="status-message" id="statusMessage" style="text-align: center; margin-top: 20px;">
+                Initializing Gateway API client...
+            </div>
+
+            <div class="progress-detail">
+                <h3>📋 Collection Progress</h3>
+                <ul>
+                    <li><span class="checkmark" id="check1">□</span> Workspace Spaces</li>
+                    <li><span class="checkmark" id="check2">□</span> Sources with Connection Mappings</li>
+                    <li><span class="checkmark" id="check3">□</span> Audiences with Folder Organization</li>
+                    <li><span class="checkmark" id="check4">□</span> Destination Details & Metadata</li>
+                </ul>
+            </div>
+
+            <div id="error" class="error" style="display: none; margin-top: 30px;"></div>
+        </div>
+    </div>
+
+    <script>
+        let pollInterval;
+        let redirectTimeout;
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/audit-status');
+                const status = await response.json();
+
+                const progressBar = document.getElementById('progressBar');
+                const progressText = document.getElementById('progressText');
+                const statusMessage = document.getElementById('statusMessage');
+                const errorDiv = document.getElementById('error');
+
+                progressBar.style.width = status.progress + '%';
+                progressText.textContent = status.progress + '%';
+                statusMessage.textContent = status.message;
+
+                // Update checkmarks based on progress
+                const check1 = document.getElementById('check1');
+                const check2 = document.getElementById('check2');
+                const check3 = document.getElementById('check3');
+                const check4 = document.getElementById('check4');
+
+                if (status.progress >= 10) {
+                    check1.textContent = '✓';
+                    check1.classList.add('done');
+                }
+                if (status.progress >= 30) {
+                    check2.textContent = '✓';
+                    check2.classList.add('done');
+                }
+                if (status.progress >= 70) {
+                    check3.textContent = '✓';
+                    check3.classList.add('done');
+                }
+                if (status.progress >= 90) {
+                    check4.textContent = '✓';
+                    check4.classList.add('done');
+                }
+
+                if (status.error) {
+                    errorDiv.innerHTML = `
+                        <strong style="color: #e53e3e; font-size: 1.1rem;">Error:</strong> <span style="color: #2d3748; font-weight: 500;">${status.error}</span>
+                        <div style="margin-top: 20px; text-align: center;">
+                            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
+                                ← Try Again
+                            </button>
+                        </div>
+                    `;
+                    errorDiv.style.display = 'block';
+                    statusMessage.style.color = '#e53e3e';
+                    clearInterval(pollInterval);
+                } else if (status.complete) {
+                    progressBar.style.width = '100%';
+                    progressText.textContent = '100%';
+                    progressText.style.color = '#48bb78';
+                    statusMessage.innerHTML = '<span style="color: #48bb78; font-weight: 700; font-size: 1.1rem;">✅ Audit Complete! Redirecting to dashboard...</span>';
+
+                    clearInterval(pollInterval);
+
+                    // Auto-redirect to dashboard after 1.5 seconds
+                    redirectTimeout = setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 1500);
+                }
+            } catch (error) {
+                console.error('Error checking status:', error);
+            }
+        }
+
+        // Start polling
+        checkStatus();
+        pollInterval = setInterval(checkStatus, 1000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (pollInterval) clearInterval(pollInterval);
+            if (redirectTimeout) clearTimeout(redirectTimeout);
+        });
+    </script>
+</body>
+</html>

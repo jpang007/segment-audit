@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Audiences (Gateway API)</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Audiences</h1>
+                <p class="subtitle" id="reportDate">Data from Gateway API • <span style="color: #667eea;">Includes Folder Organization</span></p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>👥 Audiences</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading audiences from Gateway API...</p>
+        </div>
+
+        <div id="noData" class="loading" style="display: none;">
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 4rem; margin-bottom: 20px;">📊</div>
+                <h2 style="color: #2d3748; margin-bottom: 10px;">No Audit Data Yet</h2>
+                <p style="color: #718096; margin-bottom: 25px;">Run an audit first to see your audience data</p>
+                <button onclick="window.location.href='/reset'" class="btn btn-primary">
+                    🚀 Start New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Audiences</div>
+                    <div class="value" id="totalAudiences">-</div>
+                    <div class="subtext" id="audiencesBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">With Destinations</div>
+                    <div class="value" id="audiencesWithDest">-</div>
+                    <div class="subtext">Connected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Enabled</div>
+                    <div class="value" id="enabledAudiences">-</div>
+                    <div class="subtext">Active</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Average Size</div>
+                    <div class="value" id="avgSize">-</div>
+                    <div class="subtext">Profiles</div>
+                </div>
+            </div>
+
+            <!-- Audiences Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2>All Audiences</h2>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search audiences..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <select id="spaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Spaces</option>
+                        </select>
+                        <select id="folderFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="">All Folders</option>
+                        </select>
+                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                            <option value="name-asc">Name (A-Z)</option>
+                            <option value="name-desc">Name (Z-A)</option>
+                            <option value="size-desc">Size (High-Low)</option>
+                            <option value="size-asc">Size (Low-High)</option>
+                            <option value="dest-desc">Dest Count (High-Low)</option>
+                            <option value="dest-asc">Dest Count (Low-High)</option>
+                        </select>
+                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                            📥 Export CSV
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="white-space: nowrap;">Status</th>
+                                <th>Name</th>
+                                <th style="text-align: right;">Size</th>
+                                <th style="text-align: center; white-space: nowrap;">Dest Count</th>
+                                <th>Destinations</th>
+                                <th>Folder</th>
+                                <th>Space</th>
+                                <th style="text-align: center;">Definition</th>
+                            </tr>
+                        </thead>
+                        <tbody id="audiencesTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <!-- Definition Modal -->
+    <div id="definitionModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; overflow-y: auto;">
+        <div style="background: white; margin: 50px auto; max-width: 900px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); max-height: 85vh; display: flex; flex-direction: column;">
+            <div style="padding: 25px; border-bottom: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <h2 id="definitionModalTitle" style="margin: 0; color: #2d3748;">Audience Definition</h2>
+                <button onclick="closeDefinitionModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #718096; padding: 0; width: 30px; height: 30px;">&times;</button>
+            </div>
+            <div id="definitionModalContent" style="padding: 25px; overflow-y: auto; flex: 1;">
+                <div style="text-align: center; padding: 40px;">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 15px; color: #718096;">Loading definition...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allAudiences = [];
+        let filteredAudiences = [];
+        let currentPage = 1;
+        const pageSize = 50;
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && !dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        async function loadAudiences() {
+            try {
+                const response = await fetch('/audit_data/gateway_audiences.csv');
+
+                if (!response.ok) {
+                    // No data yet - show empty state
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noData').style.display = 'block';
+                    return;
+                }
+
+                const csvText = await response.text();
+                allAudiences = parseCSV(csvText);
+                filteredAudiences = allAudiences;
+
+                if (allAudiences.length === 0) {
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noData').style.display = 'block';
+                    return;
+                }
+
+                updateStats();
+                populateFilters();
+                renderTable();
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+            } catch (error) {
+                console.error('Error loading audiences:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('noData').style.display = 'block';
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) return [];
+
+            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCSVLine(lines[i]);
+                if (values.length === headers.length) {
+                    const row = {};
+                    headers.forEach((header, index) => {
+                        row[header] = values[index];
+                    });
+                    data.push(row);
+                }
+            }
+
+            return data;
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+
+                if (char === '"' && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+
+            result.push(current.trim());
+            return result;
+        }
+
+        function updateStats() {
+            document.getElementById('totalAudiences').textContent = allAudiences.length;
+
+            const enabled = allAudiences.filter(a => a['Enabled'] === 'True').length;
+            const disabled = allAudiences.length - enabled;
+            document.getElementById('audiencesBreakdown').textContent = `${enabled} enabled, ${disabled} disabled`;
+
+            const withDest = allAudiences.filter(a => parseInt(a['Destination Count'] || 0) > 0).length;
+            document.getElementById('audiencesWithDest').textContent = withDest;
+
+            document.getElementById('enabledAudiences').textContent = enabled;
+
+            // Calculate average size
+            const totalSize = allAudiences.reduce((sum, a) => sum + parseInt(a['Size'] || 0), 0);
+            const avgSize = allAudiences.length > 0 ? Math.round(totalSize / allAudiences.length) : 0;
+            document.getElementById('avgSize').textContent = avgSize.toLocaleString();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('audiencesTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredAudiences.slice(start, end);
+
+            pageData.forEach(aud => {
+                const row = document.createElement('tr');
+
+                const enabled = aud['Enabled'] === 'True';
+                const statusBadge = enabled
+                    ? '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>'
+                    : '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
+
+                const size = parseInt(aud['Size'] || 0).toLocaleString();
+                const destinations = aud['Destinations'] || '';
+                const destCount = parseInt(aud['Destination Count'] || 0);
+                const folder = aud['Folder'] || '';
+
+                const destDisplay = destCount > 0
+                    ? destinations
+                    : '<span style="color: #a0aec0;">None</span>';
+
+                const folderDisplay = folder
+                    ? `<span style="color: #4a5568; font-size: 0.9rem;">${folder}</span>`
+                    : '<span style="color: #a0aec0;">—</span>';
+
+                const audienceId = aud['ID'] || '';
+                const spaceId = aud['Space ID'] || '';
+                const audienceName = (aud['Name'] || '').replace(/'/g, "\\'");
+
+                row.innerHTML = `
+                    <td>${statusBadge}</td>
+                    <td><strong>${aud['Name'] || ''}</strong></td>
+                    <td style="text-align: right; font-weight: 600;">${size}</td>
+                    <td style="text-align: center;"><span style="font-weight: 600; color: ${destCount > 0 ? '#667eea' : '#a0aec0'};">${destCount}</span></td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${destinations}">${destDisplay}</td>
+                    <td>${folderDisplay}</td>
+                    <td style="color: #718096; font-size: 0.9rem;">${aud['Space'] || ''}</td>
+                    <td style="text-align: center;">
+                        <button onclick="openDefinitionModal('${spaceId}', '${audienceId}', '${audienceName}', event)" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;">
+                            📋 View
+                        </button>
+                    </td>
+                `;
+
+                tbody.appendChild(row);
+            });
+
+            renderPagination();
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredAudiences.length / pageSize);
+            const controls = document.getElementById('paginationControls');
+            controls.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            // Previous button
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => { currentPage--; renderTable(); };
+            controls.appendChild(prevBtn);
+
+            // Page numbers
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            pageInfo.style.padding = '0 15px';
+            pageInfo.style.color = '#4a5568';
+            controls.appendChild(pageInfo);
+
+            // Next button
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => { currentPage++; renderTable(); };
+            controls.appendChild(nextBtn);
+        }
+
+        // Search functionality
+        function populateFilters() {
+            // Populate space filter
+            const spaces = new Set(allAudiences.map(a => a['Space']).filter(s => s));
+            const spaceFilter = document.getElementById('spaceFilter');
+            Array.from(spaces).sort().forEach(space => {
+                const option = document.createElement('option');
+                option.value = space;
+                option.textContent = space;
+                spaceFilter.appendChild(option);
+            });
+        }
+
+        function updateFolderFilter() {
+            // Update folder filter based on selected space
+            const spaceFilter = document.getElementById('spaceFilter').value;
+            const folderFilter = document.getElementById('folderFilter');
+
+            // Clear existing options except "All Folders"
+            folderFilter.innerHTML = '<option value="">All Folders</option>';
+
+            // Get folders for selected space (or all spaces if none selected)
+            const relevantAudiences = spaceFilter
+                ? allAudiences.filter(a => a['Space'] === spaceFilter)
+                : allAudiences;
+
+            const folders = new Set(relevantAudiences.map(a => a['Folder']).filter(f => f));
+            Array.from(folders).sort().forEach(folder => {
+                const option = document.createElement('option');
+                option.value = folder;
+                option.textContent = folder;
+                folderFilter.appendChild(option);
+            });
+        }
+
+        function applyFiltersAndSort() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const spaceFilter = document.getElementById('spaceFilter').value;
+            const folderFilter = document.getElementById('folderFilter').value;
+            const sortBy = document.getElementById('sortBy').value;
+
+            // Filter
+            filteredAudiences = allAudiences.filter(aud => {
+                const matchesSearch = !searchTerm ||
+                    (aud['Name'] || '').toLowerCase().includes(searchTerm) ||
+                    (aud['Destinations'] || '').toLowerCase().includes(searchTerm) ||
+                    (aud['Folder'] || '').toLowerCase().includes(searchTerm) ||
+                    (aud['Space'] || '').toLowerCase().includes(searchTerm);
+
+                const matchesSpace = !spaceFilter || aud['Space'] === spaceFilter;
+                const matchesFolder = !folderFilter || aud['Folder'] === folderFilter;
+
+                return matchesSearch && matchesSpace && matchesFolder;
+            });
+
+            // Sort
+            filteredAudiences.sort((a, b) => {
+                const sizeA = parseInt(a['Size'] || 0);
+                const sizeB = parseInt(b['Size'] || 0);
+                const destCountA = parseInt(a['Destination Count'] || 0);
+                const destCountB = parseInt(b['Destination Count'] || 0);
+
+                switch(sortBy) {
+                    case 'name-asc':
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'name-desc':
+                        return (b['Name'] || '').localeCompare(a['Name'] || '');
+                    case 'size-desc':
+                        if (sizeB !== sizeA) return sizeB - sizeA;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'size-asc':
+                        if (sizeA !== sizeB) return sizeA - sizeB;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'dest-desc':
+                        if (destCountB !== destCountA) return destCountB - destCountA;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'dest-asc':
+                        if (destCountA !== destCountB) return destCountA - destCountB;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    default:
+                        return 0;
+                }
+            });
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
+        document.getElementById('spaceFilter').addEventListener('change', () => {
+            updateFolderFilter();
+            applyFiltersAndSort();
+        });
+        document.getElementById('folderFilter').addEventListener('change', applyFiltersAndSort);
+        document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+
+        function exportToCSV() {
+            if (!filteredAudiences.length) {
+                alert('No data to export');
+                return;
+            }
+
+            const headers = ['Status', 'Name', 'Size', 'Dest Count', 'Destinations', 'Folder', 'Space'];
+            const csvRows = [headers.join(',')];
+
+            filteredAudiences.forEach(aud => {
+                const status = aud['Enabled'] === 'True' ? 'Enabled' : 'Disabled';
+                const name = `"${(aud['Name'] || '').replace(/"/g, '""')}"`;
+                const size = aud['Size'] || 0;
+                const destCount = aud['Destination Count'] || 0;
+                const destinations = `"${(aud['Destinations'] || '').replace(/"/g, '""')}"`;
+                const folder = `"${(aud['Folder'] || '').replace(/"/g, '""')}"`;
+                const space = `"${(aud['Space'] || '').replace(/"/g, '""')}"`;
+
+                csvRows.push([status, name, size, destCount, destinations, folder, space].join(','));
+            });
+
+            const csvContent = csvRows.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `gateway_audiences_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function openDefinitionModal(spaceId, audienceId, audienceName, event) {
+            event.stopPropagation();
+
+            const modal = document.getElementById('definitionModal');
+            const title = document.getElementById('definitionModalTitle');
+            const content = document.getElementById('definitionModalContent');
+
+            title.textContent = `${audienceName} - Definition`;
+            content.innerHTML = '<div style="text-align: center; padding: 40px;"><div class="spinner"></div><p style="margin-top: 15px; color: #718096;">Loading definition...</p></div>';
+            modal.style.display = 'block';
+
+            // Fetch audience definition from Gateway API
+            fetchAudienceDefinition(spaceId, audienceId, audienceName);
+        }
+
+        function closeDefinitionModal() {
+            document.getElementById('definitionModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside
+        document.addEventListener('click', function(event) {
+            const modal = document.getElementById('definitionModal');
+            if (event.target === modal) {
+                closeDefinitionModal();
+            }
+        });
+
+        async function fetchAudienceDefinition(spaceId, audienceId, audienceName) {
+            const content = document.getElementById('definitionModalContent');
+
+            try {
+                // Call backend endpoint to get definition
+                const response = await fetch(`/api/audience-definition/${spaceId}/${audienceId}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Definition fetch failed:', response.status, errorText);
+                    throw new Error(`Failed to fetch definition (${response.status})`);
+                }
+
+                const data = await response.json();
+
+                // Render definition
+                renderDefinition(data);
+
+            } catch (error) {
+                console.error('Error in fetchAudienceDefinition:', error);
+                content.innerHTML = `
+                    <div style="text-align: center; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
+                        <h3 style="color: #e53e3e; margin-bottom: 10px;">Error Loading Definition</h3>
+                        <p style="color: #718096;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function parseAST(ast, indent = 0) {
+            if (!ast) return '';
+
+            const indentStr = '  '.repeat(indent);
+
+            if (ast.type === 'operator') {
+                const operator = ast.value.toUpperCase();
+                const children = ast.children || [];
+
+                if (children.length === 0) return '';
+
+                if (operator === 'AND' || operator === 'OR') {
+                    const childrenHTML = children.map(child => parseAST(child, indent + 1)).filter(h => h).join(`<div style="margin: 8px 0; padding-left: ${indent * 20}px; color: #667eea; font-weight: 600;">${operator}</div>`);
+                    return childrenHTML;
+                } else {
+                    // Comparison operators like =, !=, >, <
+                    if (children.length === 2) {
+                        const left = parseAST(children[0], indent);
+                        const right = parseAST(children[1], indent);
+                        return `<div style="padding: 8px 12px; margin: 4px 0; background: #f7fafc; border-left: 3px solid #667eea; border-radius: 4px; font-family: 'Courier New', monospace; margin-left: ${indent * 20}px;"><strong style="color: #2d3748;">${left}</strong> <span style="color: #667eea; font-weight: bold;">${operator}</span> <strong style="color: #48bb78;">${right}</strong></div>`;
+                    }
+                }
+            } else if (ast.type === 'trait.string' || ast.type === 'trait.number') {
+                return ast.value;
+            } else if (ast.type === 'constant.string' || ast.type === 'constant.number') {
+                return `"${ast.value}"`;
+            }
+
+            return '';
+        }
+
+        function renderDefinition(data) {
+            const content = document.getElementById('definitionModalContent');
+            const { audience, definition } = data;
+
+            let html = '';
+
+            // Audience metadata
+            html += `
+                <div style="padding: 20px; background: #f7fafc; border-radius: 8px; margin-bottom: 25px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div><strong style="color: #4a5568;">Engine:</strong> <span style="color: #2d3748;">${audience.engine || '-'}</span></div>
+                        <div><strong style="color: #4a5568;">Size:</strong> <span style="color: #2d3748;">${(audience.size || 0).toLocaleString()} profiles</span></div>
+                        <div><strong style="color: #4a5568;">Status:</strong> <span style="color: #2d3748;">${audience.status || '-'}</span></div>
+                        <div><strong style="color: #4a5568;">Collection:</strong> <span style="color: #2d3748;">${definition.options?.collection || '-'}</span></div>
+                    </div>
+                </div>
+            `;
+
+            // Definition
+            html += '<h3 style="color: #2d3748; margin-bottom: 15px; font-size: 1.1rem;">📋 Audience Logic</h3>';
+
+            if (definition.type === 'ast' && definition.options?.ast) {
+                html += '<div style="border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; background: white;">';
+                html += parseAST(definition.options.ast);
+                html += '</div>';
+            } else if (definition.options?.query) {
+                html += `
+                    <div style="border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; background: #f7fafc; font-family: 'Courier New', monospace; white-space: pre-wrap; font-size: 0.9rem; color: #2d3748; overflow-x: auto;">
+${definition.options.query}
+                    </div>
+                `;
+            } else {
+                html += '<p style="color: #718096;">No definition available for this audience.</p>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        loadAudiences();
+    </script>
+</body>
+</html>

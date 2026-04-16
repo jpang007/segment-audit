@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
 """
-Segment Audit Dashboard - Integrated Flask App
-Single app with form input + visual dashboard
+Gateway API-Only Audit Dashboard
+Testing Gateway API as replacement for Public API
 """
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_cors import CORS
 import os
 import json
-import threading
-import time
+import requests
 from pathlib import Path
 from datetime import datetime, timedelta
-import requests
-from collections import Counter
+import csv
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 CORS(app)
 
-# Session configuration - keep sessions alive for 7 days
+# Session configuration
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True if using HTTPS
+app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 # Configuration
 DATA_DIR = Path('./audit_data')
 DATA_DIR.mkdir(exist_ok=True)
-
-UPLOAD_DIR = Path('./uploads')
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Global status for audit progress
 audit_status = {
@@ -41,238 +36,251 @@ audit_status = {
     'error': None
 }
 
-# ============================================================================
-# DATA COLLECTION (from segment_audit_collector.py)
-# ============================================================================
+class GatewayAPIClient:
+    """Gateway API GraphQL client"""
 
-class SegmentAuditor:
-    """Collects Segment workspace data"""
-
-    def __init__(self, api_token, workspace_id=None, space_id=None, skip_ssl_verify=False, gateway_token=None, workspace_slug=None):
-        self.api_token = api_token
+    def __init__(self, gateway_token, workspace_slug):
         self.gateway_token = gateway_token
-        self.workspace_id = workspace_id
         self.workspace_slug = workspace_slug
-        self.space_id = space_id
-        self.skip_ssl_verify = skip_ssl_verify
-        self.verify = not skip_ssl_verify  # If skip_ssl_verify=True, verify=False
-        self.v1_base = "https://api.segmentapis.com"
-        self.platform_base = "https://platform.segmentapis.com/v1beta"
-        self.gateway_api_base = "https://app.segment.com/gateway-api"
+        self.base_url = "https://app.segment.com/gateway-api/graphql"
         self.headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {gateway_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "x-requested-with": "fetch"
         }
 
-        # Gateway API headers (if token provided)
-        if gateway_token:
-            self.gateway_headers = {
-                "Authorization": f"Bearer {gateway_token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "x-requested-with": "fetch"
-            }
-        else:
-            self.gateway_headers = None
-
-        # Suppress SSL warnings if verification is disabled
-        if skip_ssl_verify:
-            import urllib3
-            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    def _paginate(self, url, data_key='data'):
-        """Handle pagination"""
-        all_data = []
-        next_cursor = None
-
-        while True:
-            params = {'pagination.cursor': next_cursor, 'pagination.count': 200} if next_cursor else {'pagination.count': 200}
-
-            # Retry logic for network issues
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    response = requests.get(url, headers=self.headers, params=params, timeout=30, verify=self.verify)
-                    break
-                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        ssl_hint = " Try enabling 'Skip SSL Verification' checkbox if you're behind a VPN." if "SSL" in str(e) or "certificate" in str(e).lower() else ""
-                        raise Exception(f"Network Error: Unable to connect to Segment API after {max_retries} attempts.{ssl_hint} Error: {str(e)}")
-
-            if response.status_code != 200:
-                raise Exception(f"API Error: {response.status_code} - {response.text}")
-
-            data = response.json()
-            data_wrapper = data.get(data_key, {})
-
-            # Extract the actual items from the data wrapper
-            if isinstance(data_wrapper, list):
-                all_data.extend(data_wrapper)
-                pagination = data.get('pagination', {})
-            elif isinstance(data_wrapper, dict):
-                # Find the list in the dict (e.g., 'audiences', 'sources')
-                for key, value in data_wrapper.items():
-                    if isinstance(value, list):
-                        all_data.extend(value)
-                        break
-                # Pagination is inside the data wrapper
-                pagination = data_wrapper.get('pagination', {})
-            else:
-                pagination = {}
-
-            next_cursor = pagination.get('next')
-
-            if not next_cursor:
-                break
-
-            time.sleep(0.3)
-
-        return all_data
-
-    def get_sources(self):
-        """Get all sources"""
-        url = f"{self.v1_base}/sources"
-        return self._paginate(url, 'data')
-
-    def get_source_destinations(self, source_id):
-        """Get all destinations connected to a source"""
-        url = f"{self.v1_base}/sources/{source_id}/connected-destinations"
-
+    def _execute_query(self, query, variables):
+        """Execute a GraphQL query"""
         try:
-            response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
-
-            if response.status_code != 200:
-                return []
+            payload = {"query": query, "variables": variables}
+            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
 
             data = response.json()
 
-            # API returns destinations in data.destinations
-            destinations_wrapper = data.get('data', {})
+            if response.status_code == 401:
+                raise Exception("Gateway API authentication failed. Token may be expired.")
+            elif response.status_code != 200:
+                # Try to get error details from response body
+                print(f"\n=== HTTP {response.status_code} ERROR ===")
+                print(f"Response: {json.dumps(data, indent=2)}")
+                raise Exception(f"Gateway API returned {response.status_code}: {data}")
 
-            if isinstance(destinations_wrapper, dict):
-                destinations = destinations_wrapper.get('destinations', [])
-                return destinations
-            return []
-        except Exception as e:
-            return []
+            if 'errors' in data:
+                errors = data['errors']
+                error_msg = errors[0].get('message', str(errors)) if errors else 'Unknown error'
+                print(f"\n=== GraphQL ERROR ===")
+                print(f"Message: {error_msg}")
+                print(f"Full errors: {json.dumps(errors, indent=2)}")
+                raise Exception(f"GraphQL error: {error_msg}")
 
-    def get_workspace(self):
-        """Get workspace information from token"""
-        # Try multiple possible endpoints
-        possible_endpoints = [
-            f"{self.v1_base}/workspace",
-            f"{self.v1_base}/workspaces",
-            f"{self.v1_base}",
-            f"{self.v1_base}/"
-        ]
+            return data.get('data', {})
 
-        last_error = None
-        for url in possible_endpoints:
-            try:
-                response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
-                if response.status_code == 200:
-                    data = response.json()
-                    # Try different response structures
-                    workspace = data.get('data', {}).get('workspace', {})
-                    if not workspace:
-                        workspace = data.get('workspace', {})
-                    if not workspace and 'id' in data:
-                        workspace = data
-                    if workspace and 'id' in workspace:
-                        return workspace
-                last_error = f"{response.status_code} - {response.text[:200]}"
-            except Exception as e:
-                last_error = str(e)
-                continue
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Request failed: {str(e)}")
 
-        raise Exception(f"Could not fetch workspace info. Last error: {last_error}")
-
-    def get_spaces(self):
-        """Get all spaces in the workspace"""
-        url = f"{self.v1_base}/spaces"
-        return self._paginate(url, 'data')
-
-    def get_audiences(self):
-        """Get all audiences"""
-        if not self.space_id:
-            return []
-        url = f"{self.v1_base}/spaces/{self.space_id}/audiences"
-        return self._paginate(url, 'data')
-
-    # COMMENTED OUT: Audience destinations API is in Alpha and not production-ready
-    # TODO: Re-enable when Segment releases this endpoint to general availability or implement via GraphQL
-    # def get_audience_destinations(self, audience_id):
-    #     """Get all destinations connected to an audience
-    #
-    #     Note: This endpoint is in Alpha and may not be available for all workspaces.
-    #     Requires the Audience feature to be enabled in the workspace.
-    #     Rate limit: 50 requests per minute.
-    #     """
-    #     if not self.space_id:
-    #         return []
-    #     url = f"{self.v1_base}/spaces/{self.space_id}/audiences/{audience_id}/destinations"
-    #
-    #     try:
-    #         response = requests.get(url, headers=self.headers, timeout=30, verify=self.verify)
-    #
-    #         if response.status_code == 403:
-    #             # Alpha endpoint not available or workspace lacks Audience feature
-    #             print(f"⚠️ Cannot access audience destinations (Alpha API): 403 Forbidden. This workspace may not have the Audience feature enabled or API token lacks permissions.")
-    #             return None  # Return None to signal this is a permission issue, not just empty
-    #         elif response.status_code == 404:
-    #             # Audience not found or endpoint not available
-    #             return []
-    #         elif response.status_code == 429:
-    #             # Rate limited (50 requests per minute for this Alpha endpoint)
-    #             print(f"⚠️ Rate limited on audience destinations API (50/min limit)")
-    #             return []
-    #         elif response.status_code != 200:
-    #             print(f"⚠️ Audience destinations API returned {response.status_code}: {response.text[:200]}")
-    #             return []
-    #
-    #         data = response.json()
-    #
-    #         # API returns destinations in data.destinations
-    #         destinations_wrapper = data.get('data', {})
-    #
-    #         if isinstance(destinations_wrapper, dict):
-    #             destinations = destinations_wrapper.get('destinations', [])
-    #             return destinations
-    #         elif isinstance(destinations_wrapper, list):
-    #             return destinations_wrapper
-    #         return []
-    #     except Exception as e:
-    #         print(f"Warning: Could not fetch destinations for audience {audience_id}: {e}")
-    #         return []
-
-    def get_audiences_gateway(self, workspace_slug, space_id):
-        """Fetch audiences with destinations via Gateway API (GraphQL)
-
-        Uses the correct query structure from Segment UI that supports folder recursion.
-
-        Returns a dict mapping audience_id to enhanced data:
-        {
-            'audience_id_123': {
-                'destinations': ['Destination 1', 'Destination 2'],
-                'destination_count': 2,
-                'definition_type': 'ast',
-                'definition_options': {...},
-                'collection': 'USERS',
-                'status': 'SUCCEEDED'
+    def get_workspace_connections(self):
+        """Get all sources and destinations with connections"""
+        query = """
+        query getWorkspaceConnections($workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            slug
+            sources {
+              id
+              name
+              slug
+              status
+              url
+              connectedDestinations {
+                id
+                __typename
+              }
+              writeKeys
+              flags {
+                javascript
+                __typename
+              }
+              settings
+              metadata {
+                id
+                category
+                name
+                slug
+                logos {
+                  mark
+                  default
+                  __typename
+                }
+                type
+                isCloudSource
+                options
+                __typename
+              }
+              __typename
             }
+            destinations {
+              id
+              ... on Integration {
+                name
+                enabled
+                __typename
+                integrationStatus: status
+                connectedSources {
+                  id
+                  __typename
+                }
+                metadata {
+                  id
+                  name
+                  type
+                  slug
+                  logos {
+                    mark
+                    default
+                    __typename
+                  }
+                  platforms {
+                    server
+                    browser
+                    mobile
+                    warehouse
+                    __typename
+                  }
+                  integrationCategories: categories
+                  __typename
+                }
+              }
+              ... on Warehouse {
+                name
+                enabled
+                __typename
+                warehouseStatus: status
+                connectedSources {
+                  id
+                  __typename
+                }
+                metadata {
+                  id
+                  name
+                  slug
+                  logos {
+                    mark
+                    default
+                    __typename
+                  }
+                  __typename
+                }
+              }
+              __typename
+            }
+            __typename
+          }
         }
         """
-        if not self.gateway_headers:
-            print("⚠️ Gateway API token not provided, skipping audience destinations fetch")
-            return {}
 
-        url = f"{self.gateway_api_base}/graphql"
+        variables = {"workspaceSlug": self.workspace_slug}
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
 
-        # The correct query from Segment UI HAR file - supports folderId parameter
+    def get_all_sources(self):
+        """Get all sources with destinations via AllSources query"""
+        query = """
+        query AllSources($workspaceSlug: Slug!, $cursor: SourcesCursorInput!, $fetchStatus: Boolean!, $fetchDestinations: Boolean!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            sources: sourcesV2(cursor: $cursor) {
+              data {
+                id
+                name
+                slug
+                status @include(if: $fetchStatus)
+                createdAt
+                flags {
+                  javascript
+                  autoInstrumentation
+                  __typename
+                }
+                labels: labelsV2 {
+                  key
+                  value
+                  __typename
+                }
+                metadata {
+                  id
+                  name
+                  slug
+                  logos {
+                    mark
+                    default
+                    __typename
+                  }
+                  categories
+                  category
+                  isCloudEventSource
+                  __typename
+                }
+                reverseEtlModels {
+                  id
+                  enabled
+                  __typename
+                }
+                integrations @include(if: $fetchDestinations) {
+                  id
+                  name
+                  metadata {
+                    id
+                    logos {
+                      mark
+                      default
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                warehouses @include(if: $fetchDestinations) {
+                  id
+                  name
+                  metadata {
+                    id
+                    logos {
+                      mark
+                      default
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+              cursor {
+                next
+                previous
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "cursor": {"limit": 200},
+            "fetchStatus": True,
+            "fetchDestinations": True
+        }
+
+        data = self._execute_query(query, variables)
+        workspace = data.get('workspace', {})
+        sources_result = workspace.get('sources', {})
+        return sources_result.get('data', [])
+
+    def get_audiences_with_folders(self, space_id):
+        """Get audiences with destinations via AudiencesAndFolders query with folder recursion"""
         query = """
         query AudiencesAndFolders($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!, $folderId: String) {
           workspace(slug: $workspaceSlug) {
@@ -284,6 +292,7 @@ class SegmentAuditor:
                   limit
                   next
                   hasMore
+                  __typename
                 }
                 data {
                   __typename
@@ -305,15 +314,6 @@ class SegmentAuditor:
                       name
                       enabled
                     }
-                    ... on RealtimeAudience {
-                      definition {
-                        type
-                        options
-                      }
-                    }
-                    ... on RetlAudience {
-                      statusV2
-                    }
                   }
                 }
               }
@@ -325,184 +325,218 @@ class SegmentAuditor:
         audience_map = {}
         folders_to_process = []
 
-        try:
-            # STEP 1: Get top-level items (folders and unfiled audiences)
-            print(f"=== Gateway API: Fetching top-level folders and audiences for space {space_id}")
+        # Step 1: Get top-level items
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "spaceId": space_id,
+            "cursor": {"limit": 200}
+        }
 
+        data = self._execute_query(query, variables)
+        print(f"    DEBUG: Raw response keys: {data.keys() if data else 'None'}")
+        workspace = data.get('workspace', {})
+        print(f"    DEBUG: Workspace keys: {workspace.keys() if workspace else 'None'}")
+        space = workspace.get('space', {})
+        print(f"    DEBUG: Space keys: {space.keys() if space else 'None'}")
+        audiences_and_folders = space.get('audiencesAndFolders', {})
+        print(f"    DEBUG: audiencesAndFolders keys: {audiences_and_folders.keys() if audiences_and_folders else 'None'}")
+        items = audiences_and_folders.get('data', [])
+        print(f"    DEBUG: Found {len(items)} items (audiences + folders)")
+
+        for item in items:
+            typename = item.get('__typename', '')
+
+            if typename == 'Folder':
+                folder_id = item.get('folderId')
+                folder_name = item.get('displayName', '')
+                folder_count = item.get('audienceCount', 0)
+                if folder_id and folder_count > 0:
+                    folders_to_process.append({
+                        'id': folder_id,
+                        'name': folder_name,
+                        'count': folder_count
+                    })
+            elif typename in ['Audience', 'RealtimeAudience']:
+                audience_id = item.get('audienceId')
+                if audience_id:
+                    destinations = item.get('destinations', []) or []
+                    audience_map[audience_id] = {
+                        'id': audience_id,
+                        'name': item.get('name', ''),
+                        'key': item.get('key', ''),
+                        'enabled': item.get('enabled', False),
+                        'size': item.get('size', 0),
+                        'collection': item.get('collection', ''),
+                        'status': item.get('status', ''),
+                        'destinations': [d.get('name', '') for d in destinations if d.get('name')],
+                        'destination_count': len(destinations)
+                    }
+
+        # Step 2: Query each folder
+        for folder in folders_to_process:
             variables = {
-                "workspaceSlug": workspace_slug,
+                "workspaceSlug": self.workspace_slug,
                 "spaceId": space_id,
+                "folderId": folder['id'],
                 "cursor": {"limit": 200}
             }
 
-            payload = {
-                "query": query,
-                "variables": variables
-            }
+            try:
+                data = self._execute_query(query, variables)
+                workspace = data.get('workspace', {})
+                space = workspace.get('space', {})
+                audiences_and_folders = space.get('audiencesAndFolders', {})
+                items = audiences_and_folders.get('data', [])
 
-            response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
-
-            if response.status_code == 401:
-                print("⚠️ Gateway API authentication failed (401). Token may be expired.")
-                return {}
-            elif response.status_code != 200:
-                print(f"⚠️ Gateway API returned {response.status_code}.")
-                return {}
-
-            data = response.json()
-
-            if 'errors' in data:
-                print(f"⚠️ Gateway API GraphQL errors:")
-                for error in data['errors']:
-                    print(f"   - {error.get('message', error)}")
-                return {}
-
-            workspace_data = data.get('data', {}).get('workspace')
-            if not workspace_data:
-                print("⚠️ No workspace data in Gateway API response")
-                return {}
-
-            space_data = workspace_data.get('space')
-            if not space_data:
-                print("⚠️ No space data in Gateway API response")
-                return {}
-
-            audiences_and_folders = space_data.get('audiencesAndFolders', {})
-            data_items = audiences_and_folders.get('data', [])
-
-            # Process top-level items
-            for item in data_items:
-                typename = item.get('__typename', '')
-
-                if typename == 'Folder':
-                    # Collect folder for recursive processing
-                    folder_id = item.get('folderId')
-                    folder_name = item.get('displayName', 'Unnamed')
-                    folder_count = item.get('audienceCount', 0)
-                    if folder_id and folder_count > 0:
-                        folders_to_process.append({
-                            'id': folder_id,
-                            'name': folder_name,
-                            'count': folder_count
-                        })
-                        print(f"   📁 Found folder: {folder_name} ({folder_count} audiences)")
-
-                elif typename in ['RealtimeAudience', 'RetlAudience', 'Audience']:
-                    # Process top-level audience
-                    audience_id = item.get('audienceId') or item.get('id')
-                    if audience_id:
-                        destinations = item.get('destinations', []) or []
-                        destination_names = [d.get('name', '') for d in destinations if d.get('name')]
-
-                        definition = item.get('definition', {}) or {}
-                        definition_type = definition.get('type', '')
-                        definition_options = definition.get('options', {})
-
-                        audience_map[audience_id] = {
-                            'destinations': destination_names,
-                            'destination_count': len(destination_names),
-                            'definition_type': definition_type,
-                            'definition_options': str(definition_options) if definition_options else '',
-                            'collection': item.get('collection', ''),
-                            'status': item.get('status', '')
-                        }
-
-            print(f"   ✅ Found {len(folders_to_process)} folders and {len(audience_map)} top-level audiences")
-
-            # STEP 2: Recursively fetch audiences from each folder
-            for folder in folders_to_process:
-                folder_id = folder['id']
-                folder_name = folder['name']
-                expected_count = folder['count']
-
-                print(f"   📂 Fetching audiences from folder: {folder_name} (expecting {expected_count})")
-
-                variables = {
-                    "workspaceSlug": workspace_slug,
-                    "spaceId": space_id,
-                    "folderId": folder_id,
-                    "cursor": {"limit": 200}
-                }
-
-                payload = {
-                    "query": query,
-                    "variables": variables
-                }
-
-                response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
-
-                if response.status_code != 200:
-                    print(f"      ⚠️ Failed to fetch folder {folder_name}: {response.status_code}")
-                    continue
-
-                data = response.json()
-
-                if 'errors' in data:
-                    print(f"      ⚠️ Errors fetching folder {folder_name}")
-                    continue
-
-                workspace_data = data.get('data', {}).get('workspace', {})
-                space_data = workspace_data.get('space', {})
-                audiences_and_folders = space_data.get('audiencesAndFolders', {})
-                data_items = audiences_and_folders.get('data', [])
-
-                folder_audience_count = 0
-                for item in data_items:
-                    typename = item.get('__typename', '')
-
-                    if typename in ['RealtimeAudience', 'RetlAudience', 'Audience']:
-                        audience_id = item.get('audienceId') or item.get('id')
+                for item in items:
+                    if item.get('__typename') in ['Audience', 'RealtimeAudience']:
+                        audience_id = item.get('audienceId')
                         if audience_id:
                             destinations = item.get('destinations', []) or []
-                            destination_names = [d.get('name', '') for d in destinations if d.get('name')]
-
-                            definition = item.get('definition', {}) or {}
-                            definition_type = definition.get('type', '')
-                            definition_options = definition.get('options', {})
-
                             audience_map[audience_id] = {
-                                'destinations': destination_names,
-                                'destination_count': len(destination_names),
-                                'definition_type': definition_type,
-                                'definition_options': str(definition_options) if definition_options else '',
+                                'id': audience_id,
+                                'name': item.get('name', ''),
+                                'key': item.get('key', ''),
+                                'enabled': item.get('enabled', False),
+                                'size': item.get('size', 0),
                                 'collection': item.get('collection', ''),
-                                'status': item.get('status', '')
+                                'status': item.get('status', ''),
+                                'destinations': [d.get('name', '') for d in destinations if d.get('name')],
+                                'destination_count': len(destinations),
+                                'folder': folder['name']
                             }
-                            folder_audience_count += 1
+            except Exception as e:
+                print(f"Error fetching folder {folder['name']}: {e}")
 
-                print(f"      ✅ Collected {folder_audience_count} audiences from {folder_name}")
+        return list(audience_map.values())
 
-                # Add small delay between folder requests
-                time.sleep(0.2)
-
-            print(f"✅ Gateway API: Fetched enhanced data for {len(audience_map)} total audiences")
-            return audience_map
-
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Gateway API request failed: {e}. Continuing without audience destinations.")
-            return {}
-        except Exception as e:
-            print(f"⚠️ Gateway API error: {e}. Continuing without audience destinations.")
-            return {}
-
-    def get_journeys_gateway(self, workspace_slug, space_id):
-        """Fetch journeys via Gateway API (GraphQL)
-
-        Returns a list of journey objects with all relevant data
+    def get_spaces(self):
+        """Get all spaces in workspace"""
+        query = """
+        query GetSpaces($workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            spaces {
+              id
+              slug
+              name
+              __typename
+            }
+            __typename
+          }
+        }
         """
-        if not self.gateway_headers:
-            print("⚠️ Gateway API token not provided, skipping journeys fetch")
-            return []
 
-        url = f"{self.gateway_api_base}/graphql"
+        variables = {"workspaceSlug": self.workspace_slug}
+        data = self._execute_query(query, variables)
+        workspace = data.get('workspace', {})
+        return workspace.get('spaces', [])
 
-        # GraphQL query to fetch journeys and campaigns (using campaignSearch)
+    def get_source_schema(self, source_slug):
+        """Get source event schema"""
+        query = """
+        query getSourceSchemaEvents($workspaceSlug: Slug!, $sourceSlug: String!, $timeframe: Int!, $useFlatClickHouseCounts: Boolean!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            source(slug: $sourceSlug) {
+              id
+              name
+              events(days: $timeframe) @include(if: $useFlatClickHouseCounts) {
+                name
+                type
+                counts @include(if: $useFlatClickHouseCounts) {
+                  allowed
+                  denied
+                  __typename
+                }
+                __typename
+              }
+              schema {
+                id
+                collections {
+                  id
+                  name
+                  events {
+                    id
+                    name
+                    enabled
+                    archived
+                    createdAt
+                    isPlanned
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "sourceSlug": source_slug,
+            "timeframe": 7,
+            "useFlatClickHouseCounts": True
+        }
+
+        data = self._execute_query(query, variables)
+        source = data.get('workspace', {}).get('source', {})
+
+        return {
+            'events': source.get('events', []),
+            'collections': source.get('schema', {}).get('collections', [])
+        }
+
+    def get_audience_definition(self, space_id, audience_id):
+        """Get audience definition"""
+        query = """
+        query GetAudienceDefinition($workspaceSlug: Slug!, $spaceId: String!, $audienceId: String!) {
+          workspace(slug: $workspaceSlug) {
+            space(id: $spaceId) {
+              audience(id: $audienceId) {
+                id
+                name
+                key
+                engine
+                status
+                size
+                createdAt
+                definition {
+                  type
+                  options
+                  __typename
+                }
+                __typename
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "spaceId": space_id,
+            "audienceId": audience_id
+        }
+
+        data = self._execute_query(query, variables)
+        audience = data.get('workspace', {}).get('space', {}).get('audience', {})
+
+        return {
+            'audience': audience,
+            'definition': audience.get('definition', {})
+        }
+
+    def get_journeys(self, space_id):
+        """Get all journeys and campaigns for a space"""
         query = """
         query GetJourneys($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!) {
           workspace(slug: $workspaceSlug) {
-            id
             space(id: $spaceId) {
-              id
               campaignSearch(spaceId: $spaceId, cursor: $cursor) {
                 cursor {
                   hasMore
@@ -578,1141 +612,286 @@ class SegmentAuditor:
 
         all_items = []
         next_cursor = None
-        page_count = 0
 
-        try:
-            # Paginate through all journeys and campaigns
-            while True:
-                page_count += 1
-
-                variables = {
-                    "workspaceSlug": workspace_slug,
-                    "spaceId": space_id,
-                    "cursor": {
-                        "limit": 200,
-                        "next": next_cursor
-                    } if next_cursor else {
-                        "limit": 200
-                    }
+        while True:
+            variables = {
+                "workspaceSlug": self.workspace_slug,
+                "spaceId": space_id,
+                "cursor": {
+                    "limit": 200,
+                    "next": next_cursor
+                } if next_cursor else {
+                    "limit": 200
                 }
+            }
 
-                payload = {
-                    "query": query,
-                    "variables": variables
+            data = self._execute_query(query, variables)
+            campaign_search = data.get('workspace', {}).get('space', {}).get('campaignSearch', {})
+
+            if not campaign_search:
+                break
+
+            data_items = campaign_search.get('data', [])
+            all_items.extend(data_items)
+
+            cursor_info = campaign_search.get('cursor', {})
+            has_more = cursor_info.get('hasMore', False)
+            next_cursor = cursor_info.get('next')
+
+            if not has_more or not next_cursor:
+                break
+
+        return all_items
+
+    def get_identity_resolution_config(self, space_id):
+        """Get identity resolution configuration for a space"""
+        query = """
+        query IdentityResolutionConfig($workspaceSlug: Slug!, $spaceId: String!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            space(id: $spaceId) {
+              id
+              identityResolutionConfig {
+                idTypePriority
+                externalIdConfigs {
+                  id
+                  idType
+                  limit
+                  mergedLimit
+                  mergedLimitTimeRange
+                  enforceUnique
+                  seen
+                  __typename
                 }
-
-                response = requests.post(url, headers=self.gateway_headers, json=payload, timeout=30, verify=self.verify)
-
-                if response.status_code == 401:
-                    print("⚠️ Gateway API authentication failed (401). Token may be expired. Continuing without journeys.")
-                    return []
-                elif response.status_code != 200:
-                    print(f"⚠️ Gateway API returned {response.status_code} for journeys.")
-                    try:
-                        error_data = response.json()
-                        errors = error_data.get('errors', [])
-                        if errors and any('GRAPHQL_VALIDATION_FAILED' in str(e) for e in errors):
-                            print(f"   Note: This workspace may not have Engage (Journeys) feature enabled.")
-                        else:
-                            print(f"   Error: {error_data}")
-                    except:
-                        print(f"   Response: {response.text[:500]}")
-                    return []
-
-                data = response.json()
-
-                # Check for GraphQL errors
-                if 'errors' in data:
-                    print(f"⚠️ Gateway API GraphQL errors:")
-                    for error in data['errors']:
-                        print(f"   - {error.get('message', error)}")
-                    return []
-
-                # Parse response
-                workspace_data = data.get('data', {}).get('workspace')
-                if not workspace_data:
-                    print("⚠️ No workspace data in Gateway API response")
-                    return []
-
-                space_data = workspace_data.get('space')
-                if not space_data:
-                    print("⚠️ No space data in Gateway API response")
-                    return []
-
-                campaign_search = space_data.get('campaignSearch', {})
-                data_items = campaign_search.get('data', [])
-                cursor_info = campaign_search.get('cursor', {})
-
-                # Add items to the list
-                all_items.extend(data_items)
-
-                # Check if there are more pages
-                has_more = cursor_info.get('hasMore', False)
-                next_cursor = cursor_info.get('next')
-
-                if not has_more or not next_cursor:
-                    break
-
-                # Add small delay between requests
-                time.sleep(0.3)
-
-            # Return all items (Journeys and Campaigns)
-            journeys = [item for item in all_items if item.get('__typename') == 'Journey']
-            campaigns = [item for item in all_items if item.get('__typename') == 'Campaign']
-
-            print(f"✅ Gateway API: Fetched {len(journeys)} journeys, {len(campaigns)} campaigns across {page_count} pages")
-            return all_items  # Return both journeys and campaigns
-
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Gateway API request failed: {e}. Continuing without journeys.")
-            return []
-        except Exception as e:
-            print(f"⚠️ Gateway API error: {e}. Continuing without journeys.")
-            return []
-
-    def get_computed_traits(self):
-        """Get all computed traits"""
-        if not self.space_id:
-            return []
-        url = f"{self.v1_base}/spaces/{self.space_id}/computed-traits"
-        return self._paginate(url, 'data')
-
-    def get_reverse_etl_models(self):
-        """Get all Reverse ETL models"""
-        url = f"{self.v1_base}/reverse-etl-models"
-        return self._paginate(url, 'data')
-
-    def get_warehouses(self):
-        """Get all data warehouse connections"""
-        url = f"{self.v1_base}/warehouses"
-        return self._paginate(url, 'data')
-
-    def get_warehouse_connection_state(self, warehouse_id):
-        """Get connection state for a specific warehouse"""
-        url = f"{self.v1_base}/warehouses/{warehouse_id}/connection-state"
-        try:
-            response = requests.get(url, headers=self.headers, verify=self.verify, timeout=30)
-            if response.status_code == 200:
-                return response.json()
-            return None
-        except Exception as e:
-            print(f"Warning: Could not fetch connection state for warehouse {warehouse_id}: {e}")
-            return None
-
-    def get_warehouse_sync_reports(self, warehouse_id, limit=500):
-        """Get sync reports for a warehouse"""
-        url = f"{self.v1_base}/warehouses/{warehouse_id}/syncs"
-        try:
-            response = requests.get(
-                url,
-                headers=self.headers,
-                verify=self.verify,
-                timeout=30,
-                params={'pagination.count': limit}
-            )
-            if response.status_code == 200:
-                data = response.json()
-                reports = data.get('data', {}).get('reports', [])
-                return reports
-            return []
-        except Exception as e:
-            print(f"Warning: Could not fetch sync reports for warehouse {warehouse_id}: {e}")
-            return []
-
-    def get_event_volumes(self, start_time, end_time, granularity='DAY', group_by=None):
-        """Get event volumes for workspace"""
-        url = f"{self.v1_base}/events/volume"
-
-        params = {
-            'granularity': granularity,
-            'startTime': start_time,
-            'endTime': end_time
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
         }
-
-        # Add groupBy if specified (e.g., ['eventType', 'sourceId'])
-        if group_by:
-            for i, group in enumerate(group_by):
-                params[f'groupBy.{i}'] = group
-
-        try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=30, verify=self.verify)
-            if response.status_code != 200:
-                raise Exception(f"API Error: {response.status_code} - {response.text}")
-            return response.json()
-        except Exception as e:
-            raise Exception(f"Error fetching event volumes: {str(e)}")
-
-    def extract_events_and_traits(self, definition):
-        """Extract event and trait names from audience definition"""
-        import re
-        events = set()
-        traits = set()
-
-        # Parse query string if it exists
-        if isinstance(definition, dict) and 'query' in definition:
-            query = definition.get('query', '')
-
-            # Extract events: event('Event Name')
-            event_matches = re.findall(r"event\(['\"]([^'\"]+)['\"]\)", query)
-            events.update(event_matches)
-
-            # Extract traits: trait('trait_name')
-            trait_matches = re.findall(r"trait\(['\"]([^'\"]+)['\"]\)", query)
-            traits.update(trait_matches)
-
-        # Also traverse the definition object for structured format
-        def traverse(obj):
-            if isinstance(obj, dict):
-                if 'event' in obj:
-                    event_obj = obj['event']
-                    if isinstance(event_obj, dict) and 'name' in event_obj:
-                        events.add(event_obj['name'])
-                    elif isinstance(event_obj, str):
-                        events.add(event_obj)
-
-                if 'trait' in obj:
-                    trait_obj = obj['trait']
-                    if isinstance(trait_obj, dict) and 'name' in trait_obj:
-                        traits.add(trait_obj['name'])
-                    elif isinstance(trait_obj, str):
-                        traits.add(trait_obj)
-
-                for value in obj.values():
-                    traverse(value)
-            elif isinstance(obj, list):
-                for item in obj:
-                    traverse(item)
-
-        traverse(definition)
-        return events, traits
-
-    def _graphql_query(self, query, variables=None):
-        """Execute a GraphQL query against Segment's API"""
-        url = f"{self.platform_base}/graphql"
-
-        payload = {
-            'query': query
-        }
-
-        if variables:
-            payload['variables'] = variables
-
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(
-                    url,
-                    headers=self.headers,
-                    json=payload,
-                    timeout=30,
-                    verify=self.verify
-                )
-
-                if response.status_code != 200:
-                    raise Exception(f"GraphQL API Error: {response.status_code} - {response.text}")
-
-                data = response.json()
-
-                # Check for GraphQL errors
-                if 'errors' in data:
-                    errors = data['errors']
-                    error_messages = ', '.join([e.get('message', str(e)) for e in errors])
-                    raise Exception(f"GraphQL Error: {error_messages}")
-
-                return data.get('data', {})
-
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    ssl_hint = " Try enabling 'Skip SSL Verification' checkbox if you're behind a VPN." if "SSL" in str(e) or "certificate" in str(e).lower() else ""
-                    raise Exception(f"Network Error: Unable to connect to Segment GraphQL API after {max_retries} attempts.{ssl_hint} Error: {str(e)}")
-
-    def get_delivery_metrics(self, source_id, destination_id, start_time=None, end_time=None, granularity='HOUR'):
-        """Get delivery metrics for a specific source-destination pair using REST API
-
-        Args:
-            source_id: The source ID
-            destination_id: The destination ID (not metadata ID)
-            start_time: ISO format datetime string (defaults to 24 hours ago)
-            end_time: ISO format datetime string (defaults to now)
-            granularity: MINUTE, HOUR, or DAY (defaults to HOUR for 24hr window)
         """
 
-        # Default to last 24 hours if not specified
-        if not start_time or not end_time:
-            now = datetime.now()
-            end_time = now.isoformat() + 'Z'
-            start_time = (now - timedelta(hours=24)).isoformat() + 'Z'
-
-        # REST API endpoint: GET /destinations/{destinationId}/delivery-metrics
-        url = f"{self.v1_base}/destinations/{destination_id}/delivery-metrics"
-
-        params = {
-            'sourceId': source_id,
-            'startTime': start_time,
-            'endTime': end_time,
-            'granularity': granularity
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "spaceId": space_id
         }
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(
-                    url,
-                    headers=self.headers,
-                    params=params,
-                    timeout=30,
-                    verify=self.verify
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    # Return the deliveryMetricsSummary which contains sourceId, destinationId, and metrics array
-                    return data.get('data', {}).get('deliveryMetricsSummary', {})
-                elif response.status_code == 404:
-                    # Destination not found or no metrics available
-                    return None
-                elif response.status_code == 403:
-                    raise Exception(f"API Error: 403 - Not authorized to access delivery metrics")
-                else:
-                    raise Exception(f"API Error: {response.status_code} - {response.text}")
-
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.SSLError) as e:
-                if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    ssl_hint = " Try enabling 'Skip SSL Verification' checkbox if you're behind a VPN." if "SSL" in str(e) or "certificate" in str(e).lower() else ""
-                    raise Exception(f"Network Error: Unable to connect to Segment API after {max_retries} attempts.{ssl_hint} Error: {str(e)}")
-
-        return None
-
-def infer_computed_trait_type(definition):
-    """Infer the type of computed trait from its definition"""
-    if not isinstance(definition, dict):
-        return 'Unknown'
-
-    query = definition.get('query', '').lower()
-
-    # Check for aggregation types
-    if '.count()' in query:
-        return 'Event Count'
-    elif '.sum(' in query:
-        return 'Sum Aggregation'
-    elif '.avg(' in query or '.average(' in query:
-        return 'Average Aggregation'
-    elif '.min(' in query:
-        return 'Minimum Value'
-    elif '.max(' in query:
-        return 'Maximum Value'
-    elif 'most_frequent' in query or '.most(' in query or '.mode(' in query or 'mode(' in query:
-        return 'Most Frequent'
-    elif 'least_frequent' in query or '.least(' in query:
-        return 'Least Frequent'
-    elif 'first(' in query or '.first' in query:
-        return 'First Occurrence'
-    elif 'last(' in query or '.last' in query:
-        return 'Last Occurrence'
-    elif '.unique.count()' in query or 'unique_count' in query:
-        return 'Unique Count'
-    elif '.unique' in query or 'unique()' in query or 'distinct' in query:
-        return 'Unique List'
-    elif 'trait(' in query and 'event(' not in query:
-        return 'Trait Transformation'
-    else:
-        return 'Custom'
-
-def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
-    """Run the audit in background thread"""
-    global audit_status
-
-    try:
-        # Log token for debugging
-        token_prefix = api_token[:30] if len(api_token) > 30 else api_token[:20]
-        token_suffix = api_token[-10:] if len(api_token) > 40 else ""
-        print(f"=== AUDIT STARTING WITH TOKEN: {token_prefix}...{token_suffix}", flush=True)
-        print(f"=== TOKEN LENGTH: {len(api_token)}", flush=True)
-
-        if gateway_token:
-            print(f"=== GATEWAY API TOKEN PROVIDED: {gateway_token[:30]}...{gateway_token[-10:]}", flush=True)
-        else:
-            print("=== GATEWAY API TOKEN NOT PROVIDED (audience destinations will not be fetched)", flush=True)
-
-        audit_status = {
-            'running': True,
-            'progress': 3,
-            'message': 'Fetching workspace information...',
-            'complete': False,
-            'error': None
-        }
-
-        # Clear old data files to ensure fresh start
-        old_files = [
-            'segment_audiences_audit.csv',
-            'segment_computed_traits_audit.csv',
-            'segment_sources_audit.csv',
-            'segment_retl_models.json',
-            'segment_warehouses.json',
-            'event_coverage.csv',
-            'trait_coverage.csv',
-            'segment_event_volumes.json'
-        ]
-        for filename in old_files:
-            file_path = DATA_DIR / filename
-            if file_path.exists():
-                file_path.unlink()
-
-        # Fetch workspace info from token
-        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl_verify, gateway_token=gateway_token)
-        workspace = auditor.get_workspace()
-
-        workspace_id = workspace.get('id')
-        workspace_slug = workspace.get('slug', workspace.get('name'))
-        workspace_name = workspace.get('display_name', workspace.get('name', workspace_slug))
-
-        # Update auditor with workspace_slug for Gateway API calls
-        auditor.workspace_slug = workspace_slug
-
-        audit_status['progress'] = 5
-        audit_status['message'] = f'Found workspace: {workspace_name}. Fetching spaces...'
-
-        # Fetch all spaces automatically
-        spaces = auditor.get_spaces()
-        space_list = [space.get('id') for space in spaces if space.get('id')]
-        print(f"=== FETCHED {len(spaces)} SPACES FROM API", flush=True)
-        print(f"=== SPACE IDS: {space_list}", flush=True)
-
-        # Create space mapping (ID -> Name) for better readability
-        space_mapping = {space.get('id'): space.get('name', space.get('id')) for space in spaces if space.get('id')}
-
-        # Create space slug mapping (ID -> Slug) for URLs
-        space_slug_mapping = {space.get('id'): space.get('slug', space.get('name', space.get('id'))) for space in spaces if space.get('id')}
-
-        if not space_list:
-            raise Exception("No spaces found in workspace. Make sure your workspace has the Spaces feature enabled.")
-
-        audit_status['progress'] = 10
-        audit_status['message'] = f'Found {len(space_list)} space(s). Connecting to Segment API...'
-
-        all_audiences = []
-        all_computed_traits = []
-        all_journeys = []
-        computed_traits_access_error = None
-        all_events = Counter()
-        all_traits = Counter()
-        sources_data = []
-        retl_models_data = []
-        warehouses_data = []
-
-        # Collect sources (always - API token is workspace-scoped)
-        audit_status['message'] = 'Collecting source data...'
-        audit_status['progress'] = 20
-
-        # Re-use the existing auditor that already has gateway_token
-        # auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
-        auditor.workspace_id = workspace_id  # Update with workspace_id for sources collection
-        sources = auditor.get_sources()
-
-        # Collect Reverse ETL models
-        audit_status['message'] = 'Collecting Reverse ETL models...'
         try:
-            retl_models = auditor.get_reverse_etl_models()
-            for model in retl_models:
-                retl_models_data.append({
-                    'ID': model.get('id', ''),
-                    'Name': model.get('name', ''),
-                    'Source ID': model.get('sourceId', ''),
-                    'Enabled': model.get('enabled', False),
-                    'Query': model.get('query', ''),
-                    'Query Identifier Column': model.get('queryIdentifierColumn', '')
-                })
+            data = self._execute_query(query, variables)
+            space_data = data.get('workspace', {}).get('space', {})
+
+            if not space_data:
+                print(f"    -> No space data returned for {space_id}")
+                return []
+
+            config = space_data.get('identityResolutionConfig', {})
+
+            if not config:
+                print(f"    -> No identityResolutionConfig found")
+                return []
+
+            # Get the priority order array
+            id_type_priority = config.get('idTypePriority', [])
+            configs = config.get('externalIdConfigs', [])
+
+            # Add priority to each config based on its position in idTypePriority array
+            for conf in configs:
+                id_type = conf.get('idType', '')
+                if id_type in id_type_priority:
+                    conf['priority'] = id_type_priority.index(id_type) + 1  # 1-based priority
+                else:
+                    conf['priority'] = None
+
+            # Sort by priority
+            configs.sort(key=lambda x: x.get('priority') or 999)
+
+            print(f"    -> Found {len(configs)} identity configs")
+            if configs:
+                print(f"    -> Full config data:")
+                for conf in configs:
+                    print(f"       {conf.get('idType')}: priority={conf.get('priority')}, limit={conf.get('limit')}, mergedLimit={conf.get('mergedLimit')}, mergedLimitTimeRange={conf.get('mergedLimitTimeRange')}")
+            return configs
         except Exception as e:
-            # If RETL models API fails, continue without them
-            print(f"Warning: Could not fetch Reverse ETL models: {e}")
+            print(f"    -> Exception in get_identity_resolution_config: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
-        # Collect Warehouses
-        audit_status['message'] = 'Collecting warehouse connections...'
-        try:
-            warehouses = auditor.get_warehouses()
-            # Fetch connection state and selective syncs for each warehouse
-            for idx, warehouse in enumerate(warehouses):
-                warehouse_id = warehouse.get('id')
-                if warehouse_id:
-                    audit_status['message'] = f'Checking warehouse connection {idx+1}/{len(warehouses)}...'
-
-                    # Get connection state
-                    connection_state = auditor.get_warehouse_connection_state(warehouse_id)
-                    if connection_state:
-                        warehouse['connectionState'] = connection_state
-
-                    # Get selective syncs
-                    audit_status['message'] = f'Collecting selective syncs for warehouse {idx+1}/{len(warehouses)}...'
-                    try:
-                        selective_syncs = auditor.get_warehouse_sync_reports(warehouse_id)
-                        warehouse['selectiveSyncs'] = selective_syncs
-
-                        # Count unique sources
-                        unique_sources = set(sync.get('sourceId') for sync in selective_syncs if sync.get('sourceId'))
-                        print(f"Found {len(selective_syncs)} sync reports across {len(unique_sources)} sources for warehouse {warehouse.get('settings', {}).get('name', warehouse_id)}")
-                    except Exception as sync_error:
-                        print(f"Warning: Could not fetch selective syncs for warehouse {warehouse_id}: {sync_error}")
-                        warehouse['selectiveSyncs'] = []
-
-            warehouses_data = warehouses
-        except Exception as e:
-            # If warehouses API fails, continue without them
-            print(f"Warning: Could not fetch warehouses: {e}")
-
-        # Map Personas sources to spaces by matching slugs
-        # Personas slugs follow pattern: personas_{space-slug} or personas_{space-slug}{number}
-        # Note: Personas slugs use underscores, space slugs use hyphens
-        def match_personas_to_space(personas_slug, space_slug_mapping):
-            """Match a Personas source slug to its space"""
-            if not personas_slug.startswith('personas_'):
-                return None
-
-            import re
-
-            # Remove 'personas_' prefix
-            stripped = personas_slug[9:]  # len('personas_') = 9
-
-            # Try exact match first (rare, but possible)
-            for space_id, space_slug in space_slug_mapping.items():
-                if stripped == space_slug:
-                    return space_id
-
-            # Try matching with trailing number removed and underscores replaced with hyphens
-            # e.g., personas_jeremy_test2 -> jeremy_test2 -> jeremy_test -> jeremy-test
-            stripped_no_number = re.sub(r'\d+$', '', stripped)
-            stripped_normalized = stripped_no_number.replace('_', '-')
-
-            for space_id, space_slug in space_slug_mapping.items():
-                if stripped_normalized == space_slug:
-                    return space_id
-
-            # Also try without removing numbers (e.g., personas_demo-space directly)
-            stripped_normalized_with_number = stripped.replace('_', '-')
-            for space_id, space_slug in space_slug_mapping.items():
-                if stripped_normalized_with_number == space_slug:
-                    return space_id
-
-            return None
-
-        for idx, source in enumerate(sources):
-            metadata = source.get('metadata', {})
-            source_type = metadata.get('name', 'Unknown')
-
-            # Mark Personas/Engage sources (don't skip, just flag them)
-            is_engage = source_type == 'Personas'
-
-            # Map Personas source to its space
-            personas_space_id = None
-            personas_space_name = None
-            if is_engage:
-                source_slug = source.get('slug', '')
-                personas_space_id = match_personas_to_space(source_slug, space_slug_mapping)
-                if personas_space_id:
-                    personas_space_name = space_mapping.get(personas_space_id, '')
-
-            categories = metadata.get('categories', [])
-            # Use first category as the type (e.g., "Website" instead of "Javascript")
-            category_type = categories[0] if categories and len(categories) > 0 else source_type
-            write_keys = source.get('writeKeys', [])
-            labels = source.get('labels', [])
-
-            # Get source logo URL (only if it's a valid URL)
-            source_logo = metadata.get('logos', {}).get('default', '')
-            if source_logo and not source_logo.startswith('http'):
-                source_logo = ''  # Clear non-URL values
-
-            # Get connected destinations for this source
-            audit_status['message'] = f'Collecting destinations for source {idx+1}/{len(sources)}...'
-            destinations_list = []
-            destination_logos = {}
-            destination_objects = []  # Keep full destination objects for metrics collection
-            try:
-                source_id = source.get('id')
-                destinations = auditor.get_source_destinations(source_id)
-
-                for dest in destinations:
-                    dest_name = dest.get('name', '')
-                    dest_metadata = dest.get('metadata', {})
-                    dest_slug = dest_metadata.get('slug', '')
-                    dest_logo = dest_metadata.get('logos', {}).get('default', '')
-                    dest_id = dest.get('id', '')
-
-                    if dest_slug:
-                        destinations_list.append(dest_slug)
-                        if dest_logo:
-                            destination_logos[dest_slug] = dest_logo
-
-                    # Store full destination object for metrics collection
-                    if dest_id:
-                        destination_objects.append({
-                            'id': dest_id,
-                            'name': dest_name,
-                            'slug': dest_slug,
-                            'metadataId': dest_metadata.get('id', '')
-                        })
-            except Exception as e:
-                # If fetching destinations fails, continue with empty list
-                pass
-
-            # Ensure all items are strings
-            categories_str = ', '.join(str(c) for c in categories) if categories else 'Unknown'
-            write_keys_str = ', '.join(str(w) for w in write_keys) if write_keys else ''
-            # Labels might be dicts with 'key' field, or strings
-            labels_str = ', '.join(
-                label.get('key', str(label)) if isinstance(label, dict) else str(label)
-                for label in labels
-            ) if labels else ''
-            destinations_str = ', '.join(destinations_list) if destinations_list else ''
-
-            sources_data.append({
-                'Source ID': source.get('id'),
-                'Source Name': source.get('name'),
-                'Slug': source.get('slug'),
-                'Enabled': source.get('enabled', False),
-                'Type': category_type,
-                'Category': categories_str,
-                'Write Keys': write_keys_str,
-                'Labels': labels_str,
-                'Connected Destinations': destinations_str,
-                'Destination Count': len(destinations_list),
-                'Logo URL': source_logo,
-                'Is Engage': is_engage,
-                'Space': personas_space_name or '',
-                'Space ID': personas_space_id or '',
-                '_destination_objects': destination_objects  # Internal field for metrics collection
-            })
-
-        # Collect delivery metrics for source-destination pairs (non-engage, non-warehouse sources only)
-        # Note: Skip warehouse sources (RETL) since they're harder to visualize without model context
-        audit_status['message'] = 'Collecting delivery metrics for connected sources...'
-        audit_status['progress'] = 25
-
-        delivery_metrics_data = []
-
-        # Count total source-destination pairs (excluding engage and warehouse sources)
-        total_pairs = sum(
-            len(src.get('_destination_objects', []))
-            for src in sources_data
-            if src.get('_destination_objects')
-            and not src.get('Is Engage')
-            and src.get('Type') != 'Warehouse'  # Skip RETL/warehouse sources
-        )
-
-        if total_pairs > 0:
-            print(f"=== Collecting delivery metrics for {total_pairs} connection source-destination pairs (excluding RETL/warehouses)...")
-
-            # Get time range for metrics (last 7 days)
-            from datetime import timedelta
-            now = datetime.now()
-            end_time = now.isoformat() + 'Z'
-            start_time = (now - timedelta(days=7)).isoformat() + 'Z'
-
-            pair_count = 0
-            graphql_access_denied = False
-
-            for src in sources_data:
-                # Skip engage sources and warehouse sources (RETL) - only collect metrics for direct connections
-                if src.get('Is Engage') or src.get('Type') == 'Warehouse':
-                    continue
-
-                source_id = src.get('Source ID')
-                source_name = src.get('Source Name', '')
-                source_slug = src.get('Slug', '')
-                source_type = src.get('Type', '')
-                destination_objs = src.get('_destination_objects', [])
-
-                if not destination_objs:
-                    continue
-
-                for dest in destination_objs:
-                    # If we've already detected API access is denied, skip remaining calls
-                    if graphql_access_denied:
-                        break
-
-                    pair_count += 1
-                    dest_name = dest.get('name', '')
-                    dest_id = dest.get('id', '')
-
-                    # Skip if we don't have the destination ID
-                    if not dest_id:
-                        print(f"Warning: No destination ID for {dest_name}, skipping metrics")
-                        continue
-
-                    audit_status['message'] = f'Collecting metrics for {source_name} → {dest_name} ({pair_count}/{total_pairs})...'
-                    audit_status['progress'] = 25 + (5 * pair_count // total_pairs)
-
-                    try:
-                        metrics = auditor.get_delivery_metrics(
-                            source_id=source_id,
-                            destination_id=dest_id,
-                            start_time=start_time,
-                            end_time=end_time,
-                            granularity='DAY'  # Daily granularity for 7-day window
-                        )
-
-                        if metrics and metrics.get('metrics'):
-                            delivery_metrics_data.append({
-                                'source_id': source_id,
-                                'source_name': source_name,
-                                'source_slug': source_slug,
-                                'source_type': source_type,
-                                'destination_id': dest_id,
-                                'destination_name': dest_name,
-                                'destination_slug': dest.get('slug', ''),
-                                'metrics': metrics.get('metrics', []),  # Extract the metrics array
-                                'daily_metrics': metrics.get('deliveryMetrics', []),  # Daily breakdown
-                                'collection_time': now.isoformat(),
-                                'time_range': {
-                                    'start': start_time,
-                                    'end': end_time
-                                }
-                            })
-                            print(f"✓ Collected 7-day metrics for {source_name} → {dest_name}")
-                        elif metrics:
-                            print(f"⚠️ No metrics data returned for {source_name} → {dest_name}")
-                    except Exception as e:
-                        error_str = str(e)
-                        # Check if this is a 403/forbidden error
-                        if '403' in error_str or 'forbidden' in error_str.lower() or 'Not authorized' in error_str:
-                            print(f"⚠️ API access denied (403). Your API token does not have permission to access delivery metrics.")
-                            print(f"   Skipping delivery metrics collection for remaining source-destination pairs.")
-                            graphql_access_denied = True
-                            break
-                        else:
-                            print(f"Warning: Could not fetch metrics for {source_name} → {dest_name}: {e}")
-                            continue
-
-                # Break outer loop if access was denied
-                if graphql_access_denied:
-                    break
-
-            if graphql_access_denied:
-                print(f"=== Delivery metrics collection skipped due to insufficient API permissions")
-            elif len(delivery_metrics_data) > 0:
-                print(f"=== Collected 7-day delivery metrics for {len(delivery_metrics_data)} source-destination pairs")
-            else:
-                print(f"=== No delivery metrics collected")
-        else:
-            print("=== No connected sources found (excluding Engage/RETL sources), skipping delivery metrics collection")
-
-        # Collect audiences from each space
-        # Note: List Spaces API returns all spaces including deleted ones
-        # We'll filter out empty spaces (deleted spaces have no audiences)
-        total_spaces = len(space_list)
-        spaces_with_audiences = []
-        print(f"=== DEBUG: Total spaces to process: {total_spaces}, space_list: {space_list}", flush=True)
-
-        # Pre-fetch Gateway API data for all spaces (if token provided)
-        gateway_data_by_space = {}
-        if gateway_token and workspace_slug:
-            audit_status['message'] = f'Fetching audience destinations and journeys via Gateway API...'
-            print(f"=== Fetching audience destinations and journeys via Gateway API for {total_spaces} spaces", flush=True)
-            for space_id in space_list:
-                try:
-                    gateway_audiences = auditor.get_audiences_gateway(workspace_slug, space_id)
-                    if gateway_audiences:
-                        gateway_data_by_space[space_id] = gateway_audiences
-                        print(f"=== Gateway API: Got {len(gateway_audiences)} audiences for space {space_id}", flush=True)
-                except Exception as e:
-                    print(f"⚠️ Gateway API failed for space {space_id}: {e}", flush=True)
-
-                try:
-                    journeys = auditor.get_journeys_gateway(workspace_slug, space_id)
-                    if journeys:
-                        # Add space_id to each journey for reference
-                        for journey in journeys:
-                            journey['space_id'] = space_id
-                        all_journeys.extend(journeys)
-                        print(f"=== Gateway API: Got {len(journeys)} journeys for space {space_id}", flush=True)
-                except Exception as e:
-                    print(f"⚠️ Gateway API journey fetch failed for space {space_id}: {e}", flush=True)
-
-        for idx, space_id in enumerate(space_list):
-            audit_status['message'] = f'Collecting audiences from space {idx+1}/{total_spaces}...'
-            audit_status['progress'] = 30 + (40 * idx // total_spaces)
-            print(f"=== DEBUG: Processing space {idx+1}/{total_spaces}: {space_id}", flush=True)
-
-            auditor = SegmentAuditor(api_token, space_id=space_id, skip_ssl_verify=skip_ssl_verify, gateway_token=gateway_token, workspace_slug=workspace_slug)
-            audiences = auditor.get_audiences()
-
-            # Get Gateway API data for this space
-            gateway_audiences = gateway_data_by_space.get(space_id, {})
-
-            # Track non-empty spaces
-            if len(audiences) > 0:
-                spaces_with_audiences.append(space_id)
-            else:
-                print(f"=== DEBUG: Space {space_id} has no audiences (possibly deleted)", flush=True)
-
-            for aud_idx, audience in enumerate(audiences):
-                # Extract size.count from size object
-                size_obj = audience.get('size', {})
-                size_count = size_obj.get('count', 0) if isinstance(size_obj, dict) else size_obj
-
-                # Get definition and extract query
-                definition = audience.get('definition', {})
-                definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
-
-                # Get audience ID for Gateway API lookup
-                audience_id = audience.get('id', '')
-
-                # Merge Gateway API data (if available)
-                gateway_info = gateway_audiences.get(audience_id, {})
-                destination_names = gateway_info.get('destinations', [])
-                destination_count = gateway_info.get('destination_count', 0)
-                definition_type = gateway_info.get('definition_type', '')
-                definition_options = gateway_info.get('definition_options', '')
-                collection_type = gateway_info.get('collection', '')
-                status = gateway_info.get('status', '')
-
-                audience_data = {
-                    'ID': audience_id,
-                    'Enabled': audience.get('enabled', False),
-                    'Name': audience.get('name'),
-                    'Key': audience.get('key'),
-                    'Size': size_count,
-                    'Description': audience.get('description', ''),
-                    'Definition Query': definition_query,
-                    'Connected Destinations': ', '.join(destination_names) if destination_names else '',
-                    'Destination Count': destination_count,
-                    'Definition Type': definition_type,
-                    'Definition Options': definition_options,
-                    'Collection': collection_type,
-                    'Status': status,
-                    'Created By': audience.get('createdBy', ''),
-                    'Created At': audience.get('createdAt', ''),
-                    'Updated At': audience.get('updatedAt', ''),
-                    'Space ID': space_id
+    def get_personas_data(self):
+        """Get workspace-level personas/profiles entitlements"""
+        query = """
+        query PersonasData($workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            entitiesEnabled: gateOpen(family: "releases", name: "entities")
+            flags {
+              canSeePersonas
+              __typename
+            }
+            spaces {
+              id
+              slug
+              __typename
+            }
+            billing {
+              isFreeAccount
+              __typename
+            }
+            entitlements {
+              quotas {
+                connections {
+                  linkedEventsEntities
+                  linkedEventsRows
+                  __typename
                 }
-                all_audiences.append(audience_data)
+                __typename
+              }
+              features {
+                personas
+                profiles
+                linkedAudiences
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
 
-                # Extract events and traits
-                events, traits = auditor.extract_events_and_traits(definition)
-
-                for event in events:
-                    all_events[event] += 1
-                for trait in traits:
-                    all_traits[trait] += 1
-
-            # Collect computed traits from this space
-            try:
-                computed_traits = auditor.get_computed_traits()
-                for ct in computed_traits:
-                    # Extract the definition to infer type
-                    definition = ct.get('definition', {})
-                    definition_query = definition.get('query', '') if isinstance(definition, dict) else ''
-
-                    # Infer computed trait type from definition
-                    ct_type = infer_computed_trait_type(definition)
-
-                    computed_trait_data = {
-                        'ID': ct.get('id', ''),
-                        'Enabled': ct.get('enabled', False),
-                        'Name': ct.get('name', ''),
-                        'Key': ct.get('key', ''),
-                        'Type': ct_type,
-                        'Definition': definition_query,
-                        'Created At': ct.get('createdAt', ''),
-                        'Updated At': ct.get('updatedAt', ''),
-                        'Space ID': space_id
-                    }
-                    all_computed_traits.append(computed_trait_data)
-            except Exception as e:
-                error_str = str(e)
-                print(f"Warning: Could not fetch computed traits for space {space_id}: {e}")
-
-                # Check if it's a 403 forbidden error (private beta access needed)
-                if '403' in error_str or 'forbidden' in error_str.lower() or 'Not authorized' in error_str:
-                    computed_traits_access_error = 'no_access'
-
-        # Save data files
-        audit_status['message'] = 'Saving audit data...'
-        audit_status['progress'] = 80
-
-        # Filter out empty spaces (deleted spaces have no audiences)
-        filtered_space_mapping = {sid: space_mapping[sid] for sid in spaces_with_audiences if sid in space_mapping}
-        filtered_space_slug_mapping = {sid: space_slug_mapping[sid] for sid in spaces_with_audiences if sid in space_slug_mapping}
-
-        print(f"=== DEBUG: Filtered spaces from {len(space_list)} to {len(spaces_with_audiences)} active spaces", flush=True)
-
-        # Save summary
-        # Use workspace display name (already formatted nicely from API)
-        display_name = workspace_name
-
-        # Store workspace info in session for dashboard views
-        # Note: session updates must happen in request context, so we'll update via global
-        audit_status['workspace_info'] = {
-            'customer_name': display_name,
-            'workspace_slug': workspace_slug,
-            'workspace_id': workspace_id
+        variables = {
+            "workspaceSlug": self.workspace_slug
         }
 
-        summary = {
-            'audit_date': datetime.now().isoformat(),
-            'customer_name': display_name,
-            'workspace_id': workspace_id,
-            'workspace_slug': workspace_slug,
-            'space_ids': spaces_with_audiences,  # Only active spaces
-            'space_mapping': filtered_space_mapping,  # ID -> Name mapping
-            'space_slug_mapping': filtered_space_slug_mapping,  # ID -> Slug mapping
-            'total_spaces_from_api': len(space_list),  # Track original count for reference
-            'empty_spaces_filtered': len(space_list) - len(spaces_with_audiences),  # Track how many were filtered
-            'sources': {
-                'total': len(sources_data),
-                'enabled': len([s for s in sources_data if s['Enabled']]),
-                'disabled': len([s for s in sources_data if not s['Enabled']])
-            },
-            'audiences': {
-                'total': len(all_audiences),
-                'enabled': len([a for a in all_audiences if a['Enabled']]),
-                'disabled': len([a for a in all_audiences if not a['Enabled']]),
-                'empty': len([a for a in all_audiences if a['Size'] == 0])
-            },
-            'computed_traits': {
-                'total': len(all_computed_traits),
-                'enabled': len([ct for ct in all_computed_traits if ct['Enabled']]),
-                'disabled': len([ct for ct in all_computed_traits if not ct['Enabled']]),
-                'access_error': computed_traits_access_error
-            },
-            'coverage': {
-                'unique_events_referenced': len(all_events),
-                'unique_traits_referenced': len(all_traits),
-                'top_events': dict(all_events.most_common(10)),
-                'top_traits': dict(all_traits.most_common(10))
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
+    def get_profiles_actions(self, space_id, action_type='VIOLATION', days_back=7):
+        """Get profile actions (violations/errors) for a space"""
+        query = """
+        query personasProfilesActions($workspaceSlug: Slug!, $spaceId: String!, $filter: ProfilesActionsFilter!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            space(id: $spaceId) {
+              id
+              profilesActions(filter: $filter) {
+                name
+                messageId
+                time
+                type
+                sourceId
+                messageSentAt
+                messageReceivedAt
+                incomingEventType
+                displayName
+                messageSegmentId
+                associatedProfileIds
+                collection
+                externalIds {
+                  type
+                  values
+                  __typename
+                }
+                externalIdTypeCausingViolation
+                droppedLink
+                limitExceededTraits {
+                  key
+                  value
+                  __typename
+                }
+                limitExceededEvents {
+                  name
+                  sourceId
+                  __typename
+                }
+                droppedIdentifiers {
+                  type
+                  id
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        # Calculate time range (last N days)
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=days_back)
+
+        # Convert to milliseconds timestamp as strings
+        end_ms = str(int(end_time.timestamp() * 1000))
+        start_ms = str(int(start_time.timestamp() * 1000))
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "spaceId": space_id,
+            "filter": {
+                "action": {
+                    "type": action_type
+                },
+                "startTime": start_ms,
+                "endTime": end_ms
             }
         }
 
-        with open(DATA_DIR / 'audit_summary.json', 'w') as f:
-            json.dump(summary, f, indent=2)
+        data = self._execute_query(query, variables)
+        space_data = data.get('workspace', {}).get('space', {})
+        return space_data.get('profilesActions', [])
 
-        # Save CSVs
-        import csv
-
-        # Audiences
-        if all_audiences:
-            with open(DATA_DIR / 'segment_audiences_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=all_audiences[0].keys())
-                writer.writeheader()
-                writer.writerows(all_audiences)
-
-        # Journeys and Campaigns
-        # Always write journeys CSV (even if empty) to avoid showing stale cached data
-        journeys_flat = []
-        if all_journeys:
-            # Flatten nested objects for CSV export
-            for item in all_journeys:
-                item_type = item.get('__typename', '')
-                space_id = item.get('space_id', '')
-                space_name = space_mapping.get(space_id, space_id)
-
-                if item_type == 'Journey':
-                    # Journey fields
-                    container = item.get('container', {})
-
-                    # Parse definition to get step count
-                    definition = item.get('definition', {})
-                    step_count = 0
-                    if definition and isinstance(definition, dict):
-                        states = definition.get('states', {})
-                        step_count = len(states) if states else 0
-
-                    flat_item = {
-                        'Type': 'Journey',
-                        'Name': item.get('name', ''),
-                        'Space': space_name,
-                        'State': item.get('executionState', ''),
-                        'Status': item.get('status', ''),
-                        'Current Version': item.get('version', ''),
-                        'Step Count': step_count,
-                        'Destination Count': len(item.get('destinations', [])),
-                        'Destinations': ', '.join([
-                            d.get('metadata', {}).get('name', '') or d.get('name', '')
-                            for d in item.get('destinations', [])
-                            if d.get('metadata', {}).get('name') or d.get('name')
-                        ]),
-                        'Created By': item.get('createdBy', {}).get('name', '') if item.get('createdBy') else '',
-                        'Updated At': item.get('updatedAt', ''),
-                        'Description': item.get('description', ''),
-                        'Container ID': item.get('containerId', ''),
-                        'Is Locked': 'Yes' if container.get('isLocked') else 'No',
-                        'Definition': json.dumps(definition) if definition else '',
-                        'ID': item.get('id', ''),
-                        'Space ID': space_id,
-                    }
-                elif item_type == 'Campaign':
-                    # Campaign fields
-                    destinations = item.get('campaignsDestinations', [])
-
-                    # Parse definition
-                    definition = item.get('definition', {})
-                    step_count = 0
-                    if definition and isinstance(definition, dict):
-                        states = definition.get('states', {})
-                        step_count = len(states) if states else 0
-
-                    flat_item = {
-                        'Type': 'Campaign',
-                        'Name': item.get('name', ''),
-                        'Space': space_name,
-                        'State': item.get('state', ''),
-                        'Status': item.get('state', '').upper() if item.get('state') else '',
-                        'Current Version': item.get('version', ''),
-                        'Step Count': step_count,
-                        'Destination Count': len(destinations),
-                        'Destinations': ', '.join([d.get('name', '') for d in destinations]),
-                        'Created By': item.get('createdBy', {}).get('name', '') if item.get('createdBy') else '',
-                        'Updated At': item.get('updatedAt', ''),
-                        'Description': '',
-                        'Container ID': item.get('containerId', ''),
-                        'Is Locked': '',
-                        'Definition': json.dumps(definition) if definition else '',
-                        'ID': item.get('containerId', ''),
-                        'Space ID': space_id,
-                    }
-                else:
-                    continue
-
-                journeys_flat.append(flat_item)
-
-        # Always write the CSV file to prevent stale data from showing
-        if journeys_flat:
-            with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=journeys_flat[0].keys())
-                writer.writeheader()
-                writer.writerows(journeys_flat)
-        else:
-            # Write empty CSV with just headers to indicate no journeys
-            with open(DATA_DIR / 'segment_journeys_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                # Write minimal headers for empty state
-                writer = csv.writer(f)
-                writer.writerow(['Name', 'State', 'Type', 'Destinations'])
-
-        # Computed Traits
-        if all_computed_traits:
-            with open(DATA_DIR / 'segment_computed_traits_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=all_computed_traits[0].keys())
-                writer.writeheader()
-                writer.writerows(all_computed_traits)
-
-        # Events
-        with open(DATA_DIR / 'event_coverage.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Event', 'Audience Uses'])
-            for event, count in all_events.most_common():
-                writer.writerow([event, count])
-
-        # Traits
-        with open(DATA_DIR / 'trait_coverage.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Trait', 'Audience Uses'])
-            for trait, count in all_traits.most_common():
-                writer.writerow([trait, count])
-
-        # Sources
-        if sources_data:
-            # Remove internal _destination_objects field before saving
-            sources_data_clean = []
-            for src in sources_data:
-                src_copy = src.copy()
-                src_copy.pop('_destination_objects', None)
-                sources_data_clean.append(src_copy)
-
-            with open(DATA_DIR / 'segment_sources_audit.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=sources_data_clean[0].keys())
-                writer.writeheader()
-                writer.writerows(sources_data_clean)
-
-        # Reverse ETL Models (save as JSON to preserve multi-line queries)
-        if retl_models_data:
-            with open(DATA_DIR / 'segment_retl_models.json', 'w', encoding='utf-8') as f:
-                json.dump(retl_models_data, f, indent=2)
-
-        # Warehouses (save as JSON to preserve nested settings)
-        if warehouses_data:
-            with open(DATA_DIR / 'segment_warehouses.json', 'w', encoding='utf-8') as f:
-                json.dump(warehouses_data, f, indent=2)
-
-        # Delivery Metrics (save as JSON)
-        if delivery_metrics_data:
-            with open(DATA_DIR / 'segment_delivery_metrics.json', 'w', encoding='utf-8') as f:
-                json.dump(delivery_metrics_data, f, indent=2)
-            print(f"Saved {len(delivery_metrics_data)} delivery metrics records")
-
-        # Collect observability data (event volumes)
-        audit_status['message'] = 'Collecting event volume data...'
-        audit_status['progress'] = 95
-        event_volume_data = {}
-        try:
-            from datetime import timedelta
-            now = datetime.now()
-            seven_days_ago = now - timedelta(days=7)
-            fourteen_days_ago = now - timedelta(days=14)
-
-            end_time = now.isoformat() + 'Z'
-            seven_day_start = seven_days_ago.isoformat() + 'Z'
-            fourteen_day_start = fourteen_days_ago.isoformat() + 'Z'
-
-            # Get workspace volumes
-            auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl_verify)
-            seven_day_volume = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY')
-            fourteen_day_volume = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY')
-            seven_day_by_source = auditor.get_event_volumes(seven_day_start, end_time, granularity='DAY', group_by=['sourceId'])
-
-            event_volume_data = {
-                'seven_day': seven_day_volume,
-                'fourteen_day': fourteen_day_volume,
-                'seven_day_by_source': seven_day_by_source,
-                'collection_time': now.isoformat()
+    def get_space_sources(self, space_id):
+        """Get sources feeding into a specific space with destinations"""
+        query = """
+        query GetSpaceSources($workspaceSlug: Slug!, $spaceId: String!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            space(id: $spaceId) {
+              id
+              slug
+              name
+              sources {
+                id
+                name
+                slug
+                status
+                metadata {
+                  id
+                  name
+                  category
+                  __typename
+                }
+                integrations {
+                  id
+                  name
+                  __typename
+                }
+                warehouses {
+                  id
+                  name
+                  __typename
+                }
+                __typename
+              }
+              __typename
             }
+            __typename
+          }
+        }
+        """
 
-            # Save event volumes
-            with open(DATA_DIR / 'segment_event_volumes.json', 'w', encoding='utf-8') as f:
-                json.dump(event_volume_data, f, indent=2)
-
-            # Add summary to audit_summary
-            summary['observability'] = {
-                'collected': True,
-                'collection_time': now.isoformat()
-            }
-        except Exception as e:
-            print(f"Warning: Could not fetch event volumes: {e}")
-            event_volume_data = {}
-            summary['observability'] = {
-                'collected': False,
-                'error': str(e)
-            }
-
-        # Add delivery metrics summary
-        summary['delivery_metrics'] = {
-            'collected': len(delivery_metrics_data) > 0,
-            'total_connections': len(delivery_metrics_data),
-            'time_range': '7 days',
-            'granularity': 'DAY',
-            'note': 'Direct connections only (excludes Engage and RETL/warehouse sources)' if len(delivery_metrics_data) > 0 else 'No data or insufficient permissions'
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "spaceId": space_id
         }
 
-        # Re-save summary with observability and delivery metrics data
-        with open(DATA_DIR / 'audit_summary.json', 'w') as f:
-            json.dump(summary, f, indent=2)
+        data = self._execute_query(query, variables)
+        space_data = data.get('workspace', {}).get('space', {})
+        return space_data.get('sources', [])
 
-        audit_status['message'] = 'Audit complete!'
-        audit_status['progress'] = 100
-        audit_status['complete'] = True
-        audit_status['running'] = False
-
-    except Exception as e:
-        audit_status['running'] = False
-        audit_status['error'] = str(e)
-        audit_status['message'] = f'Error: {str(e)}'
-        audit_status['complete'] = False
 
 # ============================================================================
 # ROUTES
@@ -1720,1634 +899,493 @@ def run_audit(api_token, skip_ssl_verify=False, gateway_token=None):
 
 @app.route('/')
 def index():
-    """Landing page with configuration form"""
-    return render_template('index.html')
+    """Landing page with Gateway token input"""
+    return render_template('gateway_index.html')
 
-@app.route('/health')
-def health():
-    """Health check endpoint for monitoring"""
-    return jsonify({'status': 'ok', 'service': 'segment-audit-dashboard'}), 200
-
-@app.route('/run-audit', methods=['POST'])
-def run_audit_route():
-    """Start audit data collection"""
-    global audit_status
-
-    if audit_status['running']:
-        return jsonify({'error': 'Audit already running'}), 400
-
-    # Get form data
-    api_token = request.form.get('api_token')
-    gateway_token = request.form.get('gateway_token', '').strip()  # Optional
-    skip_ssl = request.form.get('skip_ssl') == 'true'  # Checkbox returns 'true' or None
-
-    # Validate
-    if not api_token:
-        return jsonify({'error': 'API token is required'}), 400
-
-    # Store credentials in session for later use (workspace details will be fetched during audit)
-    session.permanent = True  # Keep session alive for configured lifetime (7 days)
-    session['api_token'] = api_token
-    session['gateway_token'] = gateway_token if gateway_token else None
-    session['skip_ssl'] = skip_ssl
-
-    # Reset status
-    audit_status = {
-        'running': True,
-        'progress': 0,
-        'message': 'Starting audit...',
-        'complete': False,
-        'error': None
-    }
-
-    # Run audit in background thread (everything will be fetched automatically from token)
-    thread = threading.Thread(
-        target=run_audit,
-        args=(api_token, skip_ssl, gateway_token)
-    )
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({'success': True, 'redirect': '/progress'})
-
-@app.route('/progress')
-def progress():
-    """Progress page showing audit status"""
-    return render_template('progress.html')
-
-@app.route('/api/status')
-def status():
-    """API endpoint for audit status"""
-    # If audit is complete and workspace info is available, update session
-    if audit_status.get('complete') and 'workspace_info' in audit_status:
-        workspace_info = audit_status['workspace_info']
-        session.permanent = True  # Extend session lifetime
-        session['customer_name'] = workspace_info['customer_name']
-        session['workspace_slug'] = workspace_info['workspace_slug']
-        session['workspace_id'] = workspace_info['workspace_id']
-
-    return jsonify(audit_status)
-
-@app.route('/api/list-spaces', methods=['POST'])
-def list_spaces():
-    """Fetch all spaces for a given API token"""
+@app.route('/start-audit', methods=['POST'])
+def start_audit():
+    """Start audit collection with Gateway API token"""
     try:
-        data = request.get_json()
-        api_token = data.get('api_token')
-        skip_ssl = data.get('skip_ssl', False)
+        data = request.json
+        gateway_token = data.get('gateway_token', '').strip()
+        workspace_slug = data.get('workspace_slug', '').strip()
+        customer_name = data.get('customer_name', '').strip() or workspace_slug
 
-        if not api_token:
-            return jsonify({'error': 'API token is required'}), 400
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Gateway token and workspace slug are required'}), 400
 
-        auditor = SegmentAuditor(api_token, skip_ssl_verify=skip_ssl)
-        spaces = auditor.get_spaces()
+        # Store in session
+        session['gateway_token'] = gateway_token
+        session['workspace_slug'] = workspace_slug
+        session['customer_name'] = customer_name
+        session.permanent = True
 
-        # Format spaces for response
-        spaces_list = []
-        for space in spaces:
-            spaces_list.append({
-                'id': space.get('id'),
-                'name': space.get('name'),
-                'slug': space.get('slug', '')
-            })
+        # Start audit in background
+        import threading
+        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name))
+        thread.daemon = True
+        thread.start()
 
-        return jsonify({'spaces': spaces_list})
+        return jsonify({'status': 'started'})
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/audiences')
-def audiences():
-    """Audiences view"""
-    customer_name = session.get('customer_name', 'Customer')
-    return render_template('dashboard.html', customer_name=customer_name)
+def run_audit(gateway_token, workspace_slug, customer_name):
+    """Run the audit collection"""
+    global audit_status
+
+    try:
+        # Reset all status fields for new audit
+        audit_status['running'] = True
+        audit_status['progress'] = 0
+        audit_status['message'] = 'Initializing Gateway API client...'
+        audit_status['error'] = None
+        audit_status['complete'] = False
+
+        # Clear old audit data files
+        for file_path in DATA_DIR.glob('gateway_*.csv'):
+            file_path.unlink()
+        for file_path in DATA_DIR.glob('gateway_*.json'):
+            file_path.unlink()
+        print("Cleared old audit data files")
+
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+
+        # Get spaces
+        audit_status['message'] = 'Fetching spaces...'
+        audit_status['progress'] = 10
+        spaces = client.get_spaces()
+        print(f"Found {len(spaces)} spaces")
+
+        # Get sources
+        audit_status['message'] = 'Fetching sources...'
+        audit_status['progress'] = 30
+        sources = client.get_all_sources()
+        print(f"Found {len(sources)} sources")
+
+        # Get workspace connections
+        audit_status['message'] = 'Fetching source-destination connections...'
+        audit_status['progress'] = 50
+        connections = client.get_workspace_connections()
+
+        # Get audiences for each space
+        audit_status['message'] = 'Collecting audiences...'
+        audit_status['progress'] = 70
+        all_audiences = []
+        print(f"\n=== FETCHING AUDIENCES ===")
+        print(f"Found {len(spaces)} spaces to query")
+        for idx, space in enumerate(spaces):
+            space_id = space.get('id')
+            space_name = space.get('name', 'Unknown')
+            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name} (ID: {space_id})")
+            try:
+                audiences = client.get_audiences_with_folders(space_id)
+                print(f"  -> Returned {len(audiences)} audiences")
+                for aud in audiences:
+                    aud['space_id'] = space_id
+                    aud['space_name'] = space_name
+                    print(f"     - {aud.get('name', 'Unnamed')}")
+                all_audiences.extend(audiences)
+                print(f"  -> Total audiences so far: {len(all_audiences)}")
+            except Exception as e:
+                print(f"  -> ERROR: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Get journeys for each space
+        audit_status['message'] = 'Collecting journeys...'
+        audit_status['progress'] = 80
+        all_journeys = []
+        print(f"\n=== FETCHING JOURNEYS ===")
+        for idx, space in enumerate(spaces):
+            space_id = space.get('id')
+            space_name = space.get('name', 'Unknown')
+            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name}")
+            try:
+                journeys = client.get_journeys(space_id)
+                print(f"  -> Returned {len(journeys)} items (journeys + campaigns)")
+                for journey in journeys:
+                    journey['space_id'] = space_id
+                    journey['space_name'] = space_name
+                all_journeys.extend(journeys)
+                print(f"  -> Total items so far: {len(all_journeys)}")
+            except Exception as e:
+                print(f"  -> ERROR: {e}")
+                print(f"     (This may be normal if workspace doesn't have Engage feature)")
+
+        # Get profile insights data
+        audit_status['message'] = 'Collecting profile insights...'
+        audit_status['progress'] = 85
+        print(f"\n=== FETCHING PROFILE INSIGHTS ===")
+
+        # Get workspace-level personas data
+        personas_data = {}
+        try:
+            personas_data = client.get_personas_data()
+            print(f"  -> Workspace entitlements: personas={personas_data.get('entitlements', {}).get('features', {}).get('personas')}, profiles={personas_data.get('entitlements', {}).get('features', {}).get('profiles')}")
+        except Exception as e:
+            print(f"  -> ERROR fetching personas data: {e}")
+
+        # Get identity resolution config and space sources for each space
+        all_identity_configs = []
+        all_space_sources = []
+        all_profile_violations = []
+        for idx, space in enumerate(spaces):
+            space_id = space.get('id')
+            space_name = space.get('name', 'Unknown')
+            print(f"\nQuerying identity config for space {idx + 1}/{len(spaces)}: {space_name}")
+            try:
+                configs = client.get_identity_resolution_config(space_id)
+                if configs:
+                    print(f"  -> Returned {len(configs)} external ID types")
+                    for config in configs:
+                        # Format the limit display
+                        merged_limit = config.get('mergedLimit')
+                        merged_time_range = config.get('mergedLimitTimeRange')
+                        limit_display = config.get('limit', '')
+                        seen = config.get('seen', False)
+
+                        # If mergedLimit exists, show it with time range
+                        if merged_limit and merged_time_range:
+                            # Convert seconds to human readable format
+                            seconds = int(merged_time_range)
+                            if seconds == 86400:  # 1 day
+                                time_period = "daily"
+                            elif seconds == 604800:  # 7 days
+                                time_period = "weekly"
+                            elif seconds == 2592000:  # 30 days
+                                time_period = "monthly"
+                            elif seconds == 31536000:  # 365 days
+                                time_period = "annually"
+                            else:
+                                # Calculate days if not a standard period
+                                days = seconds // 86400
+                                time_period = f"{days} days"
+
+                            limit_display = f"{merged_limit} {time_period}"
+                        elif merged_limit:
+                            limit_display = f"{merged_limit} ever"
+
+                        all_identity_configs.append({
+                            'space_id': space_id,
+                            'space_name': space_name,
+                            'id_type': config.get('idType', ''),
+                            'priority': config.get('priority', ''),
+                            'limit': limit_display,
+                            'seen': 'Yes' if seen else 'No'
+                        })
+                else:
+                    print(f"  -> No identity configs returned")
+            except Exception as e:
+                print(f"  -> ERROR fetching identity config: {e}")
+                import traceback
+                traceback.print_exc()
+
+            # Get sources for this space
+            try:
+                space_sources = client.get_space_sources(space_id)
+                print(f"  -> Returned {len(space_sources)} sources")
+                for source in space_sources:
+                    # Extract destination names from integrations and warehouses
+                    destinations = []
+                    for integration in source.get('integrations', []):
+                        if integration.get('name'):
+                            destinations.append(integration['name'])
+                    for warehouse in source.get('warehouses', []):
+                        if warehouse.get('name'):
+                            destinations.append(warehouse['name'])
+
+                    all_space_sources.append({
+                        'space_id': space_id,
+                        'space_name': space_name,
+                        'source_id': source.get('id', ''),
+                        'source_name': source.get('name', ''),
+                        'source_status': source.get('status', ''),
+                        'source_type': source.get('metadata', {}).get('name', ''),
+                        'source_category': source.get('metadata', {}).get('category', ''),
+                        'destinations': ', '.join(destinations) if destinations else ''
+                    })
+            except Exception as e:
+                print(f"  -> ERROR fetching space sources: {e}")
+
+            # Get profile violations for this space (last 7 days)
+            try:
+                violations = client.get_profiles_actions(space_id, 'VIOLATION', days_back=7)
+                print(f"  -> Returned {len(violations)} profile violations (last 7 days)")
+
+                # Limit to most recent 100 violations per space to avoid overwhelming data
+                violations_to_process = violations[:100] if len(violations) > 100 else violations
+                if len(violations) > 100:
+                    print(f"  -> Limiting to most recent 100 violations (had {len(violations)} total)")
+
+                for violation in violations_to_process:
+                    # Extract relevant violation details
+                    external_ids = violation.get('externalIds', [])
+                    external_id_str = ', '.join([f"{eid.get('type')}={','.join(eid.get('values', []))}" for eid in external_ids])
+
+                    dropped_identifiers = violation.get('droppedIdentifiers', [])
+                    dropped_ids_str = ', '.join([f"{did.get('type')}={did.get('id', '')}" for did in dropped_identifiers])
+
+                    limit_exceeded_events = violation.get('limitExceededEvents', [])
+                    exceeded_events_str = ', '.join([evt.get('name', '') for evt in limit_exceeded_events])
+
+                    all_profile_violations.append({
+                        'space_id': space_id,
+                        'space_name': space_name,
+                        'type': violation.get('type', ''),
+                        'time': violation.get('time', ''),
+                        'source_id': violation.get('sourceId', ''),
+                        'incoming_event_type': violation.get('incomingEventType', ''),
+                        'external_ids': external_id_str,
+                        'violation_type': violation.get('externalIdTypeCausingViolation', ''),
+                        'dropped_identifiers': dropped_ids_str,
+                        'exceeded_events': exceeded_events_str
+                    })
+            except Exception as e:
+                print(f"  -> ERROR fetching profile violations: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Save data
+        audit_status['message'] = 'Saving audit data...'
+        audit_status['progress'] = 90
+
+        # Save sources CSV
+        if sources:
+            with open(DATA_DIR / 'gateway_sources.csv', 'w', newline='', encoding='utf-8') as f:
+                fieldnames = ['ID', 'Name', 'Slug', 'Status', 'Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Connected Warehouses']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for source in sources:
+                    labels = ', '.join([f"{l['key']}={l['value']}" for l in source.get('labels', [])])
+                    integrations = ', '.join([i.get('name', '') for i in source.get('integrations', [])])
+                    warehouses = ', '.join([w.get('name', '') for w in source.get('warehouses', [])])
+
+                    writer.writerow({
+                        'ID': source.get('id', ''),
+                        'Name': source.get('name', ''),
+                        'Slug': source.get('slug', ''),
+                        'Status': source.get('status', ''),
+                        'Type': source.get('metadata', {}).get('name', ''),
+                        'Category': source.get('metadata', {}).get('category', ''),
+                        'Created At': source.get('createdAt', ''),
+                        'Labels': labels,
+                        'Connected Destinations': integrations,
+                        'Connected Warehouses': warehouses
+                    })
+
+        # Save audiences CSV
+        if all_audiences:
+            with open(DATA_DIR / 'gateway_audiences.csv', 'w', newline='', encoding='utf-8') as f:
+                fieldnames = ['ID', 'Name', 'Key', 'Enabled', 'Size', 'Space', 'Space ID', 'Folder', 'Destinations', 'Destination Count']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for aud in all_audiences:
+                    writer.writerow({
+                        'ID': aud.get('id', ''),
+                        'Name': aud.get('name', ''),
+                        'Key': aud.get('key', ''),
+                        'Enabled': aud.get('enabled', False),
+                        'Size': aud.get('size', 0),
+                        'Space': aud.get('space_name', ''),
+                        'Space ID': aud.get('space_id', ''),
+                        'Folder': aud.get('folder', ''),
+                        'Destinations': ', '.join(aud.get('destinations', [])),
+                        'Destination Count': aud.get('destination_count', 0)
+                    })
+
+        # Save journeys CSV
+        if all_journeys:
+            with open(DATA_DIR / 'gateway_journeys.csv', 'w', newline='', encoding='utf-8') as f:
+                fieldnames = ['Type', 'ID', 'Name', 'Description', 'State', 'Status', 'Space', 'Space ID',
+                             'Current Version', 'Max Version', 'Destinations', 'Destination Count',
+                             'Created By', 'Updated At']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for item in all_journeys:
+                    typename = item.get('__typename', '')
+
+                    if typename == 'Journey':
+                        destinations = []
+                        for dest in item.get('destinations', []):
+                            metadata = dest.get('metadata', {})
+                            if metadata and isinstance(metadata, dict):
+                                destinations.append(metadata.get('name', ''))
+
+                        dest_list = ', '.join(destinations)
+
+                        writer.writerow({
+                            'Type': 'Journey',
+                            'ID': item.get('id', ''),
+                            'Name': item.get('name', ''),
+                            'Description': item.get('description', ''),
+                            'State': item.get('status', ''),
+                            'Status': item.get('executionState', ''),
+                            'Space': item.get('space_name', ''),
+                            'Space ID': item.get('space_id', ''),
+                            'Current Version': item.get('version', ''),
+                            'Max Version': item.get('maxVersion', ''),
+                            'Destinations': dest_list,
+                            'Destination Count': len(destinations),
+                            'Created By': item.get('createdBy', {}).get('name', ''),
+                            'Updated At': item.get('updatedAt', '')
+                        })
+
+                    elif typename == 'Campaign':
+                        destinations = [d.get('name', '') for d in item.get('campaignsDestinations', [])]
+                        dest_list = ', '.join(destinations)
+
+                        state = 'published' if item.get('hasPublishedVersion') else 'draft'
+
+                        writer.writerow({
+                            'Type': 'Campaign',
+                            'ID': item.get('containerId', ''),
+                            'Name': item.get('name', ''),
+                            'Description': '',
+                            'State': state,
+                            'Status': item.get('state', ''),
+                            'Space': item.get('space_name', ''),
+                            'Space ID': item.get('space_id', ''),
+                            'Current Version': item.get('version', ''),
+                            'Max Version': item.get('versionCount', ''),
+                            'Destinations': dest_list,
+                            'Destination Count': len(destinations),
+                            'Created By': item.get('createdBy', {}).get('name', ''),
+                            'Updated At': item.get('updatedAt', '')
+                        })
+
+        # Save profile insights data (always create file even if empty)
+        with open(DATA_DIR / 'gateway_profile_insights.csv', 'w', newline='', encoding='utf-8') as f:
+            fieldnames = ['Space', 'Space ID', 'ID Type', 'Priority', 'Limit', 'Seen']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for config in all_identity_configs:
+                writer.writerow({
+                    'Space': config.get('space_name', ''),
+                    'Space ID': config.get('space_id', ''),
+                    'ID Type': config.get('id_type', ''),
+                    'Priority': config.get('priority', ''),
+                    'Limit': config.get('limit', ''),
+                    'Seen': config.get('seen', 'No')
+                })
+
+        print(f"\nSaved {len(all_identity_configs)} identity configs to CSV")
+
+        # Save space sources data (always create file even if empty)
+        with open(DATA_DIR / 'gateway_space_sources.csv', 'w', newline='', encoding='utf-8') as f:
+            fieldnames = ['Space', 'Space ID', 'Source Name', 'Status', 'Type', 'Category', 'Destinations']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for source in all_space_sources:
+                writer.writerow({
+                    'Space': source.get('space_name', ''),
+                    'Space ID': source.get('space_id', ''),
+                    'Source Name': source.get('source_name', ''),
+                    'Status': source.get('source_status', ''),
+                    'Type': source.get('source_type', ''),
+                    'Category': source.get('source_category', ''),
+                    'Destinations': source.get('destinations', '')
+                })
+
+        print(f"Saved {len(all_space_sources)} space sources to CSV")
+
+        # Save profile violations data (always create file even if empty)
+        with open(DATA_DIR / 'gateway_profile_violations.csv', 'w', newline='', encoding='utf-8') as f:
+            fieldnames = ['Space', 'Space ID', 'Type', 'Time', 'Source ID', 'Event Type', 'External IDs', 'Violation Type', 'Dropped Identifiers', 'Exceeded Events']
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for violation in all_profile_violations:
+                writer.writerow({
+                    'Space': violation.get('space_name', ''),
+                    'Space ID': violation.get('space_id', ''),
+                    'Type': violation.get('type', ''),
+                    'Time': violation.get('time', ''),
+                    'Source ID': violation.get('source_id', ''),
+                    'Event Type': violation.get('incoming_event_type', ''),
+                    'External IDs': violation.get('external_ids', ''),
+                    'Violation Type': violation.get('violation_type', ''),
+                    'Dropped Identifiers': violation.get('dropped_identifiers', ''),
+                    'Exceeded Events': violation.get('exceeded_events', '')
+                })
+
+        print(f"Saved {len(all_profile_violations)} profile violations to CSV")
+
+        # Save personas entitlements
+        with open(DATA_DIR / 'gateway_personas_entitlements.json', 'w') as f:
+            json.dump(personas_data, f, indent=2)
+
+        # Save summary
+        summary = {
+            'audit_date': datetime.now().isoformat(),
+            'customer_name': customer_name,
+            'workspace_slug': workspace_slug,
+            'sources_count': len(sources),
+            'audiences_count': len(all_audiences),
+            'journeys_count': len([j for j in all_journeys if j.get('__typename') == 'Journey']),
+            'campaigns_count': len([j for j in all_journeys if j.get('__typename') == 'Campaign']),
+            'spaces_count': len(spaces)
+        }
+
+        with open(DATA_DIR / 'gateway_summary.json', 'w') as f:
+            json.dump(summary, f, indent=2)
+
+        audit_status['complete'] = True
+        audit_status['progress'] = 100
+        audit_status['message'] = 'Audit complete!'
+
+    except Exception as e:
+        audit_status['error'] = str(e)
+        audit_status['message'] = f'Error: {str(e)}'
+        print(f"Audit error: {e}")
+    finally:
+        audit_status['running'] = False
+
+@app.route('/audit-status')
+def get_audit_status():
+    """Get current audit status"""
+    return jsonify(audit_status)
+
+@app.route('/progress')
+def progress():
+    """Progress page"""
+    return render_template('gateway_progress.html')
 
 @app.route('/dashboard')
 def dashboard():
-    """Legacy redirect to audiences"""
-    return redirect('/audiences', code=301)
-
-@app.route('/journeys')
-def journeys():
-    """Journeys view"""
+    """Main dashboard with both sources and audiences"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('journeys.html', customer_name=customer_name)
+    return render_template('gateway_dashboard.html', customer_name=customer_name)
 
 @app.route('/sources')
 def sources():
     """Sources view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('sources.html', customer_name=customer_name)
+    return render_template('gateway_sources.html', customer_name=customer_name)
 
-@app.route('/computed-traits')
-def computed_traits_view():
-    """Computed traits view"""
+@app.route('/audiences')
+def audiences():
+    """Audiences view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('computed_traits.html', customer_name=customer_name)
+    return render_template('gateway_audiences.html', customer_name=customer_name)
 
-@app.route('/observability')
-def observability():
-    """Observability view"""
+@app.route('/journeys')
+def journeys():
+    """Journeys view"""
     customer_name = session.get('customer_name', 'Customer')
-    workspace_slug = session.get('workspace_slug', '')
-    return render_template('observability.html', customer_name=customer_name, workspace_slug=workspace_slug)
+    return render_template('gateway_journeys.html', customer_name=customer_name)
 
-@app.route('/connections')
-def connections():
-    """Connections view - Sankey diagram of source to destination flows"""
+@app.route('/profile-insights')
+def profile_insights():
+    """Profile Insights view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('connections.html', customer_name=customer_name)
-
-@app.route('/retl-models')
-def retl_models():
-    """Reverse ETL models view"""
-    customer_name = session.get('customer_name', 'Customer')
-    return render_template('retl_models.html', customer_name=customer_name)
-
-@app.route('/warehouses')
-def warehouses():
-    """Warehouses view"""
-    customer_name = session.get('customer_name', 'Customer')
-    return render_template('warehouses.html', customer_name=customer_name)
-
-@app.route('/ai-prompt')
-def ai_prompt():
-    """AI Prompt builder view"""
-    customer_name = session.get('customer_name', 'Customer')
-    return render_template('ai-prompt.html', customer_name=customer_name)
-
-@app.route('/proxy-logo')
-def proxy_logo():
-    """Proxy logos through our server to avoid CORS issues"""
-    logo_url = request.args.get('url')
-    if not logo_url:
-        return "No URL provided", 400
-
-    try:
-        # Fetch the logo from the CDN
-        # Disable SSL verification for logos as some CDNs have certificate issues
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-        response = requests.get(
-            logo_url,
-            timeout=5,
-            verify=False,  # Disable SSL verification for logo CDNs
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-            }
-        )
-
-        if response.status_code == 200:
-            from flask import Response
-            return Response(
-                response.content,
-                mimetype=response.headers.get('Content-Type', 'image/svg+xml'),
-                headers={
-                    'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
-                    'Access-Control-Allow-Origin': '*'
-                }
-            )
-        else:
-            return f"Failed to fetch logo: {response.status_code}", 500
-    except Exception as e:
-        return f"Error: {str(e)}", 500
-
-@app.route('/export-workspace-markdown')
-def export_workspace_markdown():
-    """Export comprehensive workspace data as markdown for AI analysis"""
-    from io import BytesIO
-
-    workspace_slug = session.get('workspace_slug', 'workspace')
-    customer_name = session.get('customer_name', workspace_slug)
-
-    # Load all data files
-    summary_file = DATA_DIR / 'audit_summary.json'
-    sources_file = DATA_DIR / 'segment_sources_audit.csv'
-    audiences_file = DATA_DIR / 'segment_audiences_audit.csv'
-
-    if not summary_file.exists():
-        return "No audit data found. Please run an audit first.", 404
-
-    # Load summary
-    with open(summary_file, 'r') as f:
-        summary = json.load(f)
-
-    # Load sources
-    import csv
-    sources = []
-    if sources_file.exists():
-        with open(sources_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            sources = list(reader)
-
-    # Load audiences
-    audiences = []
-    if audiences_file.exists():
-        with open(audiences_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            audiences = list(reader)
-
-    # Load RETL models
-    retl_models = []
-    retl_file = DATA_DIR / 'segment_retl_models.json'
-    if retl_file.exists():
-        with open(retl_file, 'r', encoding='utf-8') as f:
-            retl_models = json.load(f)
-
-    # Load computed traits
-    computed_traits = []
-    computed_traits_file = DATA_DIR / 'segment_computed_traits_audit.csv'
-    if computed_traits_file.exists():
-        with open(computed_traits_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            computed_traits = list(reader)
-
-    # Build markdown content
-    audit_date = summary.get('audit_date', '')
-    if audit_date:
-        from datetime import datetime
-        audit_date_obj = datetime.fromisoformat(audit_date)
-        audit_date = audit_date_obj.strftime('%B %d, %Y at %I:%M %p')
-
-    # Check if computed traits are accessible
-    has_computed_traits_access = not summary.get('computed_traits', {}).get('access_error')
-
-    # Build executive summary with conditional computed traits line
-    computed_traits_line = ""
-    if has_computed_traits_access:
-        computed_traits_line = f"\n**Computed Traits:** {summary.get('computed_traits', {}).get('total', 0)} ({summary.get('computed_traits', {}).get('enabled', 0)} enabled)"
-
-    md_content = f"""# {customer_name} - Segment Workspace Analysis
-
-## Executive Summary
-
-**Audit Date:** {audit_date}
-**Workspace:** {workspace_slug}
-**Total Sources:** {summary.get('sources', {}).get('total', 0)} ({summary.get('sources', {}).get('enabled', 0)} enabled)
-**Total Audiences:** {summary.get('audiences', {}).get('total', 0)} ({summary.get('audiences', {}).get('enabled', 0)} enabled){computed_traits_line}
-**Reverse ETL Models:** {len(retl_models)} ({len([m for m in retl_models if m.get('Enabled')])} enabled)
-**Unique Events Referenced:** {summary.get('coverage', {}).get('unique_events_referenced', 0)}
-**Unique Traits Referenced:** {summary.get('coverage', {}).get('unique_traits_referenced', 0)}
-
----
-
-## Workspace Overview
-
-This workspace contains **{len(sources)} data sources** collecting customer data and sending it to various destinations. The workspace is configured with **{len(audiences)} audiences** for customer segmentation and targeting.
-
-### Key Metrics
-- **Active Sources:** {summary.get('sources', {}).get('enabled', 0)} sources actively collecting data
-- **Inactive Sources:** {summary.get('sources', {}).get('disabled', 0)} sources currently disabled
-- **Active Audiences:** {summary.get('audiences', {}).get('enabled', 0)} audiences currently enabled
-- **Empty Audiences:** {summary.get('audiences', {}).get('empty', 0)} audiences with no users
-
----
-
-## Data Sources
-
-### Sources by Type
-"""
-
-    # Group sources by type
-    from collections import Counter
-    source_types = Counter()
-    source_categories = Counter()
-    enabled_by_type = Counter()
-
-    for source in sources:
-        source_type = source.get('Type', 'Unknown')
-        enabled = source.get('Enabled', '').lower() == 'true'
-        source_types[source_type] += 1
-        if enabled:
-            enabled_by_type[source_type] += 1
-
-    for source_type, count in source_types.most_common():
-        enabled_count = enabled_by_type.get(source_type, 0)
-        md_content += f"\n- **{source_type}:** {count} total ({enabled_count} enabled)"
-
-    md_content += "\n\n### Active Data Collection Sources\n"
-    md_content += "\nThese sources are actively collecting customer data:\n\n"
-
-    enabled_sources = [s for s in sources if s.get('Enabled', '').lower() == 'true']
-    for source in enabled_sources:
-        source_name = source.get('Source Name', '')
-        source_type = source.get('Type', '')
-        destinations = source.get('Connected Destinations', 'None')
-        dest_count = source.get('Destination Count', '0')
-
-        md_content += f"#### {source_name}\n"
-        md_content += f"- **Type:** {source_type}\n"
-        md_content += f"- **Connected Destinations ({dest_count}):** {destinations}\n"
-
-        # Add source link if available
-        source_slug = source.get('Slug', '')
-        if workspace_slug and source_slug:
-            md_content += f"- **Schema Link:** https://app.segment.com/{workspace_slug}/sources/{source_slug}/schema\n"
-
-        md_content += "\n"
-
-    md_content += "\n---\n\n## Destination Connections\n\n"
-    md_content += "### Data Flow Summary\n\n"
-
-    # Collect all unique destinations
-    all_destinations = Counter()
-    for source in sources:
-        destinations = source.get('Connected Destinations', '').split(',')
-        for dest in destinations:
-            dest = dest.strip()
-            if dest:
-                all_destinations[dest] += 1
-
-    md_content += "The following destinations are receiving data from this workspace:\n\n"
-    for dest, count in all_destinations.most_common():
-        md_content += f"- **{dest}:** Connected to {count} source(s)\n"
-
-    md_content += "\n---\n\n## Reverse ETL Models\n\n"
-
-    if retl_models:
-        enabled_retl = [m for m in retl_models if m.get('Enabled')]
-        disabled_retl = [m for m in retl_models if not m.get('Enabled')]
-
-        md_content += f"This workspace has **{len(retl_models)} Reverse ETL models** configured to sync data from warehouses to downstream destinations.\n\n"
-        md_content += f"- **Active Models:** {len(enabled_retl)} models currently syncing data\n"
-        md_content += f"- **Inactive Models:** {len(disabled_retl)} models currently disabled\n\n"
-
-        # Group by source
-        retl_by_source = {}
-        for model in retl_models:
-            source_id = model.get('Source ID', '')
-            if source_id not in retl_by_source:
-                retl_by_source[source_id] = []
-            retl_by_source[source_id].append(model)
-
-        md_content += f"### Reverse ETL by Source\n\n"
-        md_content += f"Models are distributed across **{len(retl_by_source)} warehouse source(s)**:\n\n"
-
-        for source_id, models in retl_by_source.items():
-            # Find source name
-            source = next((s for s in sources if s.get('Source ID') == source_id), None)
-            source_name = source.get('Source Name', source_id) if source else source_id
-
-            enabled_count = len([m for m in models if m.get('Enabled')])
-            md_content += f"- **{source_name}:** {len(models)} model(s) ({enabled_count} enabled)\n"
-
-        md_content += f"\n### Active Reverse ETL Models\n\n"
-
-        if enabled_retl:
-            md_content += "The following models are actively syncing data:\n\n"
-            for model in enabled_retl[:10]:  # Show top 10
-                model_name = model.get('Name', 'Unnamed Model')
-                source_id = model.get('Source ID', '')
-                source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                source_name = source.get('Source Name', source_id) if source else source_id
-                identifier = model.get('Query Identifier Column', 'N/A')
-
-                md_content += f"#### {model_name}\n"
-                md_content += f"- **Source:** {source_name}\n"
-                md_content += f"- **Identifier Column:** `{identifier}`\n"
-
-                # Add snippet of query (first 200 chars)
-                query = model.get('Query', '')
-                if query:
-                    query_snippet = query[:200].replace('\n', ' ')
-                    if len(query) > 200:
-                        query_snippet += '...'
-                    md_content += f"- **Query Preview:** `{query_snippet}`\n"
-
-                md_content += "\n"
-
-            if len(enabled_retl) > 10:
-                md_content += f"\n_...and {len(enabled_retl) - 10} more active models_\n"
-        else:
-            md_content += "No active Reverse ETL models found.\n"
-    else:
-        md_content += "No Reverse ETL models configured in this workspace.\n"
-
-    md_content += "\n---\n\n## Audience Segments\n\n"
-    md_content += f"This workspace has **{len(audiences)} audience segments** defined for user targeting and personalization.\n\n"
-
-    # Group audiences by status
-    enabled_audiences = [a for a in audiences if a.get('Enabled', '').lower() == 'true']
-
-    # Audience activation analysis (now available via Gateway API)
-    audiences_with_destinations = [a for a in enabled_audiences if int(a.get('Destination Count', 0)) > 0]
-    audiences_without_destinations = [a for a in enabled_audiences if int(a.get('Destination Count', 0)) == 0]
-
-    md_content += f"### Audience Activation Summary\n\n"
-    md_content += f"- **Total Active Audiences:** {len(enabled_audiences)}\n"
-    if enabled_audiences:
-        md_content += f"- **Activated to Destinations:** {len(audiences_with_destinations)} ({len(audiences_with_destinations)/len(enabled_audiences)*100:.1f}%)\n"
-        md_content += f"- **Not Activated:** {len(audiences_without_destinations)} ({len(audiences_without_destinations)/len(enabled_audiences)*100:.1f}%)\n\n"
-
-        if audiences_without_destinations:
-            md_content += f"⚠️ **Note:** {len(audiences_without_destinations)} active audience(s) are not connected to any destinations. These audiences are defined but not being used for activation.\n\n"
-
-    # Breakdown by destination count
-    dest_counts = {}
-    for aud in audiences:
-        count = int(aud.get('Destination Count', 0))
-        dest_counts[count] = dest_counts.get(count, 0) + 1
-
-    if dest_counts:
-        md_content += f"### Audiences by Destination Count\n\n"
-        for count in sorted(dest_counts.keys(), reverse=True):
-            audience_count = dest_counts[count]
-            if count == 0:
-                md_content += f"- **0 destinations:** {audience_count} audience(s) (not activated)\n"
-            elif count == 1:
-                md_content += f"- **1 destination:** {audience_count} audience(s)\n"
-            else:
-                md_content += f"- **{count} destinations:** {audience_count} audience(s)\n"
-        md_content += "\n"
-
-    md_content += f"### Active Audiences ({len(enabled_audiences)})\n\n"
-
-    for audience in sorted(enabled_audiences, key=lambda x: int(x.get('Size', 0) or 0), reverse=True)[:20]:
-        aud_name = audience.get('Name', '')
-        aud_size = audience.get('Size', '0')
-        aud_desc = audience.get('Description', 'No description')
-        aud_query = audience.get('Definition Query', '')
-        aud_destinations = audience.get('Connected Destinations', '')
-        aud_dest_count = int(audience.get('Destination Count', 0))
-
-        md_content += f"#### {aud_name}\n"
-        md_content += f"- **Size:** {int(aud_size):,} users\n"
-        md_content += f"- **Description:** {aud_desc}\n"
-
-        # Connected destinations (now available via Gateway API)
-        if aud_destinations:
-            md_content += f"- **Connected Destinations ({aud_dest_count}):** {aud_destinations}\n"
-        else:
-            md_content += f"- **Connected Destinations:** None (not activated to any destinations)\n"
-
-        # Add query definition (truncate if too long)
-        if aud_query:
-            query_snippet = aud_query[:300].replace('\n', ' ')
-            if len(aud_query) > 300:
-                query_snippet += '...'
-            md_content += f"- **Query:** `{query_snippet}`\n"
-
-        md_content += "\n"
-
-    if len(enabled_audiences) > 20:
-        md_content += f"\n_...and {len(enabled_audiences) - 20} more active audiences_\n"
-
-    # Only include computed traits section if workspace has access
-    if has_computed_traits_access:
-        md_content += "\n---\n\n## Computed Traits\n\n"
-        md_content += f"This workspace has **{len(computed_traits)} computed traits** that calculate and store user attributes based on event data and aggregations.\n\n"
-
-        if computed_traits:
-            # Count by type
-            from collections import Counter
-            type_counts = Counter()
-            for ct in computed_traits:
-                ct_type = ct.get('Type', 'Unknown')
-                type_counts[ct_type] += 1
-
-            md_content += "### Computed Trait Types\n\n"
-            for ct_type, count in type_counts.most_common():
-                md_content += f"- **{ct_type}:** {count} trait(s)\n"
-
-            # Show active computed traits
-            enabled_traits = [ct for ct in computed_traits if ct.get('Enabled', '').lower() == 'true']
-            md_content += f"\n### Active Computed Traits ({len(enabled_traits)})\n\n"
-
-            if enabled_traits:
-                md_content += "The following traits are actively computing:\n\n"
-                for ct in enabled_traits[:15]:  # Show top 15
-                    ct_name = ct.get('Name', '')
-                    ct_type = ct.get('Type', 'Unknown')
-                    ct_def = ct.get('Definition', '')
-
-                    md_content += f"#### {ct_name}\n"
-                    md_content += f"- **Type:** {ct_type}\n"
-
-                    # Show definition snippet (first 150 chars)
-                    if ct_def:
-                        def_snippet = ct_def[:150].replace('\n', ' ')
-                        if len(ct_def) > 150:
-                            def_snippet += '...'
-                        md_content += f"- **Definition:** `{def_snippet}`\n"
-
-                    md_content += "\n"
-
-                if len(enabled_traits) > 15:
-                    md_content += f"\n_...and {len(enabled_traits) - 15} more active computed traits_\n"
-            else:
-                md_content += "No active computed traits found.\n"
-        else:
-            md_content += "No computed traits configured in this workspace.\n"
-
-    # Journeys section
-    journeys_file = DATA_DIR / 'segment_journeys_audit.csv'
-    journeys = []
-    if journeys_file.exists():
-        with open(journeys_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            journeys = list(reader)
-
-    if journeys:
-        md_content += "\n---\n\n## Journeys & Campaigns\n\n"
-        md_content += f"This workspace has **{len(journeys)} journeys and campaigns** configured for customer engagement.\n\n"
-
-        # Count by type and state
-        from collections import Counter
-        type_counts = Counter()
-        state_counts = Counter()
-        for j in journeys:
-            j_type = j.get('Type', 'Unknown')
-            j_state = j.get('State', 'Unknown')
-            type_counts[j_type] += 1
-            state_counts[j_state] += 1
-
-        md_content += "### Overview\n\n"
-        for j_type, count in type_counts.most_common():
-            md_content += f"- **{j_type}s:** {count}\n"
-
-        md_content += "\n### By State\n\n"
-        for state, count in state_counts.most_common():
-            md_content += f"- **{state.title()}:** {count}\n"
-
-        # Show published journeys
-        published = [j for j in journeys if j.get('State', '').lower() == 'published']
-        if published:
-            md_content += f"\n### Published Journeys ({len(published)})\n\n"
-            for journey in published:
-                j_name = journey.get('Name', '')
-                j_type = journey.get('Type', 'Journey')
-                j_space = journey.get('Space', '')
-                j_version = journey.get('Current Version', '')
-                j_steps = journey.get('Step Count', '0')
-                j_dests = journey.get('Destinations', 'None')
-                j_created_by = journey.get('Created By', '')
-                j_definition = journey.get('Definition', '')
-
-                md_content += f"#### {j_name}\n"
-                md_content += f"- **Type:** {j_type}\n"
-                md_content += f"- **Space:** {j_space}\n"
-                md_content += f"- **Version:** {j_version}\n"
-                md_content += f"- **Steps:** {j_steps}\n"
-                md_content += f"- **Destinations:** {j_dests}\n"
-                md_content += f"- **Created By:** {j_created_by}\n"
-
-                # Parse and show journey definition structure
-                if j_definition:
-                    try:
-                        definition_obj = json.loads(j_definition)
-                        if definition_obj and isinstance(definition_obj, dict):
-                            states = definition_obj.get('states', {})
-                            if states:
-                                md_content += f"- **Journey Structure:** {len(states)} state(s)\n"
-                                # List state names and types
-                                state_types = []
-                                for state_id, state_data in states.items():
-                                    meta = state_data.get('meta', {})
-                                    state_type = meta.get('type', 'unknown')
-                                    state_name = meta.get('name', state_id)
-                                    state_types.append(f"{state_name} ({state_type})")
-                                if state_types:
-                                    md_content += f"  - States: {', '.join(state_types[:5])}"
-                                    if len(state_types) > 5:
-                                        md_content += f" ...and {len(state_types) - 5} more"
-                                    md_content += "\n"
-                    except:
-                        pass
-
-                md_content += "\n"
-
-        # Show draft journeys summary
-        drafts = [j for j in journeys if j.get('State', '').lower() == 'draft']
-        if drafts:
-            md_content += f"\n### Draft Journeys ({len(drafts)})\n\n"
-            md_content += "The following journeys are in draft state:\n\n"
-            for journey in drafts[:10]:  # Show first 10
-                j_name = journey.get('Name', '')
-                j_space = journey.get('Space', '')
-                j_steps = journey.get('Step Count', '0')
-                md_content += f"- **{j_name}** ({j_space}) - {j_steps} step(s)\n"
-            if len(drafts) > 10:
-                md_content += f"\n_...and {len(drafts) - 10} more draft journeys_\n"
-
-    md_content += "\n---\n\n## Event & Trait Coverage\n\n"
-    md_content += "### Top Events Referenced in Audiences\n\n"
-
-    top_events = summary.get('coverage', {}).get('top_events', {})
-    if top_events:
-        for event, count in list(top_events.items())[:10]:
-            md_content += f"- **{event}:** Used in {count} audience(s)\n"
-
-    md_content += "\n### Top Traits Referenced in Audiences\n\n"
-
-    top_traits = summary.get('coverage', {}).get('top_traits', {})
-    if top_traits:
-        for trait, count in list(top_traits.items())[:10]:
-            md_content += f"- **{trait}:** Used in {count} audience(s)\n"
-
-    md_content += "\n---\n\n## Use Case Analysis\n\n"
-    md_content += "### Inferred Use Cases\n\n"
-
-    # Infer use cases based on destinations
-    use_cases = []
-
-    if any('amplitude' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Product Analytics:** Using Amplitude for product usage analysis and user behavior tracking")
-
-    if any('google-analytics' in d.lower() or 'ga4' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Web Analytics:** Using Google Analytics for website traffic and conversion tracking")
-
-    if any('hubspot' in d.lower() or 'salesforce' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**CRM Integration:** Syncing customer data to CRM systems for sales and marketing")
-
-    if any('klaviyo' in d.lower() or 'braze' in d.lower() or 'iterable' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Email Marketing:** Powering personalized email campaigns and lifecycle messaging")
-
-    if any('facebook' in d.lower() or 'google-ads' in d.lower() or 'adwords' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Paid Advertising:** Syncing audiences to advertising platforms for targeted campaigns")
-
-    if any('redshift' in d.lower() or 'bigquery' in d.lower() or 'snowflake' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Data Warehousing:** Storing raw event data for custom analysis and reporting")
-
-    if any('s3' in d.lower() or 'gcs' in d.lower() for d in all_destinations.keys()):
-        use_cases.append("**Data Lake:** Archiving raw data for long-term storage and compliance")
-
-    for use_case in use_cases:
-        md_content += f"- {use_case}\n"
-
-    if not use_cases:
-        md_content += "- Based on destination configuration, this workspace appears to be used for general customer data collection and routing.\n"
-
-    md_content += "\n### Data Collection Strategy\n\n"
-
-    website_sources = len([s for s in sources if s.get('Type') == 'Website'])
-    server_sources = len([s for s in sources if s.get('Type') == 'Server'])
-    mobile_sources = len([s for s in sources if 'mobile' in s.get('Type', '').lower() or 'ios' in s.get('Type', '').lower() or 'android' in s.get('Type', '').lower()])
-
-    if website_sources > 0:
-        md_content += f"- **Web Tracking:** {website_sources} website source(s) tracking user behavior on web properties\n"
-    if server_sources > 0:
-        md_content += f"- **Server-Side Tracking:** {server_sources} server source(s) for backend event collection\n"
-    if mobile_sources > 0:
-        md_content += f"- **Mobile Tracking:** {mobile_sources} mobile app source(s) for iOS/Android tracking\n"
-
-    # Add Observability section
-    md_content += "\n---\n\n## Event Volume & Observability\n\n"
-
-    # Load event volume data
-    event_volume_file = DATA_DIR / 'segment_event_volumes.json'
-    if event_volume_file.exists():
-        try:
-            with open(event_volume_file, 'r', encoding='utf-8') as f:
-                event_volumes = json.load(f)
-
-            seven_day = event_volumes.get('seven_day', {}) if isinstance(event_volumes.get('seven_day'), dict) else {}
-            fourteen_day = event_volumes.get('fourteen_day', {}) if isinstance(event_volumes.get('fourteen_day'), dict) else {}
-            seven_day_by_source = event_volumes.get('seven_day_by_source', {}) if isinstance(event_volumes.get('seven_day_by_source'), dict) else {}
-
-            # Parse the nested data structure
-            # Structure: {data: {result: [{total: X, series: [{time, count}, ...]}]}}
-            seven_day_result = seven_day.get('data', {}).get('result', [])
-            fourteen_day_result = fourteen_day.get('data', {}).get('result', [])
-            seven_day_by_source_result = seven_day_by_source.get('data', {}).get('result', [])
-
-            # Get totals
-            seven_day_total = seven_day_result[0].get('total', 0) if len(seven_day_result) > 0 else 0
-            fourteen_day_total = fourteen_day_result[0].get('total', 0) if len(fourteen_day_result) > 0 else 0
-
-            # Get series data for daily breakdown
-            seven_day_series = seven_day_result[0].get('series', []) if len(seven_day_result) > 0 else []
-            fourteen_day_series = fourteen_day_result[0].get('series', []) if len(fourteen_day_result) > 0 else []
-
-            md_content += f"### Workspace Event Volume\n\n"
-            md_content += f"_Data collected from Segment Public API (same data used in the Observability dashboard)_\n\n"
-
-            md_content += f"**Last 7 Days:** {seven_day_total:,} events\n\n"
-            md_content += f"**Last 14 Days:** {fourteen_day_total:,} events\n\n"
-
-            # Calculate daily averages
-            if len(seven_day_series) > 0:
-                daily_avg_7d = seven_day_total / len(seven_day_series)
-                md_content += f"**Daily Average (7d):** {daily_avg_7d:,.0f} events/day\n\n"
-
-            if len(fourteen_day_series) > 0:
-                daily_avg_14d = fourteen_day_total / len(fourteen_day_series)
-                md_content += f"**Daily Average (14d):** {daily_avg_14d:,.0f} events/day\n\n"
-
-            # Analyze volume by source
-            md_content += f"### Event Volume by Source (Last 7 Days)\n\n"
-
-            # Parse source-level volumes
-            source_volumes = {}
-            for entry in seven_day_by_source_result:
-                if isinstance(entry, dict):
-                    source_info = entry.get('source', {})
-                    source_id = source_info.get('id', 'Unknown')
-                    source_name = source_info.get('name', source_id)
-                    volume = entry.get('total', 0)
-                    source_volumes[source_id] = {
-                        'name': source_name,
-                        'volume': volume
-                    }
-
-            # Sort by volume
-            sorted_sources = sorted(source_volumes.items(), key=lambda x: x[1]['volume'], reverse=True)
-
-            if sorted_sources and len(sorted_sources) > 0:
-                md_content += "Sources ranked by 7-day event volume:\n\n"
-
-                for source_id, source_data in sorted_sources[:15]:  # Top 15 sources
-                    source_name = source_data['name']
-                    volume = source_data['volume']
-
-                    # Calculate percentage of total
-                    percentage = (volume / seven_day_total * 100) if seven_day_total > 0 else 0
-
-                    md_content += f"- **{source_name}:** {volume:,} events ({percentage:.1f}%)\n"
-
-                if len(sorted_sources) > 15:
-                    remaining_volume = sum(v['volume'] for _, v in sorted_sources[15:])
-                    remaining_percentage = (remaining_volume / seven_day_total * 100) if seven_day_total > 0 else 0
-                    md_content += f"\n_...and {len(sorted_sources) - 15} more source(s) with {remaining_volume:,} events ({remaining_percentage:.1f}%)_\n"
-            else:
-                md_content += "_No source-level event volume data available for the 7-day period._\n"
-
-            # Identify low volume sources
-            if sorted_sources and len(sorted_sources) > 0:
-                md_content += f"\n### Low Volume Sources\n\n"
-                low_volume_threshold = 100  # Less than 100 events in 7 days
-                low_volume_sources = [(sid, sdata) for sid, sdata in sorted_sources if sdata['volume'] < low_volume_threshold]
-
-                if low_volume_sources:
-                    md_content += f"The following {len(low_volume_sources)} source(s) have very low event volume (< {low_volume_threshold} events in 7 days):\n\n"
-                    for source_id, source_data in low_volume_sources[:10]:
-                        md_content += f"- **{source_data['name']}:** {source_data['volume']:,} events\n"
-
-                    if len(low_volume_sources) > 10:
-                        md_content += f"\n_...and {len(low_volume_sources) - 10} more low-volume source(s)_\n"
-
-                    md_content += "\n⚠️ **Note:** Low-volume sources may indicate data collection issues, testing sources, or sources that are no longer actively used.\n"
-                else:
-                    md_content += "All sources have healthy event volumes (≥100 events in 7 days).\n"
-
-            # Analyze volume trends
-            md_content += f"\n### Volume Trends\n\n"
-
-            # Compare 7-day vs 14-day to detect trends
-            if fourteen_day_total > 0 and seven_day_total > 0:
-                # Calculate daily average for both periods
-                seven_day_daily = seven_day_total / 7
-                # For 14-day, we want the first 7 days (days 8-14)
-                fourteen_day_daily = (fourteen_day_total - seven_day_total) / 7 if fourteen_day_total > seven_day_total else 0
-
-                if fourteen_day_daily > 0:
-                    change_pct = ((seven_day_daily - fourteen_day_daily) / fourteen_day_daily) * 100
-
-                    if abs(change_pct) > 20:
-                        trend = "significant increase" if change_pct > 0 else "significant decrease"
-                        md_content += f"⚠️ **Volume Alert:** Event volume shows a **{trend}** of {abs(change_pct):.1f}% compared to the previous 7-day period.\n\n"
-
-                        if change_pct < 0:
-                            md_content += "This decline may indicate:\n"
-                            md_content += "- Data collection issues\n"
-                            md_content += "- Reduced user activity\n"
-                            md_content += "- Sources being disabled or misconfigured\n"
-                        else:
-                            md_content += "This increase may indicate:\n"
-                            md_content += "- New sources being enabled\n"
-                            md_content += "- Increased user activity\n"
-                            md_content += "- New tracking implementations\n"
-                    elif abs(change_pct) < 5:
-                        md_content += f"✅ Event volume is stable with only a {abs(change_pct):.1f}% change compared to the previous 7-day period.\n"
-                    else:
-                        trend_word = "increase" if change_pct > 0 else "decrease"
-                        md_content += f"Event volume shows a moderate {trend_word} of {abs(change_pct):.1f}% compared to the previous 7-day period.\n"
-
-            # Analyze daily volume variability (volatility)
-            md_content += f"\n### Daily Volume Variability\n\n"
-
-            if sorted_sources and len(sorted_sources) > 0:
-                # Calculate volatility for each source
-                source_volatility = []
-
-                for source_id, _ in sorted_sources[:15]:  # Top 15 sources
-                    source = next((s for s in sources if s.get('Source ID') == source_id), None)
-                    source_name = source.get('Source Name', source_id) if source else source_id
-
-                    # Get daily volumes for this source from seven_day_by_source
-                    daily_volumes = []
-                    for entry in seven_day_by_source_result:
-                        if isinstance(entry, dict):
-                            source_info = entry.get('source', {})
-                            if source_info.get('id') == source_id:
-                                # Get series data for this source
-                                series = entry.get('series', [])
-                                daily_volumes = [s.get('count', 0) for s in series if isinstance(s, dict)]
-                                break
-
-                    if len(daily_volumes) > 1:
-                        # Calculate average and standard deviation
-                        avg = sum(daily_volumes) / len(daily_volumes)
-                        if avg > 0:
-                            variance = sum((x - avg) ** 2 for x in daily_volumes) / len(daily_volumes)
-                            std_dev = variance ** 0.5
-                            coefficient_of_variation = (std_dev / avg) * 100  # Percentage
-
-                            # Calculate max swing
-                            max_swing = max(abs(x - avg) for x in daily_volumes) if daily_volumes else 0
-                            max_swing_pct = (max_swing / avg * 100) if avg > 0 else 0
-
-                            source_volatility.append({
-                                'name': source_name,
-                                'cv': coefficient_of_variation,
-                                'max_swing_pct': max_swing_pct,
-                                'avg': avg
-                            })
-
-                # Sort by coefficient of variation (highest variability first)
-                source_volatility.sort(key=lambda x: x['cv'], reverse=True)
-
-                if source_volatility:
-                    md_content += "Sources with the highest day-to-day volume variability:\n\n"
-
-                    for vol_data in source_volatility[:5]:  # Top 5 most volatile
-                        md_content += f"- **{vol_data['name']}:** "
-                        md_content += f"{vol_data['cv']:.1f}% variability, "
-                        md_content += f"max swing ±{vol_data['max_swing_pct']:.1f}% from average\n"
-
-                    md_content += "\n⚠️ **Note:** High variability may indicate:\n"
-                    md_content += "- Batch processing or scheduled jobs\n"
-                    md_content += "- Event-driven spikes (e.g., marketing campaigns, product launches)\n"
-                    md_content += "- Data quality issues or intermittent collection problems\n"
-                else:
-                    md_content += "Volume variability analysis not available for this time period.\n"
-            else:
-                md_content += "Not enough data to analyze volume variability.\n"
-        except Exception as obs_error:
-            print(f"Error processing observability data: {obs_error}")
-            md_content += f"\n⚠️ Error loading observability data: {str(obs_error)}\n"
-        except Exception as obs_error:
-            print(f"Error processing observability data: {obs_error}")
-            md_content += f"\n⚠️ Error loading observability data: {str(obs_error)}\n"
-    else:
-        md_content += "Event volume data not available. This data is collected during workspace audits.\n"
-
-    # Add detailed Engage/Personas sources analysis
-    md_content += "\n### Engage Sources & Space Mapping\n\n"
-    md_content += "**Note:** This workspace includes both custom sources (user-created) and Engage sources (system-generated by Segment's Personas/Engage product).\n\n"
-
-    # Analyze Personas sources and group by space
-    engage_sources = [s for s in sources if s.get('Type') == 'Personas']
-    total_engage_sources = len(engage_sources)
-
-    if total_engage_sources > 0:
-        # Group by space
-        engage_by_space = {}
-        unmapped_engage = []
-        for source in engage_sources:
-            space_name = source.get('Space')
-            if space_name:
-                if space_name not in engage_by_space:
-                    engage_by_space[space_name] = []
-                engage_by_space[space_name].append(source)
-            else:
-                unmapped_engage.append(source)
-
-        md_content += f"**Total Engage Sources:** {total_engage_sources}\n\n"
-        md_content += f"**Spaces with Engage Sources:** {len(engage_by_space)}\n\n"
-
-        md_content += "#### 🔑 Key Understanding: Shadow Sources\n\n"
-        md_content += "**Multiple Engage sources per space is NOT audience sprawl** - it's a technical architecture requirement called \"shadow sources\":\n\n"
-        md_content += "- Segment's architecture allows **only one destination type per source**\n"
-        md_content += "- When a Personas space sends audiences to multiple destination types (e.g., Facebook Ads, Google Ads, LinkedIn), Segment automatically creates multiple Engage sources\n"
-        md_content += "- Each shadow source handles a different destination type\n"
-        md_content += "- This is **by design** and indicates healthy multi-channel activation, not misconfiguration\n\n"
-
-        if engage_by_space:
-            md_content += "#### Engage Sources by Space:\n\n"
-            for space_name in sorted(engage_by_space.keys()):
-                sources_list = engage_by_space[space_name]
-                md_content += f"**{space_name}** ({len(sources_list)} shadow source{'s' if len(sources_list) > 1 else ''}):\n"
-                for source in sources_list:
-                    dest_count = source.get('Destination Count', 0)
-                    enabled = '✅' if source.get('Enabled') else '❌'
-                    md_content += f"  - {enabled} `{source.get('Source Name')}` → {dest_count} destination(s)\n"
-                md_content += "\n"
-
-        if unmapped_engage:
-            md_content += f"**Unmapped Engage Sources:** {len(unmapped_engage)} (unable to match to a space)\n\n"
-
-        md_content += "#### Engage Source Insights:\n\n"
-        md_content += "- The dashboard provides separate toggles on the **Observability** and **Connections** pages to view custom sources and Engage sources independently\n"
-        md_content += "- Engage sources are automatically created when using Personas features like computed traits, audiences, and journeys\n"
-        md_content += "- Each Engage source is mapped to its originating Personas space (shown in the **Space** column on the Sources page)\n"
-        md_content += "- Engage sources typically represent outbound data flows from Personas to downstream destinations\n"
-        md_content += "- **Volume from Engage sources reflects audience activation activity**, not raw event collection\n\n"
-    else:
-        md_content += "This workspace does not currently use Personas/Engage features.\n\n"
-
-    # Add Delivery Metrics section
-    md_content += "\n### Source-to-Destination Delivery Metrics\n\n"
-
-    delivery_metrics_file = DATA_DIR / 'segment_delivery_metrics.json'
-    if delivery_metrics_file.exists():
-        try:
-            with open(delivery_metrics_file, 'r', encoding='utf-8') as f:
-                delivery_metrics_data = json.load(f)
-
-            if delivery_metrics_data and len(delivery_metrics_data) > 0:
-                md_content += f"**Overview:** Delivery performance metrics for {len(delivery_metrics_data)} source-destination connection(s) over the last 7 days.\n\n"
-                md_content += "**Note:** RETL (warehouse) sources are excluded from delivery metrics for clarity. Only direct source-to-destination connections are included.\n\n"
-
-                # Calculate summary statistics
-                total_successes = 0
-                total_retries = 0
-                total_expired = 0
-                total_discarded = 0
-                connections_with_issues = []
-
-                for pair in delivery_metrics_data:
-                    metrics = pair.get('metrics', [])
-
-                    successes = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'successes'), 0)
-                    retries = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'retried'), 0)
-                    expired = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'expired'), 0)
-                    discarded = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'discarded'), 0)
-
-                    total_successes += successes
-                    total_retries += retries
-                    total_expired += expired
-                    total_discarded += discarded
-
-                    if retries > 0 or expired > 0 or discarded > 0:
-                        connections_with_issues.append({
-                            'source': pair.get('source_name', ''),
-                            'destination': pair.get('destination_name', ''),
-                            'successes': successes,
-                            'retries': retries,
-                            'expired': expired,
-                            'discarded': discarded
-                        })
-
-                # Summary metrics
-                md_content += f"#### Summary (Last 7 Days)\n\n"
-                md_content += f"- **Total Successful Deliveries:** {total_successes:,}\n"
-                md_content += f"- **Total Retries:** {total_retries:,}\n"
-                md_content += f"- **Expired Events:** {total_expired:,}\n"
-                md_content += f"- **Discarded Events:** {total_discarded:,}\n"
-
-                # Overall success rate
-                total_events = total_successes + total_expired + total_discarded
-                if total_events > 0:
-                    success_rate = (total_successes / total_events) * 100
-                    md_content += f"- **Overall Success Rate:** {success_rate:.2f}%\n"
-
-                md_content += "\n"
-
-                # Connections with issues
-                if connections_with_issues:
-                    md_content += f"#### ⚠️ Connections with Delivery Issues ({len(connections_with_issues)})\n\n"
-                    md_content += "The following source-destination connections experienced retries, expirations, or discarded events:\n\n"
-
-                    # Sort by severity (expired + discarded first, then retries)
-                    connections_with_issues.sort(key=lambda x: (x['expired'] + x['discarded'], x['retries']), reverse=True)
-
-                    for conn in connections_with_issues[:10]:  # Top 10 problematic connections
-                        md_content += f"**{conn['source']} → {conn['destination']}**\n"
-                        md_content += f"  - ✅ Successes: {conn['successes']:,}\n"
-                        if conn['retries'] > 0:
-                            md_content += f"  - 🔄 Retries: {conn['retries']:,}\n"
-                        if conn['expired'] > 0:
-                            md_content += f"  - ❌ Expired: {conn['expired']:,}\n"
-                        if conn['discarded'] > 0:
-                            md_content += f"  - ❌ Discarded: {conn['discarded']:,}\n"
-                        md_content += "\n"
-
-                    if len(connections_with_issues) > 10:
-                        md_content += f"_...and {len(connections_with_issues) - 10} more connection(s) with issues_\n\n"
-
-                    md_content += "**Possible Causes:**\n"
-                    md_content += "- **Retries:** Temporary network issues, rate limiting, or destination API timeouts\n"
-                    md_content += "- **Expired:** Events that couldn't be delivered within the retry window\n"
-                    md_content += "- **Discarded:** Invalid data format, schema mismatches, or destination rejections\n\n"
-                else:
-                    md_content += "#### ✅ Delivery Health\n\n"
-                    md_content += "All source-destination connections are delivering events successfully with no retries, expirations, or discarded events in the last 7 days.\n\n"
-
-                # Detailed connection breakdown
-                md_content += f"#### Detailed Connection Metrics\n\n"
-                md_content += "Complete breakdown of all source-destination connections:\n\n"
-
-                # Create comprehensive list with all metrics
-                all_connections = []
-                for pair in delivery_metrics_data:
-                    metrics = pair.get('metrics', [])
-
-                    success_metric = next((m for m in metrics if m.get('metricName') == 'successes'), {})
-                    successes = success_metric.get('total', 0)
-                    success_first = next((b.get('value', 0) for b in success_metric.get('breakdown', []) if b.get('metricName') == 'successes_on_first_attempt'), 0)
-                    success_retry = next((b.get('value', 0) for b in success_metric.get('breakdown', []) if b.get('metricName') == 'successes_after_retry'), 0)
-
-                    retries = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'retried'), 0)
-                    expired = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'expired'), 0)
-                    discarded = next((m.get('total', 0) for m in metrics if m.get('metricName') == 'discarded'), 0)
-
-                    time_metric = next((m for m in metrics if m.get('metricName') == 'time_to_success'), {})
-                    avg_latency = next((b.get('value', 0) for b in time_metric.get('breakdown', []) if b.get('metricName') == 'time_to_success_average'), 0)
-                    p95_latency = next((b.get('value', 0) for b in time_metric.get('breakdown', []) if b.get('metricName') == 'time_to_success_p95'), 0)
-
-                    total_attempts = successes + expired + discarded
-                    success_rate = (successes / total_attempts * 100) if total_attempts > 0 else 0
-
-                    all_connections.append({
-                        'source': pair.get('source_name', ''),
-                        'destination': pair.get('destination_name', ''),
-                        'successes': successes,
-                        'success_first': success_first,
-                        'success_retry': success_retry,
-                        'retries': retries,
-                        'expired': expired,
-                        'discarded': discarded,
-                        'success_rate': success_rate,
-                        'avg_latency': avg_latency,
-                        'p95_latency': p95_latency,
-                        'total_attempts': total_attempts
-                    })
-
-                # Sort by total volume (successes + failures)
-                all_connections.sort(key=lambda x: x['total_attempts'], reverse=True)
-
-                # Create markdown table
-                md_content += "| Source | Destination | Success Rate | Successes | First Attempt | After Retry | Retries | Expired | Discarded | Avg Latency (ms) |\n"
-                md_content += "|--------|-------------|-------------|-----------|---------------|-------------|---------|---------|-----------|------------------|\n"
-
-                for conn in all_connections:
-                    md_content += f"| {conn['source']} | {conn['destination']} | {conn['success_rate']:.1f}% | {conn['successes']:,} | {conn['success_first']:,} | {conn['success_retry']:,} | {conn['retries']:,} | {conn['expired']:,} | {conn['discarded']:,} | {int(conn['avg_latency'])} |\n"
-
-                md_content += "\n"
-
-                # Add insights section
-                md_content += "#### Key Insights\n\n"
-
-                # Highest success rate
-                high_success = [c for c in all_connections if c['success_rate'] >= 99]
-                if high_success:
-                    md_content += f"**Excellent Performance ({len(high_success)} connections):** {len(high_success)} connection(s) have ≥99% success rate\n\n"
-
-                # Connections needing attention
-                needs_attention = [c for c in all_connections if c['success_rate'] < 95]
-                if needs_attention:
-                    md_content += f"**Needs Attention ({len(needs_attention)} connections):** The following connections have <95% success rate:\n\n"
-                    for conn in needs_attention[:5]:
-                        md_content += f"- **{conn['source']} → {conn['destination']}:** {conn['success_rate']:.1f}% success rate "
-                        if conn['expired'] > 0:
-                            md_content += f"({conn['expired']:,} expired) "
-                        if conn['discarded'] > 0:
-                            md_content += f"({conn['discarded']:,} discarded) "
-                        md_content += "\n"
-                    md_content += "\n"
-
-                # High retry rate
-                high_retry = [c for c in all_connections if c['retries'] > c['successes'] * 0.1]
-                if high_retry:
-                    md_content += f"**High Retry Rate ({len(high_retry)} connections):** These connections have significant retry activity:\n\n"
-                    for conn in high_retry[:5]:
-                        retry_pct = (conn['retries'] / conn['total_attempts'] * 100) if conn['total_attempts'] > 0 else 0
-                        md_content += f"- **{conn['source']} → {conn['destination']}:** {retry_pct:.1f}% retry rate ({conn['retries']:,} retries)\n"
-                    md_content += "\n"
-                    md_content += "**Common Causes of High Retry Rates:**\n\n"
-                    md_content += "- **Destination API Rate Limits:** The destination may be rate limiting incoming requests, requiring Segment to retry\n"
-                    md_content += "- **Temporary Network Issues:** Intermittent connectivity problems between Segment and the destination\n"
-                    md_content += "- **Destination Service Degradation:** The destination service may be experiencing performance issues or downtime\n"
-                    md_content += "- **Authentication Issues:** API keys or credentials may be expiring or rotating, causing temporary failures\n"
-                    md_content += "- **Payload Size or Format Issues:** Events may occasionally exceed destination limits or fail schema validation\n\n"
-                    md_content += "_**Investigation Steps:** Check destination status pages, review API rate limits in destination documentation, and verify authentication credentials are current._\n\n"
-
-                # Slow connections (high latency)
-                slow_connections = [c for c in all_connections if c['avg_latency'] > 1000]
-                if slow_connections:
-                    md_content += f"**High Latency ({len(slow_connections)} connections):** These connections have >1 second average delivery time:\n\n"
-                    for conn in sorted(slow_connections, key=lambda x: x['avg_latency'], reverse=True)[:5]:
-                        md_content += f"- **{conn['source']} → {conn['destination']}:** {int(conn['avg_latency']):,}ms average latency\n"
-                    md_content += "\n"
-            else:
-                md_content += "No delivery metrics data available. This may indicate no active source-destination connections during the collection period.\n\n"
-
-        except Exception as e:
-            print(f"Error loading delivery metrics: {e}")
-            md_content += f"⚠️ Error loading delivery metrics data: {str(e)}\n\n"
-    else:
-        md_content += "Delivery metrics data not available. This data is collected during workspace audits.\n\n"
-
-    md_content += "\n---\n\n## Segment Architecture & Best Practices Context\n\n"
-    md_content += """### Understanding Segment's Data Flow
-
-**Segment Architecture Overview:**
-
-Segment acts as a customer data platform (CDP) that collects, transforms, and routes customer data. The architecture consists of:
-
-1. **Sources** - Data collection points:
-   - **Client-side sources** (Analytics.js, iOS/Android SDKs): Track user interactions in web/mobile apps
-   - **Server-side sources** (Node, Python, Go, etc. SDKs): Track backend events and server-side actions
-   - **Cloud sources** (Stripe, Zendesk, etc.): Import data from third-party tools
-   - **Engage/Personas sources**: System-generated sources for audience activation
-
-2. **Segment Processing Layer**:
-   - Event validation and schema enforcement
-   - Identity resolution (user stitching across devices)
-   - Data transformations and enrichment
-   - Filtering and sampling
-
-3. **Destinations** - Data activation endpoints:
-   - **Analytics tools** (Amplitude, Mixpanel, Google Analytics)
-   - **Marketing tools** (Facebook Ads, Google Ads, email platforms)
-   - **Data warehouses** (Snowflake, BigQuery, Redshift)
-   - **CRM systems** (Salesforce, HubSpot)
-
-4. **Personas/Engage Layer** (if enabled):
-   - **Identity Resolution**: Unifies customer profiles across touchpoints
-   - **Audiences**: SQL-based segmentation engine for user cohorts
-   - **Computed Traits**: Real-time user attributes calculated from events
-   - **Journeys**: Multi-step, event-triggered campaigns
-   - **Reverse ETL**: Syncs warehouse data back into operational tools
-
-### Key Segment Concepts
-
-**Event Tracking Methodology:**
-
-Segment uses a structured event format based on the Segment Spec:
-- **Track**: User actions (e.g., "Product Viewed", "Order Completed")
-- **Page**: Page views in web applications
-- **Screen**: Screen views in mobile applications
-- **Identify**: User profile updates
-- **Group**: Account/organization associations
-- **Alias**: Link anonymous users to identified users
-
-**Identity Resolution:**
-
-Segment's identity graph merges user profiles across devices and touchpoints:
-- Anonymous users are tracked via `anonymousId`
-- Identified users have a `userId` (set via `.identify()`)
-- Cross-device tracking via ID merging
-- Personas enhances this with SQL-based identity rules
-
-**Data Quality Best Practices:**
-
-1. **Naming Conventions:**
-   - Use Object-Action format for events (e.g., "Product Clicked", "Cart Viewed")
-   - Be consistent with casing (recommend Title Case for events)
-   - Avoid generic names like "Clicked Button" - be specific
-
-2. **Property Hygiene:**
-   - Use consistent property names across events
-   - Send the same data types for the same properties
-   - Document property definitions in a tracking plan
-
-3. **Event Volume Management:**
-   - Implement client-side sampling for high-volume events if needed
-   - Use server-side events for critical business logic
-   - Archive or disable unused sources
-
-4. **Destination Configuration:**
-   - Enable only necessary destinations per source
-   - Use destination filters to reduce unnecessary data sends
-   - Monitor delivery metrics for each connection
-
-### Personas/Engage Architecture
-
-**Audience Architecture:**
-
-Audiences in Segment are SQL-based cohorts that:
-- Run on a compute cluster analyzing your event stream
-- Can use real-time events or batch-computed traits
-- Support complex boolean logic and time-based conditions
-- Sync to destinations as user list updates
-
-**Shadow Sources Explained:**
-
-When you activate audiences to multiple destination types (e.g., Facebook Ads + Google Ads + email platforms), Segment automatically creates multiple "Engage" sources—one per destination type. This is because:
-- Segment's architecture limitation: one source can only send to one destination type
-- Each shadow source handles a specific activation channel
-- This is **by design**, not a misconfiguration
-- More shadow sources = more diverse multi-channel activation (which is good!)
-
-**Computed Traits:**
-
-Computed traits are user-level attributes calculated in real-time from events:
-- **Event counter**: Count occurrences (e.g., "cart_adds_last_30_days")
-- **Aggregation**: Sum values (e.g., "lifetime_revenue")
-- **Most/least frequent**: Track patterns (e.g., "most_viewed_category")
-- **First/last**: Capture temporal data (e.g., "first_purchase_date")
-
-**Journeys vs Campaigns:**
-
-- **Journeys**: Multi-step, branching workflows with wait conditions
-- **Campaigns**: Single-send, one-time audience broadcasts
-- Both use the same underlying state machine architecture
-
-### Common Anti-Patterns to Avoid
-
-**Data Collection Anti-Patterns:**
-
-1. **Over-instrumentation**: Tracking every possible user action creates noise
-2. **Under-documentation**: Events without clear definitions lead to confusion
-3. **Inconsistent implementation**: Different naming across platforms breaks analysis
-4. **Missing context**: Events without proper properties limit segmentation
-5. **Client-side only tracking**: Critical business events should use server-side
-
-**Audience Anti-Patterns:**
-
-1. **Over-segmentation**: Too many narrow audiences increases complexity
-2. **Stale audiences**: Audiences no one uses should be archived
-3. **Duplicate logic**: Same SQL in multiple audiences suggests need for computed trait
-4. **No testing**: Always test audiences in draft before publishing
-5. **Missing descriptions**: Future team members need context
-
-**Destination Anti-Patterns:**
-
-1. **Send everything everywhere**: Use destination filters to reduce noise
-2. **No monitoring**: Set up alerts for delivery failures
-3. **Ignore latency**: High latency destinations impact user experience
-4. **Single point of failure**: Have backup destinations for critical data
-5. **Warehouse as only destination**: Real-time tools need direct connections
-
-### Implementation Maturity Assessment
-
-Based on this workspace, evaluate maturity across these dimensions:
-
-**Level 1 - Basic Tracking:**
-- Single source collecting basic page views and clicks
-- Few or no destinations configured
-- No audience segmentation
-- Manual data exports
-
-**Level 2 - Multi-Tool Integration:**
-- Multiple sources across platforms
-- Several destinations for analytics and marketing
-- Basic audiences for broad segments
-- Some automation via destinations
-
-**Level 3 - Advanced Segmentation:**
-- Comprehensive source coverage (web, mobile, server)
-- Strategic destination routing with filters
-- Computed traits for user enrichment
-- Dynamic audience segmentation
-- Reverse ETL for warehouse activation
-
-**Level 4 - Full CDP Maturity:**
-- Unified identity graph across all touchpoints
-- Real-time personalization via audiences
-- Multi-step journey orchestration
-- Predictive traits and ML-powered segments
-- Complete event governance and data quality monitoring
-
-"""
-
-    # Add workspace-specific insights and recommendations
-    md_content += "\n---\n\n## Workspace-Specific Insights & Recommendations\n\n"
-
-    # Calculate some key metrics for recommendations
-    total_sources_count = len(sources)
-    enabled_sources_count = len([s for s in sources if s.get('Enabled')])
-    total_audiences_count = len(audiences)
-    enabled_audiences_count = len([a for a in audiences if a.get('Enabled', '').lower() == 'true'])
-    empty_audiences_count = len([a for a in audiences if int(a.get('Size', 0)) == 0 and a.get('Enabled', '').lower() == 'true'])
-
-    engaged_enabled = len([s for s in sources if s.get('Is Engage') and s.get('Enabled')])
-    custom_sources_enabled = enabled_sources_count - engaged_enabled
-
-    md_content += "### Workspace Health Score\n\n"
-
-    # Source health
-    if enabled_sources_count > 0:
-        source_health = "✅ Active" if custom_sources_enabled > 0 else "⚠️ No active custom sources"
-        md_content += f"**Source Health:** {source_health}\n"
-        md_content += f"- {custom_sources_enabled} active custom source(s) collecting data\n"
-        if engaged_enabled > 0:
-            md_content += f"- {engaged_enabled} active Engage source(s) for audience activation\n"
-        md_content += "\n"
-
-    # Audience health
-    if total_audiences_count > 0:
-        audience_health = "✅ Active" if enabled_audiences_count > 0 else "⚠️ No enabled audiences"
-        md_content += f"**Audience Health:** {audience_health}\n"
-        md_content += f"- {enabled_audiences_count} of {total_audiences_count} audiences are enabled\n"
-        if empty_audiences_count > 0:
-            md_content += f"- ⚠️ {empty_audiences_count} enabled audience(s) are empty - consider reviewing query logic\n"
-        md_content += "\n"
-
-    # Activation health
-    activated_audiences = [a for a in audiences if int(a.get('Destination Count', 0)) > 0]
-    if total_audiences_count > 0:
-        activation_rate = (len(activated_audiences) / total_audiences_count) * 100
-        if activation_rate > 75:
-            activation_health = "✅ Strong"
-        elif activation_rate > 50:
-            activation_health = "⚠️ Moderate"
-        else:
-            activation_health = "❌ Weak"
-        md_content += f"**Activation Health:** {activation_health}\n"
-        md_content += f"- {len(activated_audiences)} of {total_audiences_count} audiences ({activation_rate:.0f}%) are connected to destinations\n"
-        unactivated = total_audiences_count - len(activated_audiences)
-        if unactivated > 0:
-            md_content += f"- {unactivated} audience(s) are not activated to any destination - consider if they're still needed\n"
-        md_content += "\n"
-
-    md_content += "### Priority Recommendations\n\n"
-
-    # Generate smart recommendations based on the data
-    recommendations = []
-
-    # Check for empty audiences
-    if empty_audiences_count > 3:
-        recommendations.append(f"**Review Empty Audiences**: {empty_audiences_count} enabled audiences have 0 users. This may indicate issues with audience queries, missing event data, or audiences that are no longer relevant. Consider auditing these audiences.")
-
-    # Check for unactivated audiences
-    if total_audiences_count > 0 and (len(activated_audiences) / total_audiences_count) < 0.6:
-        recommendations.append(f"**Low Audience Activation Rate**: Only {(len(activated_audiences) / total_audiences_count * 100):.0f}% of audiences are connected to destinations. Audiences that aren't being activated may not be providing value. Review and either activate them or archive them.")
-
-    # Check for disabled sources
-    disabled_sources = total_sources_count - enabled_sources_count
-    if disabled_sources > 5:
-        recommendations.append(f"**Source Cleanup**: {disabled_sources} sources are disabled. Consider archiving sources that are no longer needed to reduce workspace clutter and improve maintainability.")
-
-    # Check for Personas usage
-    if total_audiences_count > 10 and len(computed_traits) == 0:
-        recommendations.append("**Computed Traits Opportunity**: With {} audiences, you may have repeated logic across audience definitions. Consider using Computed Traits to centralize common calculations (e.g., 'lifetime_revenue', 'days_since_last_purchase') and simplify audience queries.".format(total_audiences_count))
-
-    # Check for journey usage
-    if len(journeys) == 0 and total_audiences_count > 5:
-        recommendations.append("**Journey/Campaign Opportunity**: You have {} audiences but no active journeys or campaigns. Consider using Journeys to orchestrate multi-step engagement flows based on your audience segments.".format(total_audiences_count))
-
-    # Check for RETL usage
-    if len(retl_models) == 0 and len([s for s in sources if 'warehouse' in s.get('Category', '').lower() or 'warehouse' in s.get('Type', '').lower()]) > 0:
-        recommendations.append("**Reverse ETL Opportunity**: You have warehouse connections but no Reverse ETL models. Reverse ETL can sync enriched warehouse data (ML scores, LTV predictions, support tickets) back into operational tools for activation.")
-
-    if recommendations:
-        for i, rec in enumerate(recommendations, 1):
-            md_content += f"{i}. {rec}\n\n"
-    else:
-        md_content += "No critical issues identified. This workspace appears to be well-configured.\n\n"
-
-    md_content += "### Best Practice Checklist\n\n"
-    md_content += """Use this checklist to evaluate workspace health:
-
-**Data Collection:**
-- [ ] All business-critical user actions have corresponding Track events
-- [ ] Events follow consistent naming conventions (Object-Action format)
-- [ ] Event properties are documented in a tracking plan
-- [ ] Both client-side and server-side sources are implemented where appropriate
-- [ ] User identification (`.identify()` calls) happens at key moments (login, signup)
-
-**Audience Strategy:**
-- [ ] Audiences have clear, descriptive names and descriptions
-- [ ] No duplicate audience logic - common calculations use Computed Traits
-- [ ] Enabled audiences all have > 0 users
-- [ ] Audiences are connected to at least one destination (if intended for activation)
-- [ ] Audience SQL is optimized (uses indexes, avoids unnecessary joins)
-
-**Destination Management:**
-- [ ] Only necessary destinations are enabled per source
-- [ ] Destination filters prevent unnecessary data sends
-- [ ] Delivery metrics are monitored (success rate > 95%)
-- [ ] Critical destinations have monitoring/alerts configured
-- [ ] Destination latency is acceptable (< 1 second for real-time use cases)
-
-**Data Quality:**
-- [ ] Source schemas are defined and enforced
-- [ ] Event volume is stable (no unexpected drops or spikes)
-- [ ] No sources with 0 events over extended periods
-- [ ] Identity resolution is working (users being properly merged)
-- [ ] Data types are consistent across properties
-
-**Governance:**
-- [ ] Tracking plan is maintained and accessible
-- [ ] Team members understand Segment's role in the data stack
-- [ ] Unused sources/audiences/destinations are archived
-- [ ] Access controls are properly configured
-- [ ] Regular audits are performed (quarterly recommended)
-
-"""
-
-    md_content += "\n---\n\n## How to Use This Analysis\n\n"
-    md_content += """This comprehensive workspace audit provides:
-
-**For Data Engineers:**
-- Source-to-destination connection mapping
-- Delivery metrics and performance insights
-- Event volume trends and anomaly detection
-- Infrastructure health indicators
-
-**For Product/Analytics Teams:**
-- Audience segmentation strategy overview
-- Event coverage and usage patterns
-- Computed trait definitions
-- User behavior tracking completeness
-
-**For Marketing Teams:**
-- Journey and campaign inventory
-- Audience activation rates
-- Destination routing for each campaign
-- Multi-channel orchestration setup
-
-**For Leadership:**
-- CDP maturity assessment
-- Data quality and governance status
-- Use case alignment evaluation
-- Resource utilization insights
-
-**Recommended Actions:**
-
-1. **Share with stakeholders**: This document provides a snapshot of your CDP configuration
-2. **Identify quick wins**: Look for unactivated audiences, empty audiences, or misconfigured connections
-3. **Plan improvements**: Use the recommendations section to prioritize next quarter's work
-4. **Monitor trends**: Run this audit quarterly to track improvements over time
-5. **Document decisions**: Add context to this analysis explaining why certain configurations exist
-
-**For AI/LLM Analysis:**
-
-When using an AI tool to analyze this document:
-- Ask about specific optimization opportunities based on your use case
-- Request explanations of complex configurations or patterns
-- Get recommendations for audience strategies
-- Explore data quality issues and their root causes
-- Generate implementation plans for improvements
-- Compare against industry best practices
-
----
-
-## Additional Resources
-
-**Segment Documentation:**
-- Segment Spec: https://segment.com/docs/connections/spec/
-- Personas Documentation: https://segment.com/docs/engage/
-- Destination Catalog: https://segment.com/docs/connections/destinations/
-- Best Practices: https://segment.com/docs/getting-started/implementation-guide/
-
-**This Analysis:**
-- Generated from Segment Public API and Gateway API data
-- Reflects point-in-time state - configurations may have changed since audit
-- Some features (event schemas, profiles, debugger) are not accessible via API
-- For complete visibility, review data in Segment UI alongside this analysis
-
-For questions about this audit or Segment configuration, consult your Customer Success Manager or Segment documentation.
-"""
-
-    # Create response
-    output = BytesIO(md_content.encode('utf-8'))
-    output.seek(0)
-
-    from flask import send_file
-    return send_file(
-        output,
-        mimetype='text/markdown',
-        as_attachment=True,
-        download_name=f'{customer_name}_workspace_analysis.md'
-    )
-
-@app.route('/export-workspace-analysis')
-def export_workspace_analysis():
-    """Export sources data in Workspace Analysis format (Excel)"""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, colors
-    from openpyxl.styles.borders import Border, Side
-    from io import BytesIO
-
-    workspace_slug = session.get('workspace_slug', 'workspace')
-    customer_name = session.get('customer_name', workspace_slug)
-
-    # Load sources data
-    sources_file = DATA_DIR / 'segment_sources_audit.csv'
-    if not sources_file.exists():
-        return "No sources data found. Please run an audit first.", 404
-
-    import csv
-    sources = []
-    with open(sources_file, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        sources = list(reader)
-
-    # Create workbook
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Workspace Analysis"
-
-    # Header styling
-    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF", size=11)
-
-    # Define headers matching template
-    headers = [
-        'Event Source Name',
-        'Type',
-        'Connection',
-        'DEV / PROD',
-        'Destinations Receiving',
-        'Event Descriptions (Brief Summary) / Source Schema Link',
-        'Use Case Notes'
-    ]
-
-    # Write headers
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(1, col, header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-
-    # Write data rows
-    for row_idx, source in enumerate(sources, 2):
-        # Event Source Name (with hyperlink if workspace slug available)
-        source_name = source.get('Source Name', '')
-        source_slug = source.get('Slug', '')
-        cell = ws.cell(row_idx, 1, source_name)
-
-        if workspace_slug and source_slug:
-            source_url = f'https://app.segment.com/{workspace_slug}/sources/{source_slug}/schema'
-            cell.hyperlink = source_url
-            cell.font = Font(color=colors.BLUE, underline='single')
-
-        # Type
-        ws.cell(row_idx, 2, source.get('Type', ''))
-
-        # Connection (Enabled/Disabled)
-        enabled = source.get('Enabled', '').lower() == 'true'
-        ws.cell(row_idx, 3, 'Enabled' if enabled else 'Disabled')
-
-        # DEV / PROD (left blank as requested)
-        ws.cell(row_idx, 4, '')
-
-        # Destinations Receiving
-        destinations = source.get('Connected Destinations', '')
-        ws.cell(row_idx, 5, destinations)
-
-        # Event Descriptions (left blank - no event data available)
-        ws.cell(row_idx, 6, '')
-
-        # Use Case Notes (left blank)
-        ws.cell(row_idx, 7, '')
-
-    # Auto-size columns
-    column_widths = {
-        1: 40,  # Event Source Name (with link)
-        2: 20,  # Type
-        3: 12,  # Connection
-        4: 12,  # DEV / PROD
-        5: 60,  # Destinations Receiving
-        6: 50,  # Event Descriptions
-        7: 30   # Use Case Notes
-    }
-
-    for col, width in column_widths.items():
-        ws.column_dimensions[ws.cell(1, col).column_letter].width = width
-
-    # Set row height for header
-    ws.row_dimensions[1].height = 30
-
-    # Save to BytesIO
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    from flask import send_file
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=f'{customer_name}_Workspace_Analysis.xlsx'
-    )
-
-@app.route('/api/event-volumes')
-def event_volumes():
-    """Get event volumes for workspace"""
-    from datetime import datetime, timedelta
-
-    # Get API token and workspace config from session or require re-entry
-    api_token = session.get('api_token')
-    workspace_id = session.get('workspace_id')
-    skip_ssl = session.get('skip_ssl', False)
-
-    if not api_token:
-        return jsonify({'error': 'API token not found. Please run audit first.'}), 400
-
-    try:
-        auditor = SegmentAuditor(api_token, workspace_id=workspace_id, skip_ssl_verify=skip_ssl)
-
-        # Calculate time ranges
-        now = datetime.utcnow()
-        fourteen_days_ago = now - timedelta(days=14)
-
-        # Format as ISO 8601
-        end_time = now.isoformat() + 'Z'
-        fourteen_day_start = fourteen_days_ago.isoformat() + 'Z'
-
-        # Get 14-day volume grouped by sourceId (single API call for efficiency)
-        # Frontend can filter this to 7 days if needed
-        fourteen_day_by_source = auditor.get_event_volumes(fourteen_day_start, end_time, granularity='DAY', group_by=['sourceId'])
-
-        return jsonify({
-            'fourteen_day_by_source': fourteen_day_by_source
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return render_template('gateway_profile_insights.html', customer_name=customer_name)
 
 @app.route('/audit_data/<path:filename>')
 def serve_data(filename):
@@ -3358,696 +1396,63 @@ def serve_data(filename):
         return send_file(file_path)
     return f"File not found: {filename}", 404
 
-@app.route('/api/summary')
-def api_summary():
-    """API endpoint for summary data"""
-    summary_file = DATA_DIR / 'audit_summary.json'
-    if summary_file.exists():
-        with open(summary_file, 'r') as f:
-            data = json.load(f)
-        return jsonify(data)
-    return jsonify({"error": "Summary file not found"}), 404
-
-@app.route('/reset')
-def reset():
-    """Reset audit status and clear session"""
-    global audit_status
-    audit_status = {
-        'running': False,
-        'progress': 0,
-        'message': 'Ready',
-        'complete': False,
-        'error': None
-    }
-    # Clear session data
-    session.clear()
-    return redirect(url_for('index'))
-
-@app.route('/upload-schemas', methods=['POST'])
-def upload_schemas():
-    """Handle CSV upload for tracking plan generator"""
-    import uuid
+@app.route('/api/source-schema/<source_slug>')
+def get_source_schema_api(source_slug):
+    """Get source event schema via Gateway API"""
     try:
-        project_name = request.form.get('project_name', 'Project').strip()
-        files = request.files.getlist('schema_files')
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
 
-        if not files or len(files) == 0:
-            return jsonify({'error': 'No files uploaded'}), 400
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Session expired. Please run a new audit.'}), 401
 
-        # Create unique upload session ID
-        upload_id = str(uuid.uuid4())
-        upload_path = UPLOAD_DIR / upload_id
-        upload_path.mkdir(exist_ok=True)
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+        schema_data = client.get_source_schema(source_slug)
 
-        # Save uploaded files to disk
-        saved_files = []
-        for file in files:
-            if file.filename == '':
-                continue
-
-            if not file.filename.endswith('.csv'):
-                return jsonify({'error': f'Invalid file type: {file.filename}. Only CSV files are allowed.'}), 400
-
-            # Save file to disk
-            file_path = upload_path / file.filename
-            file.save(file_path)
-
-            saved_files.append(file.filename)
-
-        if len(saved_files) == 0:
-            return jsonify({'error': 'No valid CSV files found'}), 400
-
-        # Store only metadata in session
-        session.permanent = True  # Extend session lifetime
-        session['project_name'] = project_name
-        session['upload_id'] = upload_id
-        session['schema_filenames'] = saved_files
-
-        return jsonify({'success': True, 'redirect': '/tracking-plan-results'})
+        return jsonify(schema_data)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def analyze_tracking_plan(schemas_data):
-    """Analyze uploaded schemas and generate tracking plan recommendations"""
-    import csv
-    from io import StringIO
-    from collections import defaultdict, Counter
-
-    # Thresholds
-    MIN_EVENT_VOLUME = 1000
-    LOW_PROPERTY_VOLUME_THRESHOLD = 0.1  # 10% of event volume
-
-    events_data = defaultdict(lambda: {
-        'event_volume': 0,
-        'properties': {},
-        'last_seen': None,
-        'sources': []  # Track which files this event appears in
-    })
-
-    # Track cross-file analysis
-    event_sources = defaultdict(set)  # event_name -> set of source filenames
-    property_events = defaultdict(set)  # property_name -> set of event names it appears in
-
-    # Parse all uploaded CSVs
-    for schema in schemas_data:
-        source_name = schema['filename']
-        content = schema['content']
-        reader = csv.DictReader(StringIO(content))
-
-        for row in reader:
-            event_name = row.get('Event Name', '').strip()
-            property_name = row.get('Property Name', '').strip()
-            total_volume = int(row.get('Total', 0))
-            last_seen = row.get('Last Seen At (UTC)', '')
-            planned = row.get('Planned', 'unplanned')
-
-            if not event_name:
-                continue
-
-            # Track which source this event appears in
-            event_sources[event_name].add(source_name)
-
-            # Track event-level data
-            if property_name == ' ' or property_name == '':
-                # This is the event itself
-                events_data[event_name]['event_volume'] = total_volume
-                events_data[event_name]['last_seen'] = last_seen
-                if source_name not in events_data[event_name]['sources']:
-                    events_data[event_name]['sources'].append(source_name)
-            else:
-                # This is a property
-                events_data[event_name]['properties'][property_name] = {
-                    'volume': total_volume,
-                    'planned': planned
-                }
-                # Track property across events
-                property_events[property_name].add(event_name)
-
-    # Generate recommendations
-    results = []
-    discard_count = 0
-
-    for event_name, data in sorted(events_data.items(), key=lambda x: x[1]['event_volume'], reverse=True):
-        event_volume = data['event_volume']
-        properties = data['properties']
-        property_count = len(properties)
-
-        # Determine recommendation
-        if event_volume == 0:
-            # Track zero volume events but don't include in results
-            discard_count += 1
-            continue
-        elif event_volume < MIN_EVENT_VOLUME:
-            recommendation = 'Review'
-            flag = '🟡 Low Volume'
-            notes = f'Event volume below minimum threshold ({MIN_EVENT_VOLUME:,})'
-        else:
-            # Check property volumes
-            low_volume_props = []
-            zero_volume_props = []
-
-            for prop_name, prop_data in properties.items():
-                prop_volume = prop_data['volume']
-                if prop_volume == 0:
-                    zero_volume_props.append(prop_name)
-                elif event_volume > 0 and (prop_volume / event_volume) < LOW_PROPERTY_VOLUME_THRESHOLD:
-                    low_volume_props.append(prop_name)
-
-            if len(zero_volume_props) > 0 or len(low_volume_props) > 0:
-                recommendation = 'Review'
-                flag = '🟡 Property Issues'
-                notes = f'{len(zero_volume_props)} properties with zero volume, {len(low_volume_props)} with low volume (<10% of event)'
-            else:
-                recommendation = 'Include'
-                flag = '✅ Good'
-                notes = 'Event and properties have healthy volume'
-
-        results.append({
-            'event_name': event_name,
-            'event_volume': event_volume,
-            'property_count': property_count,
-            'recommendation': recommendation,
-            'flag': flag,
-            'notes': notes,
-            'last_seen': data['last_seen'],
-            'properties': properties,
-            'sources': data['sources']
-        })
-
-    # Generate crossover analysis
-    crossover_analysis = {
-        'shared_events': [],
-        'shared_properties': []
-    }
-
-    # Shared events (appear in multiple files)
-    if len(schemas_data) > 1:
-        for event_name, sources in event_sources.items():
-            if len(sources) > 1:
-                event_data = events_data[event_name]
-                crossover_analysis['shared_events'].append({
-                    'event_name': event_name,
-                    'source_count': len(sources),
-                    'sources': sorted(list(sources)),
-                    'event_volume': event_data['event_volume'],
-                    'property_count': len(event_data['properties'])
-                })
-
-        # Sort by source count (most shared first)
-        crossover_analysis['shared_events'].sort(key=lambda x: x['source_count'], reverse=True)
-
-        # Shared properties (appear in multiple events)
-        for property_name, events in property_events.items():
-            if len(events) > 1 and property_name.strip():  # Ignore empty property names
-                crossover_analysis['shared_properties'].append({
-                    'property_name': property_name,
-                    'event_count': len(events),
-                    'events': sorted(list(events))[:10]  # Show up to 10 events
-                })
-
-        # Sort by event count (most shared first)
-        crossover_analysis['shared_properties'].sort(key=lambda x: x['event_count'], reverse=True)
-
-    return results, crossover_analysis, discard_count
-
-@app.route('/export-tracking-plan-excel')
-def export_tracking_plan_excel():
-    """Export tracking plan as Excel with multiple sheets"""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from io import BytesIO
-
-    project_name = session.get('project_name', 'Project')
-    upload_id = session.get('upload_id')
-    schema_filenames = session.get('schema_filenames', [])
-
-    if not upload_id or not schema_filenames:
-        return "No data to export", 404
-
-    upload_path = UPLOAD_DIR / upload_id
-
-    # Load files from disk
-    uploaded_schemas = []
-    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
-
-    for filename in schema_filenames:
-        file_path = upload_path / filename
-        if not file_path.exists():
-            continue
-
-        content = None
-        with open(file_path, 'rb') as f:
-            raw_content = f.read()
-
-        for encoding in encodings:
-            try:
-                content = raw_content.decode(encoding)
-                break
-            except (UnicodeDecodeError, AttributeError):
-                continue
-
-        if content:
-            uploaded_schemas.append({'filename': filename, 'content': content})
-
-    if not uploaded_schemas:
-        return "No data to export", 404
-
-    # Analyze schemas
-    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
-
-    # Create Excel workbook
-    wb = Workbook()
-    wb.remove(wb.active)  # Remove default sheet
-
-    # Create Summary sheet
-    ws_summary = wb.create_sheet("Summary")
-
-    # Header styling
-    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
-
-    # Summary headers
-    headers = ['Flag', 'Event Name', 'Event Volume', 'Properties', 'Recommendation', 'Notes']
-    for col, header in enumerate(headers, 1):
-        cell = ws_summary.cell(1, col, header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    # Summary data
-    for row_idx, event in enumerate(tracking_plan, 2):
-        ws_summary.cell(row_idx, 1, event['flag'])
-        ws_summary.cell(row_idx, 2, event['event_name'])
-        ws_summary.cell(row_idx, 3, event['event_volume'])
-        ws_summary.cell(row_idx, 4, event['property_count'])
-        ws_summary.cell(row_idx, 5, event['recommendation'])
-        ws_summary.cell(row_idx, 6, event['notes'])
-
-    # Auto-size columns
-    for col in ws_summary.columns:
-        max_length = 0
-        column = col[0].column_letter
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 50)
-        ws_summary.column_dimensions[column].width = adjusted_width
-
-    # Create individual event sheets with property details
-    for event in tracking_plan[:50]:  # Limit to 50 sheets (Excel limit is 255 but be reasonable)
-        # Sanitize sheet name (Excel has 31 char limit and doesn't allow certain chars)
-        sheet_name = event['event_name'][:31]
-        sheet_name = sheet_name.replace('/', '-').replace('\\', '-').replace('*', '').replace('?', '').replace(':', '-').replace('[', '').replace(']', '')
-
-        try:
-            ws_event = wb.create_sheet(sheet_name)
-        except:
-            continue  # Skip if sheet name is invalid
-
-        # Event details
-        ws_event.cell(1, 1, "Event Name").font = Font(bold=True)
-        ws_event.cell(1, 2, event['event_name'])
-        ws_event.cell(2, 1, "Event Volume").font = Font(bold=True)
-        ws_event.cell(2, 2, event['event_volume'])
-        ws_event.cell(3, 1, "Recommendation").font = Font(bold=True)
-        ws_event.cell(3, 2, event['recommendation'])
-
-        # Properties table
-        ws_event.cell(5, 1, "Property Name").font = header_font
-        ws_event.cell(5, 1).fill = header_fill
-        ws_event.cell(5, 2, "Volume").font = header_font
-        ws_event.cell(5, 2).fill = header_fill
-        ws_event.cell(5, 3, "Planned").font = header_font
-        ws_event.cell(5, 3).fill = header_fill
-
-        # Property data
-        properties = event.get('properties', {})
-        for prop_idx, (prop_name, prop_data) in enumerate(properties.items(), 6):
-            ws_event.cell(prop_idx, 1, prop_name)
-            ws_event.cell(prop_idx, 2, prop_data['volume'])
-            ws_event.cell(prop_idx, 3, prop_data['planned'])
-
-        # Auto-size columns
-        for col in ws_event.columns:
-            max_length = 0
-            column = col[0].column_letter
-            for cell in col:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws_event.column_dimensions[column].width = adjusted_width
-
-    # Save to BytesIO
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    from flask import send_file
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=f'{project_name}_tracking_plan.xlsx'
-    )
-
-@app.route('/export-segment-tracking-plan-csv')
-def export_segment_tracking_plan_csv():
-    """Export tracking plan as Segment-compatible CSV for direct import"""
-    import csv
-    from io import StringIO
-
-    project_name = session.get('project_name', 'Project')
-    upload_id = session.get('upload_id')
-    schema_filenames = session.get('schema_filenames', [])
-
-    if not upload_id or not schema_filenames:
-        return "No data to export", 404
-
-    upload_path = UPLOAD_DIR / upload_id
-
-    # Load files from disk
-    uploaded_schemas = []
-    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
-
-    for filename in schema_filenames:
-        file_path = upload_path / filename
-        if not file_path.exists():
-            continue
-
-        content = None
-        with open(file_path, 'rb') as f:
-            raw_content = f.read()
-
-        for encoding in encodings:
-            try:
-                content = raw_content.decode(encoding)
-                break
-            except (UnicodeDecodeError, AttributeError):
-                continue
-
-        if content:
-            uploaded_schemas.append({'filename': filename, 'content': content})
-
-    if not uploaded_schemas:
-        return "No data to export", 404
-
-    # Analyze schemas
-    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
-
-    # Generate Segment tracking plan CSV
-    output = StringIO()
-    writer = csv.writer(output)
-
-    # Header row
-    writer.writerow([
-        'Version',
-        'Event Type',
-        'Event Name',
-        'Property Name',
-        'Source',
-        'Description',
-        'Labels',
-        'Property Status',
-        'Property Data Type',
-        'Allowed Property Values',
-        'Enum Values'
-    ])
-
-    # Include all events that meet volume threshold (≥1,000)
-    MIN_EVENT_VOLUME = 1000
-    significant_events = [e for e in tracking_plan if e['event_volume'] >= MIN_EVENT_VOLUME]
-
-    for event in significant_events:
-        event_name = event['event_name']
-        properties = event.get('properties', {})
-        event_volume = event['event_volume']
-
-        # Event row (no property name)
-        writer.writerow([
-            '1',                        # Version
-            'Track',                    # Event Type
-            event_name,                 # Event Name
-            '',                         # Property Name (empty for event row)
-            'Schema Import',            # Source
-            '',                         # Description
-            '',                         # Labels
-            '',                         # Property Status
-            '',                         # Property Data Type
-            '',                         # Allowed Property Values
-            ''                          # Enum Values
-        ])
-
-        # Filter to only healthy properties (no zero volume, no low volume issues)
-        healthy_properties = []
-
-        for prop_name, prop_data in properties.items():
-            prop_volume = prop_data['volume']
-
-            # Include if property has volume and is at least 10% of event volume
-            if prop_volume > 0 and (prop_volume / event_volume) >= 0.1:
-                healthy_properties.append((prop_name, prop_data))
-
-        # Property rows
-        for prop_name, prop_data in healthy_properties:
-            # Determine property status based on planned field
-            prop_status = '' if prop_data['planned'] == 'unplanned' else ''
-
-            writer.writerow([
-                '1',                    # Version
-                'Track',                # Event Type
-                event_name,             # Event Name
-                prop_name,              # Property Name
-                'Schema Import',        # Source
-                '',                     # Description
-                '',                     # Labels
-                prop_status,            # Property Status
-                'string',               # Property Data Type (default to string)
-                '',                     # Allowed Property Values
-                ''                      # Enum Values
-            ])
-
-    # Return as downloadable CSV
-    from flask import Response
-    output.seek(0)
-    return Response(
-        output.getvalue(),
-        mimetype='text/csv',
-        headers={
-            'Content-Disposition': f'attachment; filename={project_name}_segment_import.csv'
-        }
-    )
-
-@app.route('/export-crossover-analysis')
-def export_crossover_analysis():
-    """Export cross-source analysis (shared events and properties) to Excel"""
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from io import BytesIO
-
-    project_name = session.get('project_name', 'Project')
-    upload_id = session.get('upload_id')
-    schema_filenames = session.get('schema_filenames', [])
-
-    if not upload_id or not schema_filenames:
-        return "No data to export", 404
-
-    upload_path = UPLOAD_DIR / upload_id
-
-    # Load files from disk
-    uploaded_schemas = []
-    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
-
-    for filename in schema_filenames:
-        file_path = upload_path / filename
-        if not file_path.exists():
-            continue
-
-        content = None
-        with open(file_path, 'rb') as f:
-            raw_content = f.read()
-
-        for encoding in encodings:
-            try:
-                content = raw_content.decode(encoding)
-                break
-            except (UnicodeDecodeError, AttributeError):
-                continue
-
-        if content:
-            uploaded_schemas.append({'filename': filename, 'content': content})
-
-    if not uploaded_schemas:
-        return "No data to export", 404
-
-    # Analyze schemas
-    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
-
-    # Create Excel workbook
-    wb = Workbook()
-    wb.remove(wb.active)  # Remove default sheet
-
-    # Header styling
-    header_fill = PatternFill(start_color="667EEA", end_color="667EEA", fill_type="solid")
-    header_font = Font(bold=True, color="FFFFFF")
-
-    # Sheet 1: Shared Events
-    ws_events = wb.create_sheet("Shared Events")
-
-    # Headers
-    event_headers = ['Event Name', 'Source Count', 'Source Files', 'Event Volume', 'Property Count']
-    for col, header in enumerate(event_headers, 1):
-        cell = ws_events.cell(1, col, header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    # Data
-    for row_idx, event in enumerate(crossover_analysis['shared_events'], 2):
-        ws_events.cell(row_idx, 1, event['event_name'])
-        ws_events.cell(row_idx, 2, event['source_count'])
-        ws_events.cell(row_idx, 3, ', '.join(event['sources']))
-        ws_events.cell(row_idx, 4, event['event_volume'])
-        ws_events.cell(row_idx, 5, event['property_count'])
-
-    # Auto-size columns
-    for col in ws_events.columns:
-        max_length = 0
-        column = col[0].column_letter
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 60)
-        ws_events.column_dimensions[column].width = adjusted_width
-
-    # Sheet 2: Shared Properties
-    ws_props = wb.create_sheet("Shared Properties")
-
-    # Headers
-    prop_headers = ['Property Name', 'Event Count', 'Events Using This Property']
-    for col, header in enumerate(prop_headers, 1):
-        cell = ws_props.cell(1, col, header)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='center', vertical='center')
-
-    # Data
-    for row_idx, prop in enumerate(crossover_analysis['shared_properties'], 2):
-        ws_props.cell(row_idx, 1, prop['property_name'])
-        ws_props.cell(row_idx, 2, prop['event_count'])
-        # Join all events (not just the first 10 shown in UI)
-        ws_props.cell(row_idx, 3, ', '.join(prop['events']))
-
-    # Auto-size columns
-    for col in ws_props.columns:
-        max_length = 0
-        column = col[0].column_letter
-        for cell in col:
-            try:
-                if len(str(cell.value)) > max_length:
-                    max_length = len(str(cell.value))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 60)
-        ws_props.column_dimensions[column].width = adjusted_width
-
-    # Save to BytesIO
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-
-    from flask import send_file
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name=f'{project_name}_crossover_analysis.xlsx'
-    )
-
-@app.route('/tracking-plan-results')
-def tracking_plan_results():
-    """Display tracking plan generator results"""
-    project_name = session.get('project_name', 'Project')
-    upload_id = session.get('upload_id')
-    schema_filenames = session.get('schema_filenames', [])
-
-    if not upload_id or not schema_filenames:
-        return redirect(url_for('index'))
-
-    upload_path = UPLOAD_DIR / upload_id
-
-    # Load files from disk with encoding detection
-    uploaded_schemas = []
-    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
-
-    for filename in schema_filenames:
-        file_path = upload_path / filename
-        if not file_path.exists():
-            continue
-
-        # Try different encodings
-        content = None
-        with open(file_path, 'rb') as f:
-            raw_content = f.read()
-
-        for encoding in encodings:
-            try:
-                content = raw_content.decode(encoding)
-                break
-            except (UnicodeDecodeError, AttributeError):
-                continue
-
-        if content:
-            uploaded_schemas.append({
-                'filename': filename,
-                'content': content
-            })
-
-    if not uploaded_schemas:
-        return redirect(url_for('index'))
-
-    # Analyze schemas
-    tracking_plan, crossover_analysis, zero_volume_count = analyze_tracking_plan(uploaded_schemas)
-
-    # Calculate stats (zero volume events are already filtered out)
-    total_events = len(tracking_plan)
-    include_count = len([e for e in tracking_plan if e['recommendation'] == 'Include'])
-    review_count = len([e for e in tracking_plan if e['recommendation'] == 'Review'])
-
-    return render_template('tracking_plan_results.html',
-                         project_name=project_name,
-                         schemas=uploaded_schemas,
-                         tracking_plan=tracking_plan,
-                         crossover_analysis=crossover_analysis,
-                         stats={
-                             'total': total_events,
-                             'include': include_count,
-                             'review': review_count,
-                             'discard': zero_volume_count
-                         })
-
-# ============================================================================
-# MAIN
-# ============================================================================
+@app.route('/api/audience-definition/<space_id>/<audience_id>')
+def get_audience_definition_api(space_id, audience_id):
+    """Get audience definition via Gateway API"""
+    try:
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
+
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Session expired. Please run a new audit.'}), 401
+
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+        definition_data = client.get_audience_definition(space_id, audience_id)
+
+        return jsonify(definition_data)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/reset')
+def reset():
+    """Reset and start new audit"""
+    session.clear()
+    return redirect('/')
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
-    print("=" * 80)
-    print("Segment Audit Dashboard")
-    print("=" * 80)
-    print("\n🚀 Starting server...")
-    print(f"📁 Data directory: {DATA_DIR.absolute()}")
-    print(f"\n📊 Dashboard URL: http://localhost:{port}")
-    print("\n💡 Press Ctrl+C to stop the server")
-    print("=" * 80 + "\n")
+    port = int(os.environ.get('PORT', 5003))
+
+    print("="*80)
+    print("Gateway API Audit Dashboard")
+    print("="*80)
+    print()
+    print("🚀 Starting server...")
+    print(f"📁 Data directory: {DATA_DIR}")
+    print()
+    print(f"📊 Dashboard URL: http://localhost:{port}")
+    print()
+    print("💡 This version uses Gateway API (GraphQL)")
+    print("💡 Press Ctrl+C to stop the server")
+    print("="*80)
+    print()
 
     app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

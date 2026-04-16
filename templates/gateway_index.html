@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gateway API Audit - The Future of Segment Auditing</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="landing-page">
+    <div class="container">
+        <div class="form-card">
+            <div class="header">
+                <h1>🔬 Gateway API Audit Dashboard</h1>
+                <p class="subtitle">Next-generation auditing powered by Gateway API</p>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; margin-top: 30px;">
+                <!-- Left Column: Form -->
+                <div>
+                    <div style="text-align: center; margin-bottom: 25px;">
+                        <h2 style="margin: 0;">Start Gateway Audit</h2>
+                        <p style="color: #718096; font-size: 0.95rem; margin-top: 8px;">No Public API token required!</p>
+                    </div>
+
+                    <form id="auditForm">
+                        <div class="form-group">
+                            <label for="workspace_slug">Workspace Slug *</label>
+                            <input type="text"
+                                   id="workspace_slug"
+                                   name="workspace_slug"
+                                   placeholder="e.g., axios"
+                                   required>
+                            <small>Found in URL: app.segment.com/<strong>workspace-slug</strong>/...</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gateway_token">Gateway JWT Token *</label>
+                            <textarea id="gateway_token"
+                                      name="gateway_token"
+                                      rows="6"
+                                      placeholder="Paste your Gateway JWT token here (starts with eyJhbGciOi...)..."
+                                      required
+                                      style="font-family: 'Courier New', monospace; font-size: 0.85rem;"></textarea>
+                            <small>
+                                <strong>How to get:</strong> Open DevTools (F12) → Application → Cookies → Find <code>auth_key</code> cookie → Copy value
+                            </small>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary" id="submitBtn">
+                                <span class="btn-text">🚀 Start Gateway Audit</span>
+                                <span class="btn-loading" style="display: none;">
+                                    <span class="spinner"></span> Starting...
+                                </span>
+                            </button>
+                        </div>
+
+                        <div id="errorMessage" class="error-message" style="display: none;"></div>
+                    </form>
+
+                    <div class="help-section" style="margin-top: 25px;">
+                        <h3>📚 Quick Help</h3>
+                        <div class="help-grid">
+                            <div class="help-item">
+                                <strong>Get JWT Token:</strong>
+                                <p>Login to Segment → DevTools → Application → Cookies → auth_key</p>
+                            </div>
+                            <div class="help-item">
+                                <strong>Token Security:</strong>
+                                <p>Token is only used locally in your browser - never sent to external servers</p>
+                            </div>
+                            <div class="help-item">
+                                <strong>Token Expiry:</strong>
+                                <p>JWT tokens typically expire after 7 days - just grab a fresh one</p>
+                            </div>
+                            <div class="help-item">
+                                <strong>Test Environment:</strong>
+                                <p>This runs on port 5003 for testing Gateway API capabilities</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Features -->
+                <div style="padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; height: fit-content; position: sticky; top: 20px;">
+                    <h3 style="margin-top: 0; color: white;">📊 What's Included</h3>
+                    <p style="margin-bottom: 25px; opacity: 0.95; font-size: 0.95rem;">Complete visibility into your Segment workspace</p>
+
+                    <div style="display: flex; flex-direction: column; gap: 20px;">
+                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">📈 Dashboard Page</div>
+                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">Overview of sources and audiences with visual charts and key metrics</p>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">🔌 Source Connection Details</div>
+                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">
+                                • All sources with status and types<br>
+                                • Destination and warehouse connections<br>
+                                • Event schemas with allowed/blocked counts<br>
+                                • Planned vs unplanned events
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">👥 Audience Page</div>
+                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">
+                                • All audiences with size and status<br>
+                                • Folder organization<br>
+                                • Destination mappings<br>
+                                • Audience definitions (SQL/conditions)
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('auditForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('submitBtn');
+            const btnText = submitBtn.querySelector('.btn-text');
+            const btnLoading = submitBtn.querySelector('.btn-loading');
+            const errorDiv = document.getElementById('errorMessage');
+
+            const workspaceSlug = document.getElementById('workspace_slug').value.trim();
+            const gatewayToken = document.getElementById('gateway_token').value.trim();
+
+            if (!workspaceSlug || !gatewayToken) {
+                errorDiv.textContent = 'Please provide workspace slug and Gateway token';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Basic validation - JWT should start with eyJ
+            if (!gatewayToken.startsWith('eyJ')) {
+                errorDiv.textContent = 'Gateway token should start with "eyJ" - make sure you copied the full token';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            errorDiv.style.display = 'none';
+            submitBtn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-flex';
+
+            try {
+                const response = await fetch('/start-audit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workspace_slug: workspaceSlug,
+                        gateway_token: gatewayToken,
+                        customer_name: workspaceSlug
+                    })
+                });
+
+                if (response.ok) {
+                    window.location.href = '/progress';
+                } else {
+                    const error = await response.json();
+                    errorDiv.textContent = error.error || 'Failed to start audit';
+                    errorDiv.style.display = 'block';
+                    submitBtn.disabled = false;
+                    btnText.style.display = 'inline';
+                    btnLoading.style.display = 'none';
+                }
+            } catch (error) {
+                errorDiv.textContent = 'Network error: ' + error.message;
+                errorDiv.style.display = 'block';
+                submitBtn.disabled = false;
+                btnText.style.display = 'inline';
+                btnLoading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
