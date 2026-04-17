@@ -134,17 +134,21 @@
             try {
                 const response = await fetch('/audit_data/gateway_journeys.csv');
 
+                // If file not found (404) or no data, show the nice "no journeys" banner
                 if (!response.ok) {
-                    throw new Error('Journeys data not found');
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('noJourneysMessage').style.display = 'block';
+                    document.getElementById('content').style.display = 'block';
+                    return;
                 }
 
                 const csvText = await response.text();
                 const allData = parseCSV(csvText);
 
-                // Filter to only show Journey type (exclude campaigns)
-                allJourneys = allData.filter(item => item['Type'] === 'Journey');
+                // Show both Journey and Campaign types (they're both journeys in Segment UI)
+                allJourneys = allData.filter(item => item['Type'] === 'Journey' || item['Type'] === 'Campaign');
 
-                console.log('Loaded journeys:', allJourneys.length);
+                console.log('Loaded journeys and campaigns:', allJourneys.length);
 
                 if (allJourneys.length === 0) {
                     document.getElementById('loading').style.display = 'none';
@@ -233,11 +237,11 @@
         }
 
         function updateStats() {
-            const journeys = allJourneys.filter(j => j['Type'] === 'Journey');
-            document.getElementById('journeyCount').textContent = journeys.length;
+            // Count all journeys (both Journey and Campaign types)
+            document.getElementById('journeyCount').textContent = allJourneys.length;
 
             const allDests = new Set();
-            journeys.forEach(j => {
+            allJourneys.forEach(j => {
                 const dests = j['Destinations'] || '';
                 if (dests) {
                     dests.split(',').forEach(d => allDests.add(d.trim()));
@@ -260,12 +264,13 @@
 
                 const state = journey['State'] || '';
                 const version = journey['Current Version'] || '';
+                const type = journey['Type'] || '';
 
-                // Build state badge with journey emoji and version info
+                // Build state badge with emoji based on type
                 let stateBadge = '';
-                const typePrefix = '🚀 ';
+                const typePrefix = type === 'Campaign' ? '📧 ' : '🚀 ';
 
-                if (state.toLowerCase().includes('published') || state.toLowerCase().includes('running') || state.toLowerCase().includes('active')) {
+                if (state.toLowerCase().includes('published') || state.toLowerCase().includes('running') || state.toLowerCase().includes('active') || state.toLowerCase().includes('live')) {
                     const versionInfo = version ? ` v${Math.floor(parseFloat(version))}` : '';
                     stateBadge = `<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">${typePrefix}PUBLISHED${versionInfo}</span>`;
                 } else if (state.toLowerCase().includes('draft') || state.toLowerCase().includes('paused')) {
