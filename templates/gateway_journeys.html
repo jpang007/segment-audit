@@ -73,10 +73,18 @@
                     </div>
                 </div>
 
-                <div id="noJourneysMessage" style="display: none; text-align: center; padding: 40px; background: #fff3cd; border: 2px solid #ffc107; border-radius: 12px; margin: 20px 0;">
-                    <div style="font-size: 3rem; margin-bottom: 15px;">⚠️</div>
-                    <h3 style="color: #856404; margin-bottom: 10px; font-size: 1.2rem;">No Journeys Found</h3>
-                    <p style="color: #856404; font-size: 0.95rem;">This workspace doesn't have any journeys or campaigns, or the Engage feature may not be enabled.</p>
+                <div id="noJourneysMessage" style="display: none; text-align: center; padding: 50px 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; margin: 20px 0; box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);">
+                    <div style="font-size: 4rem; margin-bottom: 20px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">🚀</div>
+                    <h3 style="color: white; margin-bottom: 15px; font-size: 1.5rem; font-weight: 600;">No Journeys in This Workspace</h3>
+                    <p style="color: rgba(255,255,255,0.9); font-size: 1rem; line-height: 1.6; max-width: 600px; margin: 0 auto 20px;">
+                        This workspace doesn't have any Journeys or Campaigns configured yet.
+                    </p>
+                    <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 12px; max-width: 500px; margin: 0 auto; backdrop-filter: blur(10px);">
+                        <p style="color: white; font-size: 0.9rem; margin: 0; line-height: 1.5;">
+                            <strong>💡 Note:</strong> Journeys are part of Segment Engage (Twilio Engage).<br>
+                            If you have Engage enabled, Journeys will appear here once created.
+                        </p>
+                    </div>
                 </div>
 
                 <div class="table-container" id="journeysTable" style="display: none;">
