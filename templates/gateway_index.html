@@ -42,7 +42,7 @@
                                       required
                                       style="font-family: 'Courier New', monospace; font-size: 0.85rem;"></textarea>
                             <small>
-                                <strong>How to get:</strong> Open DevTools (F12) → Application → Cookies → Find <code>auth_key</code> cookie → Copy value
+                                <strong>How to get:</strong> Open DevTools (F12) → Application → Cookies → Find <code>auth_token</code> cookie → Copy value
                             </small>
                         </div>
 
@@ -63,7 +63,7 @@
                         <div class="help-grid">
                             <div class="help-item">
                                 <strong>Get JWT Token:</strong>
-                                <p>Login to Segment → DevTools → Application → Cookies → auth_key</p>
+                                <p>Login to Segment → DevTools → Application → Cookies → auth_token</p>
                             </div>
                             <div class="help-item">
                                 <strong>Token Security:</strong>
@@ -84,31 +84,48 @@
                 <!-- Right Column: Features -->
                 <div style="padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; height: fit-content; position: sticky; top: 20px;">
                     <h3 style="margin-top: 0; color: white;">📊 What's Included</h3>
-                    <p style="margin-bottom: 25px; opacity: 0.95; font-size: 0.95rem;">Complete visibility into your Segment workspace</p>
+                    <p style="margin-bottom: 25px; opacity: 0.95; font-size: 0.95rem;">Complete visibility into your Segment workspace via Gateway API</p>
 
-                    <div style="display: flex; flex-direction: column; gap: 20px;">
-                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">📈 Dashboard Page</div>
-                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">Overview of sources and audiences with visual charts and key metrics</p>
+                    <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📈 Dashboard Overview</div>
+                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">Sources, audiences, and journeys summary with quick navigation</p>
                         </div>
 
-                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">🔌 Source Connection Details</div>
-                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">
-                                • All sources with status and types<br>
-                                • Destination and warehouse connections<br>
-                                • Event schemas with allowed/blocked counts<br>
-                                • Planned vs unplanned events
+                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🔌 Sources</div>
+                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
+                                Source inventory, connections, event schemas, labels
                             </p>
                         </div>
 
-                        <div style="background: rgba(255,255,255,0.15); padding: 18px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 8px; font-size: 1rem;">👥 Audience Page</div>
-                            <p style="font-size: 0.85rem; margin: 0; opacity: 0.9; line-height: 1.5;">
-                                • All audiences with size and status<br>
-                                • Folder organization<br>
-                                • Destination mappings<br>
-                                • Audience definitions (SQL/conditions)
+                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">👥 Audiences</div>
+                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
+                                Size, status, destinations, SQL definitions, folder organization
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🚀 Journeys & Campaigns</div>
+                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
+                                Engage workflows, version tracking, destinations, state (live/draft)
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
+                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🔍 Profile Insights</div>
+                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
+                                • Identity Resolution config (ID types, priority, limits)<br>
+                                • Workspace entitlements (Personas, Profiles, Linked Audiences)<br>
+                                • Space sources (inbound/outbound)<br>
+                                • Profile violations monitoring
+                            </p>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.3);">
+                            <p style="font-size: 0.8rem; margin: 0; opacity: 0.95; line-height: 1.4;">
+                                ✨ <strong>All features include:</strong> Search, filtering, sorting, pagination, and CSV exports
                             </p>
                         </div>
                     </div>
