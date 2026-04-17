@@ -15,38 +15,64 @@ The Segment Audit Dashboard provides a unified interface to analyze, visualize, 
 ## 🎯 Key Features
 
 ### 📊 Dashboard Overview
-- **Sources Summary**: Track all data sources with connection details
-- **Audiences Overview**: View audience distribution and status across spaces
-- **Quick Navigation**: Easy access to all audit sections
+- **Workspace Summary**: At-a-glance view of sources, audiences, and journeys count
+- **Quick Navigation**: Easy access to all audit sections with visual icons
+- **Audit Metadata**: Track when audits were run and by which workspace
 
 ### 👥 Audiences
-- **Audience Catalog**: Complete list with size, status, destinations
-- **Space Organization**: Filter and group by Segment spaces
-- **Definition Viewer**: Click to see audience logic and SQL
-- **Advanced Filtering**: Search, filter by space, sort by various criteria
-- **CSV Export**: Download filtered audience data
+- **Complete Catalog**: View all audiences with size, enabled status, and destinations
+- **Space Organization**: Filter and group audiences by Segment spaces
+- **Definition Viewer**: Click any audience to see SQL definition in modal
+- **Destination Tracking**: See which destinations each audience syncs to with counts
+- **Advanced Filtering**: Search by name, filter by space, sort by size/status/dates
+- **Pagination**: 50 audiences per page for optimal performance
+- **CSV Export**: Download filtered audience data with all metadata
 
 ### 🔌 Sources
-- **Source Inventory**: Complete catalog with types, categories, and labels
-- **Connection Mapping**: View connected destinations and warehouses
-- **Event Schema**: Click sources to see event collections and properties
-- **Status Tracking**: Filter by enabled/disabled status
-- **CSV Export**: Export source data with connections
+- **Source Inventory**: Complete catalog with source types, categories, and labels
+- **Connection Mapping**: View connected destinations and warehouses for each source
+- **Event Schema Viewer**: Click any source to see full event collections and properties
+- **Status Tracking**: Filter by enabled/disabled status with visual badges
+- **Label Analysis**: See all source labels (e.g., environment, team tags)
+- **Search & Sort**: Find sources by name, filter by category
+- **CSV Export**: Export source data with connection details
 
 ### 🚀 Journeys & Campaigns
-- **Journey Tracking**: View all Journeys with state and version info
-- **Destination Mapping**: See which destinations each journey sends to
-- **Status Overview**: Track published vs draft journeys
-- **Search & Filter**: Find journeys by name or space
-- **CSV Export**: Download journey configurations
+- **Journey Tracking**: View all Journeys and Campaigns with version history
+- **Type Distinction**: Visual differentiation (🚀 for Journeys, 📧 for Campaigns)
+- **State Badges**: Published (green), Draft (gray), Live (green) with version numbers
+- **Destination Mapping**: See which destinations each journey/campaign sends to
+- **Space Organization**: Filter journeys by space, search by name
+- **Version Control**: Track current version and max version for each journey
+- **Creator Attribution**: See who created and last updated each journey
+- **CSV Export**: Download journey configurations with full metadata
 
 ### 🔍 Profile Insights
-- **Identity Resolution Config**: View ID types, priority, and limits per space
-- **Workspace Entitlements**: Check Personas, Profiles, and Linked Audiences features
-- **Space Sources**: Inbound data sources feeding into each space
-- **Profile Debuggers**: Outbound Personas sources sending to destinations
-- **Profile Violations**: Track identity resolution violations and errors
-- **CSV Export**: Export identity configs and violations
+- **Identity Resolution Configuration**:
+  - View ID types configured per space (user_id, email, anonymous_id, etc.)
+  - See priority order (1, 2, 3) for identity resolution hierarchy
+  - Check limits (e.g., "1 ever", "6 monthly") for each identifier type
+  - Track which identifiers have been seen in actual data
+  - Sorted by space and priority for easy review
+
+- **Workspace Entitlements**:
+  - Check if Personas is enabled
+  - Verify Profiles feature status
+  - See Linked Audiences availability
+
+- **Space Sources Analysis**:
+  - **Inbound Sources**: Data sources feeding into each space
+  - **Profile Debuggers**: Outbound Personas sources with destination mappings
+  - Status tracking (enabled/disabled) for each source
+  - Separate tables for clear organization
+
+- **Profile Violations & Errors** (⚠️ Work in Progress):
+  - Track identity resolution violations (last 7 days)
+  - See dropped identifiers and exceeded limits
+  - Filter by space and violation type
+  - Limited to 100 most recent violations per space
+  
+- **CSV Exports**: Separate exports for identity configs, sources, and violations
 
 ## 🚀 Quick Start
 
@@ -113,15 +139,38 @@ The app uses environment variable `PORT` which Render provides automatically.
 
 ## 📊 Data Collected
 
-The dashboard collects the following data via Gateway API:
+The dashboard collects the following data via Gateway GraphQL API:
 
-- **Sources**: ID, name, status, connections, labels
-- **Audiences**: ID, name, size, status, destinations, definitions
-- **Journeys**: Name, state, version, destinations
-- **Campaigns**: Name, state, destinations
-- **Identity Resolution**: ID types, priority, limits, violations
-- **Space Sources**: Inbound sources and outbound debuggers
-- **Workspace Entitlements**: Personas, Profiles features
+### Core Workspace Data
+- **Sources**: ID, name, slug, status, type, category, labels, connected destinations, connected warehouses, created date
+- **Audiences**: ID, name, key, enabled status, size, space, folder, destinations, destination count, definitions (SQL)
+- **Spaces**: All Personas spaces in the workspace with metadata
+
+### Engage (Journeys)
+- **Journeys**: ID, name, description, state (LIVE/DRAFT), execution status, version info, destinations, action counts (email/SMS/WhatsApp/push), creator, updated dates
+- **Campaigns**: Container ID, name, state, version count, destinations, published status, creator, dates
+
+### Profile Insights
+- **Identity Resolution Config** (per space):
+  - External ID types (user_id, email, anonymous_id, etc.)
+  - Priority order for identity resolution
+  - Merge limits (e.g., "1 ever", "6 monthly")
+  - Seen status (whether identifier has been received)
+  
+- **Space Sources** (per space):
+  - Inbound sources: Name, status, type, category, destinations
+  - Profile debuggers (Personas sources): Name, status, destinations
+
+- **Profile Violations** (last 7 days):
+  - Violation type, timestamp, source ID, event type
+  - External IDs involved, dropped identifiers
+  - Limit exceeded events and traits
+  - Limited to 100 most recent per space
+
+### Workspace Configuration
+- **Entitlements**: Personas enabled, Profiles enabled, Linked Audiences availability
+- **Account Type**: Free vs paid tier (if available)
+- **Spaces Count**: Total number of Personas spaces
 
 ## 🔒 Security Notes
 
@@ -132,17 +181,70 @@ The dashboard collects the following data via Gateway API:
 
 ## 📝 Version History
 
-### Gateway API Version (Current)
-- Uses Segment Gateway GraphQL API
-- Requires JWT token authentication
-- Supports Profile Insights and Violations
-- Includes Journeys and Campaigns
+### Gateway API Version (Current - April 2026)
+**Major Features:**
+- ✅ Gateway GraphQL API integration
+- ✅ JWT token authentication (auto-expires for security)
+- ✅ **Journeys & Campaigns** tracking with version control
+- ✅ **Profile Insights** with Identity Resolution configuration
+- ✅ **Profile Violations** monitoring (last 7 days)
+- ✅ **Space Sources** analysis (inbound/outbound)
+- ✅ **Workspace Entitlements** visibility
+- ✅ Improved audience definitions viewer
+- ✅ Event schema exploration
+- ✅ Enhanced UI with gradient banners
+
+**What's Different:**
+- Uses GraphQL queries instead of REST endpoints
+- Session-based token storage (no persistent credentials)
+- Real-time identity resolution insights
+- Journey/Campaign tracking (Engage features)
+- Profile violation monitoring
 
 ### Public API Version (Legacy)
-- Available in `backup-public-api` branch
-- Uses Segment Public REST API
-- Requires API token authentication
-- Includes Computed Traits and RETL models
+**Available in `backup-public-api` branch**
+
+**Features:**
+- ⚡ Public REST API integration
+- 🔑 API token authentication (persistent)
+- 🧮 **Computed Traits** analysis (requires private beta)
+- 🔄 **Reverse ETL Models** with SQL queries
+- 📈 **Observability** with 14-day event volumes
+- 🤖 **AI Export** for LLM analysis
+- ⚙️ Connection topology mapping
+
+**When to Use:**
+- Need Computed Traits analysis
+- Need RETL model SQL queries
+- Need historical event volume charts
+- Prefer REST API over GraphQL
+- Want AI-optimized markdown exports
+
+### Feature Comparison
+
+| Feature | Gateway API ✅ | Public API 💾 |
+|---------|---------------|---------------|
+| **Core Features** | | |
+| Sources & Destinations | ✅ | ✅ |
+| Audiences | ✅ | ✅ |
+| Audience Definitions | ✅ Enhanced | ✅ Basic |
+| **Engage Features** | | |
+| Journeys | ✅ | ❌ |
+| Campaigns | ✅ | ❌ |
+| **Profile/Identity** | | |
+| Identity Resolution Config | ✅ | ❌ |
+| Profile Violations | ✅ | ❌ |
+| Space Sources | ✅ | ❌ |
+| **Analytics** | | |
+| Computed Traits | ❌ | ✅ |
+| RETL Models | ❌ | ✅ |
+| Event Volume Charts | ❌ | ✅ |
+| **Export** | | |
+| CSV Exports | ✅ | ✅ |
+| AI Markdown Export | ❌ | ✅ |
+| **Authentication** | | |
+| JWT Token (Gateway) | ✅ | ❌ |
+| API Token (Public) | ❌ | ✅ |
 
 ## 🤝 Contributing
 
