@@ -314,12 +314,16 @@
                     ? '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>'
                     : '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
 
-                const destinations = source['Connected Destinations'] || '';
-                const warehouses = source['Connected Warehouses'] || '';
-                const destCount = destinations ? destinations.split(',').length : 0;
+                // Use "Destination Types" for UI display (simplified), "Connected Destinations" for tooltip (full detail)
+                const destinationsFull = source['Connected Destinations'] || '';
+                const destinationsTypes = source['Destination Types'] || '';
+                const warehousesFull = source['Connected Warehouses'] || '';
+                const warehousesTypes = source['Warehouse Types'] || '';
 
-                const destDisplay = destinations || '<span style="color: #a0aec0;">None</span>';
-                const whDisplay = warehouses || '<span style="color: #a0aec0;">None</span>';
+                const destCount = destinationsFull ? destinationsFull.split(',').length : 0;
+
+                const destDisplay = destinationsTypes || '<span style="color: #a0aec0;">None</span>';
+                const whDisplay = warehousesTypes || '<span style="color: #a0aec0;">None</span>';
 
                 const sourceSlug = source['Slug'] || '';
 
@@ -328,8 +332,8 @@
                     <td><strong>${source['Name'] || ''}</strong></td>
                     <td><span style="background: #edf2f7; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 500;">${source['Type'] || ''}</span></td>
                     <td style="text-align: center;"><span style="font-weight: 600; color: ${destCount > 0 ? '#667eea' : '#a0aec0'};">${destCount}</span></td>
-                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${destinations}">${destDisplay}</td>
-                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${warehouses}">${whDisplay}</td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${destinationsFull}">${destDisplay}</td>
+                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${warehousesFull}">${whDisplay}</td>
                     <td style="font-size: 0.85rem; color: #718096;">${source['Labels'] || ''}</td>
                     <td style="text-align: center;">
                         <button onclick="openSchemaModal('${sourceSlug}', '${source['Name'].replace(/'/g, "\\'")}', event)" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;">
@@ -433,7 +437,7 @@
             btn.textContent = '⏳ Fetching schemas...';
             btn.disabled = true;
 
-            const headers = ['Status', 'Name', 'Type', 'Dest Count', 'Destinations', 'Warehouses', 'Labels', 'Total Events', 'Planned Events', 'Unplanned Events', 'Recent Events (7d)', 'Total Allowed', 'Total Blocked', 'All Events', 'Recent Events'];
+            const headers = ['Status', 'Name', 'Type', 'Dest Count', 'Destinations', 'Warehouses', 'Labels', 'Identify Traits', 'Total Events', 'Page Events', 'Track Events', 'Identify Events', 'Group Events', 'Screen Events', 'Alias Events', 'Planned Events', 'Unplanned Events', 'Recent Events (7d)', 'Total Allowed', 'Total Blocked', 'All Events', 'Recent Events'];
             const csvRows = [headers.join(',')];
 
             for (const source of filteredSources) {
@@ -445,6 +449,7 @@
                 const destinationsQuoted = `"${destinations.replace(/"/g, '""')}"`;
                 const warehouses = `"${(source['Connected Warehouses'] || '').replace(/"/g, '""')}"`;
                 const labels = `"${(source['Labels'] || '').replace(/"/g, '""')}"`;
+                const traits = `"${(source['Identify Traits'] || '').replace(/"/g, '""')}"`;
 
                 // Fetch schema data
                 let totalEvents = 0;
@@ -456,6 +461,14 @@
                 let allEventsList = '';
                 let recentEventsList = '';
 
+                // Event type counts
+                let pageCount = 0;
+                let trackCount = 0;
+                let identifyCount = 0;
+                let groupCount = 0;
+                let screenCount = 0;
+                let aliasCount = 0;
+
                 const sourceSlug = source['Slug'] || '';
                 if (sourceSlug) {
                     try {
@@ -465,35 +478,74 @@
                         if (response.ok) {
                             const schemaData = await response.json();
 
-                            // Process schema data
-                            const allEvents = new Set();
-                            const recentEventsSet = new Set();
-
-                            // Collect all events from collections
-                            (schemaData.collections || []).forEach(collection => {
-                                (collection.events || []).forEach(event => {
-                                    allEvents.add(event.name);
-                                    if (event.isPlanned) plannedEvents++;
+                            // Build event array matching UI modal logic
+                            const recentEventsMap = new Map();
+                            (schemaData.events || []).forEach(e => {
+                                recentEventsMap.set(e.name, {
+                                    type: e.type,
+                                    allowed: e.counts?.allowed || 0,
+                                    denied: e.counts?.denied || 0
                                 });
                             });
 
-                            // Process recent events
-                            (schemaData.events || []).forEach(event => {
-                                recentEventsSet.add(event.name);
-                                totalAllowed += event.counts?.allowed || 0;
-                                totalBlocked += event.counts?.denied || 0;
+                            const allEventsArray = [];
 
-                                // Add recent events that aren't in schema
-                                if (!allEvents.has(event.name)) {
-                                    allEvents.add(event.name);
+                            // Collect events from collections (all time, planned)
+                            (schemaData.collections || []).forEach(collection => {
+                                (collection.events || []).forEach(event => {
+                                    const recentData = recentEventsMap.get(event.name);
+                                    allEventsArray.push({
+                                        name: event.name,
+                                        type: 'TRACK',
+                                        isPlanned: event.isPlanned,
+                                        isRecent: !!recentData,
+                                        allowed: recentData?.allowed || 0,
+                                        denied: recentData?.denied || 0
+                                    });
+                                });
+                            });
+
+                            // Add recent events not in schema
+                            (schemaData.events || []).forEach(recentEvent => {
+                                const exists = allEventsArray.some(e => e.name === recentEvent.name);
+                                if (!exists) {
+                                    allEventsArray.push({
+                                        name: recentEvent.name,
+                                        type: recentEvent.type,
+                                        isPlanned: false,
+                                        isRecent: true,
+                                        allowed: recentEvent.counts?.allowed || 0,
+                                        denied: recentEvent.counts?.denied || 0
+                                    });
                                 }
                             });
 
-                            totalEvents = allEvents.size;
-                            recentEvents = recentEventsSet.size;
+                            // Calculate totals
+                            totalEvents = allEventsArray.length;
+                            plannedEvents = allEventsArray.filter(e => e.isPlanned).length;
                             unplannedEvents = totalEvents - plannedEvents;
-                            allEventsList = Array.from(allEvents).sort().join('; ');
-                            recentEventsList = Array.from(recentEventsSet).sort().join('; ');
+                            recentEvents = allEventsArray.filter(e => e.isRecent).length;
+                            totalAllowed = allEventsArray.reduce((sum, e) => sum + e.allowed, 0);
+                            totalBlocked = allEventsArray.reduce((sum, e) => sum + e.denied, 0);
+
+                            // Count by type (matching UI logic with Page Viewed handling)
+                            allEventsArray.forEach(e => {
+                                let type = e.type || 'UNKNOWN';
+                                if (type === 'TRACK' && e.name === 'Page Viewed') {
+                                    type = 'PAGE';
+                                }
+                                switch(type.toUpperCase()) {
+                                    case 'PAGE': pageCount++; break;
+                                    case 'TRACK': trackCount++; break;
+                                    case 'IDENTIFY': identifyCount++; break;
+                                    case 'GROUP': groupCount++; break;
+                                    case 'SCREEN': screenCount++; break;
+                                    case 'ALIAS': aliasCount++; break;
+                                }
+                            });
+
+                            allEventsList = allEventsArray.map(e => e.name).sort().join('; ');
+                            recentEventsList = allEventsArray.filter(e => e.isRecent).map(e => e.name).sort().join('; ');
                         } else {
                             const errorText = await response.text();
                             console.error(`Failed to fetch schema for ${sourceSlug}: ${response.status}`, errorText);
@@ -506,7 +558,7 @@
                 const allEventsQuoted = `"${allEventsList.replace(/"/g, '""')}"`;
                 const recentEventsQuoted = `"${recentEventsList.replace(/"/g, '""')}"`;
 
-                csvRows.push([status, name, type, destCount, destinationsQuoted, warehouses, labels, totalEvents, plannedEvents, unplannedEvents, recentEvents, totalAllowed, totalBlocked, allEventsQuoted, recentEventsQuoted].join(','));
+                csvRows.push([status, name, type, destCount, destinationsQuoted, warehouses, labels, traits, totalEvents, pageCount, trackCount, identifyCount, groupCount, screenCount, aliasCount, plannedEvents, unplannedEvents, recentEvents, totalAllowed, totalBlocked, allEventsQuoted, recentEventsQuoted].join(','));
             }
 
             // Restore button
@@ -518,8 +570,12 @@
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
 
+            // Get workspace slug from first source (all should have same workspace)
+            const workspaceSlug = allSources.length > 0 ? allSources[0]['Workspace'] : 'workspace';
+            const filename = `${workspaceSlug}_sources_with_schema_${new Date().toISOString().split('T')[0]}.csv`;
+
             link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_sources_with_schema_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute('download', filename);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
@@ -646,14 +702,53 @@
                 const totalAllowed = allEvents.reduce((sum, e) => sum + (e.allowed || 0), 0);
                 const totalDenied = allEvents.reduce((sum, e) => sum + (e.denied || 0), 0);
 
+                // Count events by type
+                // Special handling: "Page Viewed" is TRACK but counted as PAGE
+                const typeCounts = {};
+                allEvents.forEach(e => {
+                    let type = e.type || 'UNKNOWN';
+                    // Treat "Page Viewed" track event as PAGE
+                    if (type === 'TRACK' && e.name === 'Page Viewed') {
+                        type = 'PAGE';
+                    }
+                    typeCounts[type] = (typeCounts[type] || 0) + 1;
+                });
+
+                // Count event volume by type (from recent events)
+                const typeVolumes = {};
+                allEvents.filter(e => e.isRecent).forEach(e => {
+                    let type = e.type || 'UNKNOWN';
+                    // Treat "Page Viewed" track event as PAGE
+                    if (type === 'TRACK' && e.name === 'Page Viewed') {
+                        type = 'PAGE';
+                    }
+                    typeVolumes[type] = (typeVolumes[type] || 0) + (e.allowed || 0);
+                });
+
+                // Build type breakdown badges
+                const typeBreakdown = Object.entries(typeCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([type, count]) => {
+                        const volume = typeVolumes[type] || 0;
+                        const volumeText = volume > 0 ? ` (${volume.toLocaleString()} calls)` : '';
+                        return `<div><strong style="color: #667eea;">${count}</strong> <span style="color: #718096;">${type}${volumeText}</span></div>`;
+                    })
+                    .join('');
+
                 html += `
-                    <div style="display: flex; gap: 20px; margin-bottom: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; flex-wrap: wrap;">
-                        <div><strong style="color: #2d3748;">${allEvents.length}</strong> <span style="color: #718096;">total events</span></div>
-                        <div><strong style="color: #667eea;">${recentCount}</strong> <span style="color: #718096;">recent (7d)</span></div>
-                        <div><strong style="color: #48bb78;">${plannedCount}</strong> <span style="color: #718096;">planned</span></div>
-                        <div><strong style="color: #a0aec0;">${unplannedCount}</strong> <span style="color: #718096;">unplanned</span></div>
-                        <div style="border-left: 2px solid #e2e8f0; padding-left: 20px; margin-left: 10px;"><strong style="color: #48bb78;">${totalAllowed.toLocaleString()}</strong> <span style="color: #718096;">allowed</span></div>
-                        <div><strong style="color: ${totalDenied > 0 ? '#e53e3e' : '#a0aec0'};">${totalDenied.toLocaleString()}</strong> <span style="color: #718096;">blocked</span></div>
+                    <div style="margin-bottom: 20px;">
+                        <div style="display: flex; gap: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <div><strong style="color: #2d3748;">${allEvents.length}</strong> <span style="color: #718096;">total events</span></div>
+                            <div><strong style="color: #667eea;">${recentCount}</strong> <span style="color: #718096;">recent (7d)</span></div>
+                            <div><strong style="color: #48bb78;">${plannedCount}</strong> <span style="color: #718096;">planned</span></div>
+                            <div><strong style="color: #a0aec0;">${unplannedCount}</strong> <span style="color: #718096;">unplanned</span></div>
+                            <div style="border-left: 2px solid #e2e8f0; padding-left: 20px; margin-left: 10px;"><strong style="color: #48bb78;">${totalAllowed.toLocaleString()}</strong> <span style="color: #718096;">allowed</span></div>
+                            <div><strong style="color: ${totalDenied > 0 ? '#e53e3e' : '#a0aec0'};">${totalDenied.toLocaleString()}</strong> <span style="color: #718096;">blocked</span></div>
+                        </div>
+                        <div style="display: flex; gap: 20px; padding: 15px; background: #eef2ff; border-radius: 8px; flex-wrap: wrap; border: 1px solid #667eea;">
+                            <div style="font-weight: 600; color: #2d3748; width: 100%;">📊 Event Type Breakdown:</div>
+                            ${typeBreakdown}
+                        </div>
                     </div>
                 `;
 
@@ -688,6 +783,55 @@
                 html += '</tbody></table></div>';
             } else {
                 html = '<div style="text-align: center; padding: 40px; color: #718096;">No schema data available for this source.</div>';
+            }
+
+            // Add traits section (objectProperties from "users" collection)
+            const userTraits = [];
+            collections.forEach(collection => {
+                if (collection.name && collection.name.toLowerCase() === 'users') {
+                    (collection.objectProperties || []).forEach(prop => {
+                        if (prop.enabled && !prop.archived) {
+                            userTraits.push({
+                                key: prop.key,
+                                type: prop.type,
+                                lastSeenAt: prop.lastSeenAt,
+                                stats: prop.stats || {}
+                            });
+                        }
+                    });
+                }
+            });
+
+            if (userTraits.length > 0) {
+                html += `
+                    <div style="margin-top: 30px; padding-top: 25px; border-top: 2px solid #e2e8f0;">
+                        <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 1.1rem;">
+                            👤 Identify Traits (${userTraits.length})
+                        </h3>
+                        <div style="background: #f7fafc; padding: 15px; border-radius: 8px; max-height: 300px; overflow-y: auto;">
+                `;
+
+                userTraits.sort((a, b) => a.key.localeCompare(b.key));
+
+                userTraits.forEach(trait => {
+                    const allowed = trait.stats.allowed || 0;
+                    const denied = trait.stats.denied || 0;
+                    const lastSeen = trait.lastSeenAt ? new Date(trait.lastSeenAt).toLocaleDateString() : 'N/A';
+
+                    html += `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border-radius: 6px; margin-bottom: 8px; border: 1px solid #e2e8f0;">
+                            <div style="flex: 1;">
+                                <strong style="color: #2d3748; font-size: 0.9rem;">${trait.key}</strong>
+                            </div>
+                            <div style="display: flex; gap: 15px; align-items: center; color: #718096; font-size: 0.85rem;">
+                                ${allowed > 0 ? `<span><strong style="color: #48bb78;">${allowed.toLocaleString()}</strong> allowed</span>` : ''}
+                                ${denied > 0 ? `<span><strong style="color: #e53e3e;">${denied.toLocaleString()}</strong> blocked</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div></div>';
             }
 
             content.innerHTML = html;

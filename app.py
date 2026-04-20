@@ -50,34 +50,47 @@ class GatewayAPIClient:
             "x-requested-with": "fetch"
         }
 
-    def _execute_query(self, query, variables):
-        """Execute a GraphQL query"""
-        try:
-            payload = {"query": query, "variables": variables}
-            response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
+    def _execute_query(self, query, variables, max_retries=3):
+        """Execute a GraphQL query with retry logic for rate limiting"""
+        import time
 
-            data = response.json()
+        for attempt in range(max_retries):
+            try:
+                payload = {"query": query, "variables": variables}
+                response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
 
-            if response.status_code == 401:
-                raise Exception("Gateway API authentication failed. Token may be expired.")
-            elif response.status_code != 200:
-                # Try to get error details from response body
-                print(f"\n=== HTTP {response.status_code} ERROR ===")
-                print(f"Response: {json.dumps(data, indent=2)}")
-                raise Exception(f"Gateway API returned {response.status_code}: {data}")
+                data = response.json()
 
-            if 'errors' in data:
-                errors = data['errors']
-                error_msg = errors[0].get('message', str(errors)) if errors else 'Unknown error'
-                print(f"\n=== GraphQL ERROR ===")
-                print(f"Message: {error_msg}")
-                print(f"Full errors: {json.dumps(errors, indent=2)}")
-                raise Exception(f"GraphQL error: {error_msg}")
+                if response.status_code == 401:
+                    raise Exception("Gateway API authentication failed. Token may be expired.")
+                elif response.status_code == 429:
+                    # Rate limit - retry with exponential backoff
+                    if attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                        print(f"\n⚠️  Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}...", flush=True)
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"\n❌ Rate limit exceeded after {max_retries} attempts", flush=True)
+                        raise Exception(f"Gateway API rate limit exceeded: {data}")
+                elif response.status_code != 200:
+                    # Try to get error details from response body
+                    print(f"\n=== HTTP {response.status_code} ERROR ===", flush=True)
+                    print(f"Response: {json.dumps(data, indent=2)}", flush=True)
+                    raise Exception(f"Gateway API returned {response.status_code}: {data}")
 
-            return data.get('data', {})
+                if 'errors' in data:
+                    errors = data['errors']
+                    error_msg = errors[0].get('message', str(errors)) if errors else 'Unknown error'
+                    print(f"\n=== GraphQL ERROR ===", flush=True)
+                    print(f"Message: {error_msg}", flush=True)
+                    print(f"Full errors: {json.dumps(errors, indent=2)}", flush=True)
+                    raise Exception(f"GraphQL error: {error_msg}")
 
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Request failed: {str(e)}")
+                return data.get('data', {})
+
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"Request failed: {str(e)}")
 
     def get_workspace_connections(self):
         """Get all sources and destinations with connections"""
@@ -230,6 +243,7 @@ class GatewayAPIClient:
                   name
                   metadata {
                     id
+                    name
                     logos {
                       mark
                       default
@@ -244,6 +258,7 @@ class GatewayAPIClient:
                   name
                   metadata {
                     id
+                    name
                     logos {
                       mark
                       default
@@ -433,9 +448,9 @@ class GatewayAPIClient:
         return workspace.get('spaces', [])
 
     def get_source_schema(self, source_slug):
-        """Get source event schema"""
+        """Get source event schema with object properties (traits)"""
         query = """
-        query getSourceSchemaEvents($workspaceSlug: Slug!, $sourceSlug: String!, $timeframe: Int!, $useFlatClickHouseCounts: Boolean!) {
+        query getSourceSchemaWithObjectProperties($workspaceSlug: Slug!, $sourceSlug: String!, $timeframe: Int!, $useFlatClickHouseCounts: Boolean!) {
           workspace(slug: $workspaceSlug) {
             id
             source(slug: $sourceSlug) {
@@ -463,6 +478,22 @@ class GatewayAPIClient:
                     archived
                     createdAt
                     isPlanned
+                    __typename
+                  }
+                  objectProperties {
+                    id
+                    key
+                    type
+                    enabled
+                    archived
+                    lastSeenAt
+                    createdAt
+                    isPlanned
+                    stats(days: $timeframe) {
+                      allowed
+                      denied
+                      __typename
+                    }
                     __typename
                   }
                   __typename
@@ -910,6 +941,7 @@ def start_audit():
         gateway_token = data.get('gateway_token', '').strip()
         workspace_slug = data.get('workspace_slug', '').strip()
         customer_name = data.get('customer_name', '').strip() or workspace_slug
+        fetch_definitions = data.get('fetch_definitions', False)
 
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Gateway token and workspace slug are required'}), 400
@@ -922,7 +954,7 @@ def start_audit():
 
         # Start audit in background
         import threading
-        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name))
+        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name, fetch_definitions))
         thread.daemon = True
         thread.start()
 
@@ -931,7 +963,7 @@ def start_audit():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def run_audit(gateway_token, workspace_slug, customer_name):
+def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=False):
     """Run the audit collection"""
     global audit_status
 
@@ -973,23 +1005,54 @@ def run_audit(gateway_token, workspace_slug, customer_name):
         audit_status['message'] = 'Collecting audiences...'
         audit_status['progress'] = 70
         all_audiences = []
-        print(f"\n=== FETCHING AUDIENCES ===")
-        print(f"Found {len(spaces)} spaces to query")
+        print(f"\n=== FETCHING AUDIENCES ===", flush=True)
+        print(f"Found {len(spaces)} spaces to query", flush=True)
         for idx, space in enumerate(spaces):
             space_id = space.get('id')
             space_name = space.get('name', 'Unknown')
-            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name} (ID: {space_id})")
+            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name} (ID: {space_id})", flush=True)
             try:
                 audiences = client.get_audiences_with_folders(space_id)
-                print(f"  -> Returned {len(audiences)} audiences")
-                for aud in audiences:
+                print(f"  -> Returned {len(audiences)} audiences", flush=True)
+
+                # Optionally fetch definitions for each audience
+                for aud_idx, aud in enumerate(audiences):
                     aud['space_id'] = space_id
                     aud['space_name'] = space_name
-                    print(f"     - {aud.get('name', 'Unnamed')}")
+                    aud_name = aud.get('name', 'Unnamed')
+                    print(f"     - {aud_name}", flush=True)
+
+                    if fetch_definitions:
+                        aud_id = aud.get('id', '')
+                        try:
+                            print(f"       Fetching definition for {aud_name}...", flush=True)
+                            definition_data = client.get_audience_definition(space_id, aud_id)
+                            definition = definition_data.get('definition', {})
+                            definition_type = definition.get('type', '')
+                            definition_options = definition.get('options', {})
+
+                            # Store definition (SQL or AST)
+                            if definition_type == 'segment_sql' and definition_options:
+                                aud['definition_sql'] = definition_options.get('sql', '')
+                            elif definition_type == 'ast' and definition_options:
+                                # Store AST as JSON string for AI export
+                                aud['definition_sql'] = json.dumps(definition_options)
+                            else:
+                                aud['definition_sql'] = ''
+
+                            audit_status['message'] = f'Collecting audiences... ({aud_idx + 1}/{len(audiences)} in {space_name})'
+
+                            # Rate limiting - sleep 2s between API calls to avoid Gateway API limits
+                            import time
+                            time.sleep(2)
+                        except Exception as def_error:
+                            print(f"       Failed to fetch definition: {def_error}", flush=True)
+                            aud['definition_sql'] = ''
+
                 all_audiences.extend(audiences)
-                print(f"  -> Total audiences so far: {len(all_audiences)}")
+                print(f"  -> Total audiences so far: {len(all_audiences)}", flush=True)
             except Exception as e:
-                print(f"  -> ERROR: {e}")
+                print(f"  -> ERROR: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
 
@@ -1151,40 +1214,114 @@ def run_audit(gateway_token, workspace_slug, customer_name):
         audit_status['message'] = 'Saving audit data...'
         audit_status['progress'] = 90
 
-        # Save sources CSV
+        # Save sources CSV with traits
         if sources:
             with open(DATA_DIR / 'gateway_sources.csv', 'w', newline='', encoding='utf-8') as f:
-                fieldnames = ['ID', 'Name', 'Slug', 'Status', 'Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Connected Warehouses']
+                fieldnames = ['Workspace', 'ID', 'Name', 'Slug', 'Status', 'Type', 'Technical Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Destination Types', 'Connected Warehouses', 'Warehouse Types', 'Identify Traits']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
-                for source in sources:
+                for idx, source in enumerate(sources):
                     labels = ', '.join([f"{l['key']}={l['value']}" for l in source.get('labels', [])])
-                    integrations = ', '.join([i.get('name', '') for i in source.get('integrations', [])])
-                    warehouses = ', '.join([w.get('name', '') for w in source.get('warehouses', [])])
+
+                    # Format destinations - CSV gets "Name (Type)", UI gets just types
+                    integrations_csv = []  # For CSV: "Name (Type)"
+                    integrations_types = []  # For UI: just "Type"
+                    for i in source.get('integrations', []):
+                        dest_name = i.get('name', '')
+                        dest_type = i.get('metadata', {}).get('name', '')
+                        if dest_name:
+                            if dest_type:
+                                integrations_csv.append(f"{dest_name} ({dest_type})")
+                                integrations_types.append(dest_type)
+                            else:
+                                integrations_csv.append(dest_name)
+                                integrations_types.append(dest_name)
+
+                    integrations_csv_str = ', '.join(integrations_csv)
+                    integrations_types_str = ', '.join(integrations_types)
+
+                    # Format warehouses - CSV gets "Name (Type)", UI gets just types
+                    warehouses_csv = []
+                    warehouses_types = []
+                    for w in source.get('warehouses', []):
+                        wh_name = w.get('name', '')
+                        wh_type = w.get('metadata', {}).get('name', '')
+                        if wh_name:
+                            if wh_type:
+                                warehouses_csv.append(f"{wh_name} ({wh_type})")
+                                warehouses_types.append(wh_type)
+                            else:
+                                warehouses_csv.append(wh_name)
+                                warehouses_types.append(wh_name)
+
+                    warehouses_csv_str = ', '.join(warehouses_csv)
+                    warehouses_types_str = ', '.join(warehouses_types)
+
+                    # Fetch traits for this source
+                    traits_list = []
+                    try:
+                        audit_status['message'] = f'Fetching traits for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
+                        schema_data = client.get_source_schema(source.get('slug', ''))
+
+                        for collection in schema_data.get('collections', []):
+                            # Look for "users" collection (Identify traits)
+                            if collection.get('name', '').lower() == 'users':
+                                for prop in collection.get('objectProperties', []):
+                                    trait_key = prop.get('key', '')
+                                    if trait_key:
+                                        # Only include enabled, non-archived traits
+                                        if prop.get('enabled', True) and not prop.get('archived', False):
+                                            traits_list.append(trait_key)
+
+                        # Add delay to avoid rate limits
+                        import time
+                        time.sleep(1)
+                    except Exception as e:
+                        print(f"    -> Failed to fetch traits for {source.get('slug', '')}: {e}")
+
+                    traits_str = ', '.join(traits_list) if traits_list else ''
+
+                    # Use category for Type column (more useful: "Website", "Server", "Warehouse", "Custom")
+                    # Keep metadata.name as separate field for technical detail
+                    metadata_name = source.get('metadata', {}).get('name', '')
+                    metadata_category = source.get('metadata', {}).get('category', '')
+
+                    # Type shows category - capitalize first letter (Website, Server, Warehouse, Custom)
+                    display_type = metadata_category.capitalize() if metadata_category else metadata_name
 
                     writer.writerow({
+                        'Workspace': workspace_slug,
                         'ID': source.get('id', ''),
                         'Name': source.get('name', ''),
                         'Slug': source.get('slug', ''),
                         'Status': source.get('status', ''),
-                        'Type': source.get('metadata', {}).get('name', ''),
-                        'Category': source.get('metadata', {}).get('category', ''),
+                        'Type': display_type,  # Shows category: Website, Server, Warehouse, Custom
+                        'Category': metadata_category,  # Same as Type for now
+                        'Technical Type': metadata_name,  # Javascript, HTTP API, Redshift, etc.
                         'Created At': source.get('createdAt', ''),
                         'Labels': labels,
-                        'Connected Destinations': integrations,
-                        'Connected Warehouses': warehouses
+                        'Connected Destinations': integrations_csv_str,  # Full "Name (Type)" for CSV
+                        'Destination Types': integrations_types_str,  # Just "Type" for UI
+                        'Connected Warehouses': warehouses_csv_str,  # Full "Name (Type)" for CSV
+                        'Warehouse Types': warehouses_types_str,  # Just "Type" for UI
+                        'Identify Traits': traits_str
                     })
 
         # Save audiences CSV
         if all_audiences:
             with open(DATA_DIR / 'gateway_audiences.csv', 'w', newline='', encoding='utf-8') as f:
-                fieldnames = ['ID', 'Name', 'Key', 'Enabled', 'Size', 'Space', 'Space ID', 'Folder', 'Destinations', 'Destination Count']
+                # Include Definition column if definitions were fetched
+                fieldnames = ['Workspace', 'ID', 'Name', 'Key', 'Enabled', 'Size', 'Space', 'Space ID', 'Folder', 'Destinations', 'Destination Count']
+                if fetch_definitions:
+                    fieldnames.append('Definition')
+
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
                 for aud in all_audiences:
-                    writer.writerow({
+                    row = {
+                        'Workspace': workspace_slug,
                         'ID': aud.get('id', ''),
                         'Name': aud.get('name', ''),
                         'Key': aud.get('key', ''),
@@ -1195,12 +1332,15 @@ def run_audit(gateway_token, workspace_slug, customer_name):
                         'Folder': aud.get('folder', ''),
                         'Destinations': ', '.join(aud.get('destinations', [])),
                         'Destination Count': aud.get('destination_count', 0)
-                    })
+                    }
+                    if fetch_definitions:
+                        row['Definition'] = aud.get('definition_sql', '')
+                    writer.writerow(row)
 
         # Save journeys CSV
         if all_journeys:
             with open(DATA_DIR / 'gateway_journeys.csv', 'w', newline='', encoding='utf-8') as f:
-                fieldnames = ['Type', 'ID', 'Name', 'Description', 'State', 'Status', 'Space', 'Space ID',
+                fieldnames = ['Workspace', 'Type', 'ID', 'Name', 'Description', 'State', 'Status', 'Space', 'Space ID',
                              'Current Version', 'Max Version', 'Destinations', 'Destination Count',
                              'Created By', 'Updated At']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -1219,6 +1359,7 @@ def run_audit(gateway_token, workspace_slug, customer_name):
                         dest_list = ', '.join(destinations)
 
                         writer.writerow({
+                            'Workspace': workspace_slug,
                             'Type': 'Journey',
                             'ID': item.get('id', ''),
                             'Name': item.get('name', ''),
@@ -1242,6 +1383,7 @@ def run_audit(gateway_token, workspace_slug, customer_name):
                         state = 'published' if item.get('hasPublishedVersion') else 'draft'
 
                         writer.writerow({
+                            'Workspace': workspace_slug,
                             'Type': 'Campaign',
                             'ID': item.get('containerId', ''),
                             'Name': item.get('name', ''),
@@ -1260,12 +1402,13 @@ def run_audit(gateway_token, workspace_slug, customer_name):
 
         # Save profile insights data (always create file even if empty)
         with open(DATA_DIR / 'gateway_profile_insights.csv', 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['Space', 'Space ID', 'ID Type', 'Priority', 'Limit', 'Seen']
+            fieldnames = ['Workspace', 'Space', 'Space ID', 'ID Type', 'Priority', 'Limit', 'Seen']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
 
             for config in all_identity_configs:
                 writer.writerow({
+                    'Workspace': workspace_slug,
                     'Space': config.get('space_name', ''),
                     'Space ID': config.get('space_id', ''),
                     'ID Type': config.get('id_type', ''),
@@ -1278,12 +1421,13 @@ def run_audit(gateway_token, workspace_slug, customer_name):
 
         # Save space sources data (always create file even if empty)
         with open(DATA_DIR / 'gateway_space_sources.csv', 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['Space', 'Space ID', 'Source Name', 'Status', 'Type', 'Category', 'Destinations']
+            fieldnames = ['Workspace', 'Space', 'Space ID', 'Source Name', 'Status', 'Type', 'Category', 'Destinations']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
 
             for source in all_space_sources:
                 writer.writerow({
+                    'Workspace': workspace_slug,
                     'Space': source.get('space_name', ''),
                     'Space ID': source.get('space_id', ''),
                     'Source Name': source.get('source_name', ''),
@@ -1297,12 +1441,13 @@ def run_audit(gateway_token, workspace_slug, customer_name):
 
         # Save profile violations data (always create file even if empty)
         with open(DATA_DIR / 'gateway_profile_violations.csv', 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['Space', 'Space ID', 'Type', 'Time', 'Source ID', 'Event Type', 'External IDs', 'Violation Type', 'Dropped Identifiers', 'Exceeded Events']
+            fieldnames = ['Workspace', 'Space', 'Space ID', 'Type', 'Time', 'Source ID', 'Event Type', 'External IDs', 'Violation Type', 'Dropped Identifiers', 'Exceeded Events']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
 
             for violation in all_profile_violations:
                 writer.writerow({
+                    'Workspace': workspace_slug,
                     'Space': violation.get('space_name', ''),
                     'Space ID': violation.get('space_id', ''),
                     'Type': violation.get('type', ''),
@@ -1439,20 +1584,18 @@ def reset():
     return redirect('/')
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5003))
-
     print("="*80)
-    print("Gateway API Audit Dashboard")
+    print("Gateway API Audit Dashboard (Testing Only)")
     print("="*80)
     print()
     print("🚀 Starting server...")
     print(f"📁 Data directory: {DATA_DIR}")
     print()
-    print(f"📊 Dashboard URL: http://localhost:{port}")
+    print("📊 Dashboard URL: http://localhost:5003")
     print()
-    print("💡 This version uses Gateway API (GraphQL)")
+    print("💡 This version uses ONLY Gateway API (no Public API)")
     print("💡 Press Ctrl+C to stop the server")
     print("="*80)
     print()
 
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5003, debug=False)

@@ -439,13 +439,94 @@
         document.getElementById('folderFilter').addEventListener('change', applyFiltersAndSort);
         document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
 
+        function extractReadableDefinition(definitionStr) {
+            if (!definitionStr) return '';
+
+            try {
+                const def = JSON.parse(definitionStr);
+
+                // First try to get the query field (human-readable) if it's not empty
+                if (def.query && def.query.trim() !== '') {
+                    return def.query;
+                }
+
+                // Otherwise try to parse AST to readable format
+                if (def.ast) {
+                    return astToReadable(def.ast);
+                }
+
+                return '';
+            } catch (e) {
+                console.error('Error parsing definition:', e);
+                return '';
+            }
+        }
+
+        function astToReadable(ast, depth = 0) {
+            if (!ast) return '';
+
+            if (ast.type === 'operator') {
+                const operator = ast.value;
+                const children = ast.children || [];
+
+                if (children.length === 0) return '';
+
+                if (operator === 'and' || operator === 'or') {
+                    const childStrings = children.map(child => astToReadable(child, depth + 1)).filter(s => s);
+                    if (childStrings.length > 1 && depth > 0) {
+                        return `(${childStrings.join(` ${operator.toUpperCase()} `)})`;
+                    }
+                    return childStrings.join(` ${operator.toUpperCase()} `);
+                } else if (operator === 'within last') {
+                    if (children.length === 2) {
+                        const trait = children[0]?.value || '';
+                        const value = children[1]?.value || '';
+                        const unit = children[1]?.options?.valueUnit || 'seconds';
+                        // Simplify to "trait within last X days" format
+                        return `${trait} within last ${value} ${unit}${value > 1 ? 's' : ''}`;
+                    }
+                } else {
+                    // Comparison operators like =, !=, >, <, etc.
+                    if (children.length === 2) {
+                        const left = astToReadable(children[0], depth);
+                        const right = astToReadable(children[1], depth);
+
+                        // Format operator nicely
+                        let opDisplay = operator;
+                        if (operator === '=') opDisplay = '=';
+                        else if (operator === '!=') opDisplay = '!=';
+                        else if (operator === '>') opDisplay = '>';
+                        else if (operator === '<') opDisplay = '<';
+                        else if (operator === '>=') opDisplay = '>=';
+                        else if (operator === '<=') opDisplay = '<=';
+
+                        return `${left} ${opDisplay} ${right}`;
+                    }
+                }
+            } else if (ast.type && ast.type.startsWith('trait.')) {
+                return ast.value || '';
+            } else if (ast.type && ast.type.startsWith('constant.')) {
+                // Return values without quotes for simplicity
+                return ast.value || '';
+            }
+
+            return '';
+        }
+
         function exportToCSV() {
             if (!filteredAudiences.length) {
                 alert('No data to export');
                 return;
             }
 
+            // Check if Definition column exists in the data
+            const hasDefinitions = filteredAudiences.some(aud => aud['Definition'] !== undefined && aud['Definition'] !== '');
             const headers = ['Status', 'Name', 'Size', 'Dest Count', 'Destinations', 'Folder', 'Space'];
+            if (hasDefinitions) {
+                headers.push('Definition (Readable)');
+                headers.push('Definition (JSON)');
+            }
+
             const csvRows = [headers.join(',')];
 
             filteredAudiences.forEach(aud => {
@@ -457,7 +538,16 @@
                 const folder = `"${(aud['Folder'] || '').replace(/"/g, '""')}"`;
                 const space = `"${(aud['Space'] || '').replace(/"/g, '""')}"`;
 
-                csvRows.push([status, name, size, destCount, destinations, folder, space].join(','));
+                const row = [status, name, size, destCount, destinations, folder, space];
+                if (hasDefinitions) {
+                    const readable = extractReadableDefinition(aud['Definition']);
+                    const readableEscaped = `"${readable.replace(/"/g, '""')}"`;
+                    const definitionJson = `"${(aud['Definition'] || '').replace(/"/g, '""')}"`;
+                    row.push(readableEscaped);
+                    row.push(definitionJson);
+                }
+
+                csvRows.push(row.join(','));
             });
 
             const csvContent = csvRows.join('\n');
@@ -516,6 +606,18 @@
                 }
 
                 const data = await response.json();
+
+                // Store definition in allAudiences array for CSV export
+                const audienceIndex = allAudiences.findIndex(aud => aud['ID'] === audienceId);
+                if (audienceIndex !== -1) {
+                    allAudiences[audienceIndex]['Definition'] = JSON.stringify(data.definition.options || {});
+                }
+
+                // Also update filteredAudiences if it contains this audience
+                const filteredIndex = filteredAudiences.findIndex(aud => aud['ID'] === audienceId);
+                if (filteredIndex !== -1) {
+                    filteredAudiences[filteredIndex]['Definition'] = JSON.stringify(data.definition.options || {});
+                }
 
                 // Render definition
                 renderDefinition(data);

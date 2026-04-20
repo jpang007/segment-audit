@@ -87,9 +87,10 @@
                 <h3>📋 Collection Progress</h3>
                 <ul>
                     <li><span class="checkmark" id="check1">□</span> Workspace Spaces</li>
-                    <li><span class="checkmark" id="check2">□</span> Sources with Connection Mappings</li>
-                    <li><span class="checkmark" id="check3">□</span> Audiences with Folder Organization</li>
-                    <li><span class="checkmark" id="check4">□</span> Destination Details & Metadata</li>
+                    <li><span class="checkmark" id="check2">□</span> Sources & Destinations</li>
+                    <li><span class="checkmark" id="check3">□</span> Audiences & Journeys</li>
+                    <li><span class="checkmark" id="check4">□</span> Profile Insights & Traits</li>
+                    <li><span class="checkmark" id="check5">□</span> Saving Audit Data</li>
                 </ul>
             </div>
 
@@ -120,22 +121,27 @@
                 const check2 = document.getElementById('check2');
                 const check3 = document.getElementById('check3');
                 const check4 = document.getElementById('check4');
+                const check5 = document.getElementById('check5');
 
                 if (status.progress >= 10) {
                     check1.textContent = '✓';
                     check1.classList.add('done');
                 }
-                if (status.progress >= 30) {
+                if (status.progress >= 50) {  // After sources & workspace connections
                     check2.textContent = '✓';
                     check2.classList.add('done');
                 }
-                if (status.progress >= 70) {
+                if (status.progress >= 80) {  // After audiences & journeys
                     check3.textContent = '✓';
                     check3.classList.add('done');
                 }
-                if (status.progress >= 90) {
+                if (status.progress >= 85) {  // After profile insights
                     check4.textContent = '✓';
                     check4.classList.add('done');
+                }
+                if (status.progress >= 90) {  // Saving data
+                    check5.textContent = '✓';
+                    check5.classList.add('done');
                 }
 
                 if (status.error) {
