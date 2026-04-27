@@ -42,7 +42,7 @@ Critical constraints:
 - Tie technical issues to business impact"""
 
     @staticmethod
-    def layer1_summarization(structured_data: Dict[str, Any]) -> str:
+    def layer1_summarization(structured_data: Dict[str, Any], business_context: str = "") -> str:
         """
         Layer 1: What's happening?
         Executive summary of workspace state
@@ -50,6 +50,8 @@ Critical constraints:
         return f"""## Layer 1: Workspace Summarization
 
 Analyze this Segment workspace and provide a high-level summary.
+
+{business_context}
 
 ### Workspace Data
 ```json
@@ -80,7 +82,7 @@ Return JSON:
 ```"""
 
     @staticmethod
-    def layer2_diagnosis(structured_data: Dict[str, Any]) -> str:
+    def layer2_diagnosis(structured_data: Dict[str, Any], business_context: str = "") -> str:
         """
         Layer 2: What's wrong/missing?
         Data utilization diagnosis
@@ -88,6 +90,8 @@ Return JSON:
         return f"""## Layer 2: Data Utilization Diagnosis
 
 Analyze how data is being used (or not used) in this workspace.
+
+{business_context}
 
 ### Workspace Data
 ```json
@@ -140,7 +144,7 @@ Return JSON:
 ```"""
 
     @staticmethod
-    def layer3_opportunities(structured_data: Dict[str, Any], customer_context=None) -> str:
+    def layer3_opportunities(structured_data: Dict[str, Any], customer_context=None, business_context: str = "") -> str:
         """
         Layer 3: What could they do?
         Marketing and growth use cases
@@ -165,6 +169,8 @@ Return JSON:
         return f"""## Layer 3: Marketing & Growth Opportunities
 
 Generate high-quality, realistic marketing use cases for this workspace.
+
+{business_context}
 
 ### Workspace Context
 - Business type (inferred): {likely_business}
@@ -239,7 +245,7 @@ Return JSON:
 ```"""
 
     @staticmethod
-    def layer4_execution(structured_data: Dict[str, Any], layer2_issues: Dict, layer3_opportunities: Dict) -> str:
+    def layer4_execution(structured_data: Dict[str, Any], layer2_issues: Dict, layer3_opportunities: Dict, business_context: str = "") -> str:
         """
         Layer 4: What should they do next?
         Prioritized execution plan
@@ -247,6 +253,8 @@ Return JSON:
         return f"""## Layer 4: Execution Plan
 
 Based on the diagnosis and opportunities identified, create a prioritized action plan.
+
+{business_context}
 
 ### Context
 **Issues Identified:**

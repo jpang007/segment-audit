@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 import requests
 from data_structurer import DataStructurer
 from multi_layer_prompts import MultiLayerPrompts
+from business_inference_prompts import BusinessInferencePrompts
 
 
 class GeminiSummarizerV2:
@@ -24,6 +25,7 @@ class GeminiSummarizerV2:
         self.base_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
         self.structurer = DataStructurer()
         self.prompts = MultiLayerPrompts()
+        self.inference_prompts = BusinessInferencePrompts()
 
     def analyze_workspace(self, findings_data: Dict[str, Any], multi_layer: bool = True) -> Dict[str, Any]:
         """
@@ -52,31 +54,42 @@ class GeminiSummarizerV2:
         # Multi-layer analysis (best quality)
         print("\n🔄 Step 2: Running multi-layer analysis...")
 
-        # Layer 1: Summarization
+        # Layer 0: Business Inference (NEW - infer context from data)
+        print("   Layer 0: Business Inference (What kind of business is this?)...")
+        layer0_result = self._call_gemini(
+            self.inference_prompts.get_business_inference_prompt(structured_data),
+            system_instructions=self.inference_prompts.get_inference_system_instructions()
+        )
+
+        # Generate context enrichment for downstream layers
+        context_guidance = self.inference_prompts.get_context_enrichment_prompt(layer0_result)
+        print(f"   ✓ Inferred: {layer0_result.get('industry', {}).get('primary', 'Unknown')} business")
+
+        # Layer 1: Summarization (now enriched with business context)
         print("   Layer 1: Summarization (What's happening?)...")
         layer1_result = self._call_gemini(
-            self.prompts.layer1_summarization(structured_data),
+            self.prompts.layer1_summarization(structured_data, context_guidance),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 2: Diagnosis
         print("   Layer 2: Diagnosis (What's wrong/missing?)...")
         layer2_result = self._call_gemini(
-            self.prompts.layer2_diagnosis(structured_data),
+            self.prompts.layer2_diagnosis(structured_data, context_guidance),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 3: Opportunities
         print("   Layer 3: Opportunities (What could they do?)...")
         layer3_result = self._call_gemini(
-            self.prompts.layer3_opportunities(structured_data),
+            self.prompts.layer3_opportunities(structured_data, None, context_guidance),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 4: Execution Plan
         print("   Layer 4: Execution (What should they do next?)...")
         layer4_result = self._call_gemini(
-            self.prompts.layer4_execution(structured_data, layer2_result, layer3_result),
+            self.prompts.layer4_execution(structured_data, layer2_result, layer3_result, context_guidance),
             system_instructions=self.prompts.get_system_instructions()
         )
 
@@ -85,8 +98,9 @@ class GeminiSummarizerV2:
             "meta": {
                 "workspace": findings_data.get('workspace'),
                 "analysis_type": "multi_layer",
-                "layers_completed": 4
+                "layers_completed": 5  # Now includes Layer 0
             },
+            "layer0_business_inference": layer0_result,  # NEW: Business context
             "layer1_summary": layer1_result,
             "layer2_diagnosis": layer2_result,
             "layer3_use_cases": layer3_result,

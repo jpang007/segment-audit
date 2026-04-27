@@ -544,6 +544,7 @@
         function displayMultiLayerSummary(summary, cached) {
             const cacheIndicator = cached ? '<span style="background: rgba(16,185,129,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">💾 Cached</span>' : '';
 
+            const layer0 = summary.layer0_business_inference || {};
             const layer1 = summary.layer1_summary || {};
             const layer2 = summary.layer2_diagnosis || {};
             const layer3 = summary.layer3_use_cases || {};
@@ -555,11 +556,59 @@
                         <h2 style="margin: 0;">✨ AI-Powered Workspace Analysis</h2>
                         <div style="display: flex; gap: 8px; align-items: center;">
                             ${cacheIndicator}
-                            <span style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Multi-Layer Analysis</span>
+                            <span style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">5-Layer Analysis</span>
                         </div>
                     </div>
 
-                    <!-- Executive Summary -->
+                    <!-- Business Inference (Layer 0) -->
+                    ${layer0.industry ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%);">
+                        <h3 style="margin-top: 0; color: #3730a3;">🎯 Inferred Business Context</h3>
+                        <div style="background: white; padding: 16px; border-radius: 8px; margin-bottom: 12px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 4px;">Industry</div>
+                                    <div style="font-weight: 600; color: #1f2937; font-size: 1.1rem;">${layer0.industry.primary}</div>
+                                    <div style="font-size: 0.75rem; color: ${layer0.industry.primary_confidence === 'high' ? '#059669' : layer0.industry.primary_confidence === 'medium' ? '#d97706' : '#dc2626'}; margin-top: 2px;">
+                                        ${layer0.industry.primary_confidence} confidence
+                                    </div>
+                                </div>
+                                ${layer0.business_model ? `
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; margin-bottom: 4px;">Business Model</div>
+                                    <div style="font-weight: 600; color: #1f2937; font-size: 1.1rem;">${layer0.business_model.primary}</div>
+                                    <div style="font-size: 0.75rem; color: ${layer0.business_model.primary_confidence === 'high' ? '#059669' : layer0.business_model.primary_confidence === 'medium' ? '#d97706' : '#dc2626'}; margin-top: 2px;">
+                                        ${layer0.business_model.primary_confidence} confidence
+                                    </div>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <details style="background: white; padding: 12px; border-radius: 8px;">
+                            <summary style="cursor: pointer; font-weight: 600; color: #3730a3;">Show inference reasoning →</summary>
+                            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
+                                <div style="margin-bottom: 8px;">
+                                    <strong>Industry Reasoning:</strong><br>
+                                    <span style="color: #374151; font-size: 0.875rem;">${layer0.industry.primary_reasoning}</span>
+                                </div>
+                                ${layer0.business_model ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>Business Model Reasoning:</strong><br>
+                                    <span style="color: #374151; font-size: 0.875rem;">${layer0.business_model.primary_reasoning}</span>
+                                </div>
+                                ` : ''}
+                                ${layer0.overall_assessment ? `
+                                <div>
+                                    <strong>Summary:</strong><br>
+                                    <span style="color: #374151; font-size: 0.875rem;">${layer0.overall_assessment.business_summary}</span>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </details>
+                    </div>
+                    ` : ''}
+
+                    <!-- Executive Summary (Layer 1) -->
                     ${layer1.executive_summary ? `
                     <div class="ai-summary-card">
                         <h3 style="margin-top: 0; color: #1f2937;">📊 Executive Summary</h3>
