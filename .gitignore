@@ -59,3 +59,17 @@ Thumbs.db
 *.docx
 *.pdf
 app_public_api_backup.py
+
+# Backup files
+*.bak
+*.bak2
+*.backup
+
+# Generated exports
+segment_audit_export.zip
+*.zip
+
+# Documentation (keep on Desktop, not in repo)
+QUICKSTART_*.md
+RECOMMENDATIONS_FEATURE.md
+*_GUIDE.md

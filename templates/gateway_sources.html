@@ -25,7 +25,8 @@
                         <a href="/sources" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">🔌 Sources</a>
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
-                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
                     </div>
                 </div>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
@@ -97,8 +98,8 @@
                             <option value="dest-desc">Dest Count (High-Low)</option>
                             <option value="dest-asc">Dest Count (Low-High)</option>
                         </select>
-                        <button onclick="exportToCSV(event)" class="btn btn-secondary btn-sm" id="exportBtn">
-                            📥 Export CSV
+                        <button onclick="exportToExcel(event)" class="btn btn-secondary btn-sm" id="exportBtn">
+                            📥 Export Excel
                         </button>
                     </div>
                 </div>
@@ -425,8 +426,8 @@
             renderTable();
         }
 
-        async function exportToCSV(event) {
-            if (!filteredSources.length) {
+        async function exportToExcel(event) {
+            if (!allSources.length) {
                 alert('No data to export');
                 return;
             }
@@ -434,152 +435,46 @@
             // Show loading indicator
             const btn = event.target;
             const originalText = btn.textContent;
-            btn.textContent = '⏳ Fetching schemas...';
+            btn.textContent = '⏳ Generating Excel...';
             btn.disabled = true;
 
-            const headers = ['Status', 'Name', 'Type', 'Dest Count', 'Destinations', 'Warehouses', 'Labels', 'Identify Traits', 'Total Events', 'Page Events', 'Track Events', 'Identify Events', 'Group Events', 'Screen Events', 'Alias Events', 'Planned Events', 'Unplanned Events', 'Recent Events (7d)', 'Total Allowed', 'Total Blocked', 'All Events', 'Recent Events'];
-            const csvRows = [headers.join(',')];
+            try {
+                const response = await fetch('/api/export-sources-excel-v2', {
+                    credentials: 'include'
+                });
 
-            for (const source of filteredSources) {
-                const status = source['Status'] || '';
-                const name = `"${(source['Name'] || '').replace(/"/g, '""')}"`;
-                const type = source['Type'] || '';
-                const destinations = source['Connected Destinations'] || '';
-                const destCount = destinations ? destinations.split(',').length : 0;
-                const destinationsQuoted = `"${destinations.replace(/"/g, '""')}"`;
-                const warehouses = `"${(source['Connected Warehouses'] || '').replace(/"/g, '""')}"`;
-                const labels = `"${(source['Labels'] || '').replace(/"/g, '""')}"`;
-                const traits = `"${(source['Identify Traits'] || '').replace(/"/g, '""')}"`;
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
 
-                // Fetch schema data
-                let totalEvents = 0;
-                let plannedEvents = 0;
-                let unplannedEvents = 0;
-                let recentEvents = 0;
-                let totalAllowed = 0;
-                let totalBlocked = 0;
-                let allEventsList = '';
-                let recentEventsList = '';
-
-                // Event type counts
-                let pageCount = 0;
-                let trackCount = 0;
-                let identifyCount = 0;
-                let groupCount = 0;
-                let screenCount = 0;
-                let aliasCount = 0;
-
-                const sourceSlug = source['Slug'] || '';
-                if (sourceSlug) {
-                    try {
-                        const response = await fetch(`/api/source-schema/${sourceSlug}`, {
-                            credentials: 'include'
-                        });
-                        if (response.ok) {
-                            const schemaData = await response.json();
-
-                            // Build event array matching UI modal logic
-                            const recentEventsMap = new Map();
-                            (schemaData.events || []).forEach(e => {
-                                recentEventsMap.set(e.name, {
-                                    type: e.type,
-                                    allowed: e.counts?.allowed || 0,
-                                    denied: e.counts?.denied || 0
-                                });
-                            });
-
-                            const allEventsArray = [];
-
-                            // Collect events from collections (all time, planned)
-                            (schemaData.collections || []).forEach(collection => {
-                                (collection.events || []).forEach(event => {
-                                    const recentData = recentEventsMap.get(event.name);
-                                    allEventsArray.push({
-                                        name: event.name,
-                                        type: 'TRACK',
-                                        isPlanned: event.isPlanned,
-                                        isRecent: !!recentData,
-                                        allowed: recentData?.allowed || 0,
-                                        denied: recentData?.denied || 0
-                                    });
-                                });
-                            });
-
-                            // Add recent events not in schema
-                            (schemaData.events || []).forEach(recentEvent => {
-                                const exists = allEventsArray.some(e => e.name === recentEvent.name);
-                                if (!exists) {
-                                    allEventsArray.push({
-                                        name: recentEvent.name,
-                                        type: recentEvent.type,
-                                        isPlanned: false,
-                                        isRecent: true,
-                                        allowed: recentEvent.counts?.allowed || 0,
-                                        denied: recentEvent.counts?.denied || 0
-                                    });
-                                }
-                            });
-
-                            // Calculate totals
-                            totalEvents = allEventsArray.length;
-                            plannedEvents = allEventsArray.filter(e => e.isPlanned).length;
-                            unplannedEvents = totalEvents - plannedEvents;
-                            recentEvents = allEventsArray.filter(e => e.isRecent).length;
-                            totalAllowed = allEventsArray.reduce((sum, e) => sum + e.allowed, 0);
-                            totalBlocked = allEventsArray.reduce((sum, e) => sum + e.denied, 0);
-
-                            // Count by type (matching UI logic with Page Viewed handling)
-                            allEventsArray.forEach(e => {
-                                let type = e.type || 'UNKNOWN';
-                                if (type === 'TRACK' && e.name === 'Page Viewed') {
-                                    type = 'PAGE';
-                                }
-                                switch(type.toUpperCase()) {
-                                    case 'PAGE': pageCount++; break;
-                                    case 'TRACK': trackCount++; break;
-                                    case 'IDENTIFY': identifyCount++; break;
-                                    case 'GROUP': groupCount++; break;
-                                    case 'SCREEN': screenCount++; break;
-                                    case 'ALIAS': aliasCount++; break;
-                                }
-                            });
-
-                            allEventsList = allEventsArray.map(e => e.name).sort().join('; ');
-                            recentEventsList = allEventsArray.filter(e => e.isRecent).map(e => e.name).sort().join('; ');
-                        } else {
-                            const errorText = await response.text();
-                            console.error(`Failed to fetch schema for ${sourceSlug}: ${response.status}`, errorText);
+                    // Get filename from Content-Disposition header or generate one
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = 'sources_detailed.xlsx';
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                        if (filenameMatch && filenameMatch[1]) {
+                            filename = filenameMatch[1].replace(/['"]/g, '');
                         }
-                    } catch (e) {
-                        console.error(`Failed to fetch schema for ${sourceSlug}:`, e);
                     }
+
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    const errorData = await response.json();
+                    alert(`Export failed: ${errorData.error || 'Unknown error'}`);
                 }
-
-                const allEventsQuoted = `"${allEventsList.replace(/"/g, '""')}"`;
-                const recentEventsQuoted = `"${recentEventsList.replace(/"/g, '""')}"`;
-
-                csvRows.push([status, name, type, destCount, destinationsQuoted, warehouses, labels, traits, totalEvents, pageCount, trackCount, identifyCount, groupCount, screenCount, aliasCount, plannedEvents, unplannedEvents, recentEvents, totalAllowed, totalBlocked, allEventsQuoted, recentEventsQuoted].join(','));
+            } catch (e) {
+                console.error('Export error:', e);
+                alert('Export failed. Check console for details.');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
             }
-
-            // Restore button
-            btn.textContent = originalText;
-            btn.disabled = false;
-
-            const csvContent = csvRows.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-
-            // Get workspace slug from first source (all should have same workspace)
-            const workspaceSlug = allSources.length > 0 ? allSources[0]['Workspace'] : 'workspace';
-            const filename = `${workspaceSlug}_sources_with_schema_${new Date().toISOString().split('T')[0]}.csv`;
-
-            link.setAttribute('href', url);
-            link.setAttribute('download', filename);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
         }
 
         function openSchemaModal(sourceSlug, sourceName, event) {

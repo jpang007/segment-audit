@@ -4,7 +4,7 @@ Gateway API-Only Audit Dashboard
 Testing Gateway API as replacement for Public API
 """
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file
 from flask_cors import CORS
 import os
 import json
@@ -12,6 +12,9 @@ import requests
 from pathlib import Path
 from datetime import datetime, timedelta
 import csv
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+import io
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -1093,7 +1096,6 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         # Get identity resolution config and space sources for each space
         all_identity_configs = []
         all_space_sources = []
-        all_profile_violations = []
         for idx, space in enumerate(spaces):
             space_id = space.get('id')
             space_name = space.get('name', 'Unknown')
@@ -1171,44 +1173,6 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     })
             except Exception as e:
                 print(f"  -> ERROR fetching space sources: {e}")
-
-            # Get profile violations for this space (last 7 days)
-            try:
-                violations = client.get_profiles_actions(space_id, 'VIOLATION', days_back=7)
-                print(f"  -> Returned {len(violations)} profile violations (last 7 days)")
-
-                # Limit to most recent 100 violations per space to avoid overwhelming data
-                violations_to_process = violations[:100] if len(violations) > 100 else violations
-                if len(violations) > 100:
-                    print(f"  -> Limiting to most recent 100 violations (had {len(violations)} total)")
-
-                for violation in violations_to_process:
-                    # Extract relevant violation details
-                    external_ids = violation.get('externalIds', [])
-                    external_id_str = ', '.join([f"{eid.get('type')}={','.join(eid.get('values', []))}" for eid in external_ids])
-
-                    dropped_identifiers = violation.get('droppedIdentifiers', [])
-                    dropped_ids_str = ', '.join([f"{did.get('type')}={did.get('id', '')}" for did in dropped_identifiers])
-
-                    limit_exceeded_events = violation.get('limitExceededEvents', [])
-                    exceeded_events_str = ', '.join([evt.get('name', '') for evt in limit_exceeded_events])
-
-                    all_profile_violations.append({
-                        'space_id': space_id,
-                        'space_name': space_name,
-                        'type': violation.get('type', ''),
-                        'time': violation.get('time', ''),
-                        'source_id': violation.get('sourceId', ''),
-                        'incoming_event_type': violation.get('incomingEventType', ''),
-                        'external_ids': external_id_str,
-                        'violation_type': violation.get('externalIdTypeCausingViolation', ''),
-                        'dropped_identifiers': dropped_ids_str,
-                        'exceeded_events': exceeded_events_str
-                    })
-            except Exception as e:
-                print(f"  -> ERROR fetching profile violations: {e}")
-                import traceback
-                traceback.print_exc()
 
         # Save data
         audit_status['message'] = 'Saving audit data...'
@@ -1439,29 +1403,6 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         print(f"Saved {len(all_space_sources)} space sources to CSV")
 
-        # Save profile violations data (always create file even if empty)
-        with open(DATA_DIR / 'gateway_profile_violations.csv', 'w', newline='', encoding='utf-8') as f:
-            fieldnames = ['Workspace', 'Space', 'Space ID', 'Type', 'Time', 'Source ID', 'Event Type', 'External IDs', 'Violation Type', 'Dropped Identifiers', 'Exceeded Events']
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-
-            for violation in all_profile_violations:
-                writer.writerow({
-                    'Workspace': workspace_slug,
-                    'Space': violation.get('space_name', ''),
-                    'Space ID': violation.get('space_id', ''),
-                    'Type': violation.get('type', ''),
-                    'Time': violation.get('time', ''),
-                    'Source ID': violation.get('source_id', ''),
-                    'Event Type': violation.get('incoming_event_type', ''),
-                    'External IDs': violation.get('external_ids', ''),
-                    'Violation Type': violation.get('violation_type', ''),
-                    'Dropped Identifiers': violation.get('dropped_identifiers', ''),
-                    'Exceeded Events': violation.get('exceeded_events', '')
-                })
-
-        print(f"Saved {len(all_profile_violations)} profile violations to CSV")
-
         # Save personas entitlements
         with open(DATA_DIR / 'gateway_personas_entitlements.json', 'w') as f:
             json.dump(personas_data, f, indent=2)
@@ -1532,6 +1473,152 @@ def profile_insights():
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_profile_insights.html', customer_name=customer_name)
 
+@app.route('/api/export-profile-insights-excel')
+def export_profile_insights_excel():
+    """Export profile insights data to Excel with multiple sheets"""
+    try:
+        workspace_slug = session.get('workspace_slug', 'workspace')
+
+        # Load all profile insights CSVs
+        identity_configs_file = DATA_DIR / 'gateway_profile_insights.csv'
+        space_sources_file = DATA_DIR / 'gateway_space_sources.csv'
+
+        if not identity_configs_file.exists():
+            return jsonify({'error': 'No profile insights data available'}), 404
+
+        # Read identity configs
+        identity_configs = []
+        with open(identity_configs_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            identity_configs = list(reader)
+
+        # Read space sources
+        space_sources = []
+        if space_sources_file.exists():
+            with open(space_sources_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                space_sources = list(reader)
+
+        # Create Excel workbook
+        wb = Workbook()
+        wb.remove(wb.active)  # Remove default sheet
+
+        # Style headers
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        # Sheet 1: Identity Resolution Config
+        ws_identity = wb.create_sheet('Identity Resolution')
+        identity_headers = ['Workspace', 'Space', 'Space ID', 'ID Type', 'Priority', 'Limit', 'Seen']
+
+        for col_idx, header in enumerate(identity_headers, 1):
+            cell = ws_identity.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        for row_idx, config in enumerate(identity_configs, 2):
+            ws_identity.cell(row=row_idx, column=1, value=config.get('Workspace', ''))
+            ws_identity.cell(row=row_idx, column=2, value=config.get('Space', ''))
+            ws_identity.cell(row=row_idx, column=3, value=config.get('Space ID', ''))
+            ws_identity.cell(row=row_idx, column=4, value=config.get('ID Type', ''))
+            ws_identity.cell(row=row_idx, column=5, value=config.get('Priority', ''))
+            ws_identity.cell(row=row_idx, column=6, value=config.get('Limit', ''))
+            ws_identity.cell(row=row_idx, column=7, value=config.get('Seen', ''))
+
+        # Auto-size columns
+        for col in ws_identity.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws_identity.column_dimensions[column].width = min(max_length + 2, 50)
+
+        # Sheet 2: Space Sources (Inbound)
+        if space_sources:
+            # Separate inbound and debugger sources
+            inbound_sources = [s for s in space_sources if s.get('Type', '') != 'Personas']
+            debugger_sources = [s for s in space_sources if s.get('Type', '') == 'Personas']
+
+            # Inbound sources sheet
+            if inbound_sources:
+                ws_inbound = wb.create_sheet('Space Sources (Inbound)')
+                inbound_headers = ['Workspace', 'Space', 'Space ID', 'Source Name', 'Status', 'Type', 'Category', 'Destinations']
+
+                for col_idx, header in enumerate(inbound_headers, 1):
+                    cell = ws_inbound.cell(row=1, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+
+                for row_idx, source in enumerate(inbound_sources, 2):
+                    ws_inbound.cell(row=row_idx, column=1, value=source.get('Workspace', ''))
+                    ws_inbound.cell(row=row_idx, column=2, value=source.get('Space', ''))
+                    ws_inbound.cell(row=row_idx, column=3, value=source.get('Space ID', ''))
+                    ws_inbound.cell(row=row_idx, column=4, value=source.get('Source Name', ''))
+                    ws_inbound.cell(row=row_idx, column=5, value=source.get('Status', ''))
+                    ws_inbound.cell(row=row_idx, column=6, value=source.get('Type', ''))
+                    ws_inbound.cell(row=row_idx, column=7, value=source.get('Category', ''))
+                    ws_inbound.cell(row=row_idx, column=8, value=source.get('Destinations', ''))
+
+                # Auto-size columns
+                for col in ws_inbound.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    ws_inbound.column_dimensions[column].width = min(max_length + 2, 50)
+
+            # Debugger sources sheet
+            if debugger_sources:
+                ws_debugger = wb.create_sheet('Profile Debugger Sources')
+                debugger_headers = ['Workspace', 'Space', 'Space ID', 'Source Name', 'Status', 'Destinations']
+
+                for col_idx, header in enumerate(debugger_headers, 1):
+                    cell = ws_debugger.cell(row=1, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+
+                for row_idx, source in enumerate(debugger_sources, 2):
+                    ws_debugger.cell(row=row_idx, column=1, value=source.get('Workspace', ''))
+                    ws_debugger.cell(row=row_idx, column=2, value=source.get('Space', ''))
+                    ws_debugger.cell(row=row_idx, column=3, value=source.get('Space ID', ''))
+                    ws_debugger.cell(row=row_idx, column=4, value=source.get('Source Name', ''))
+                    ws_debugger.cell(row=row_idx, column=5, value=source.get('Status', ''))
+                    ws_debugger.cell(row=row_idx, column=6, value=source.get('Destinations', ''))
+
+                # Auto-size columns
+                for col in ws_debugger.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    ws_debugger.column_dimensions[column].width = min(max_length + 2, 50)
+
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        # Generate filename
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        filename = f"{workspace_slug}_profile_insights_{date_str}.xlsx"
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        print(f"Error generating profile insights Excel: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/audit_data/<path:filename>')
 def serve_data(filename):
     """Serve audit data files"""
@@ -1574,6 +1661,698 @@ def get_audience_definition_api(space_id, audience_id):
 
         return jsonify(definition_data)
 
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-sources-excel')
+def export_sources_excel():
+    """Export sources with event details to Excel - LLM-optimized format"""
+    try:
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
+
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Session expired. Please run a new audit.'}), 401
+
+        # Load sources data
+        sources_file = DATA_DIR / 'gateway_sources.csv'
+        if not sources_file.exists():
+            return jsonify({'error': 'No source data available'}), 404
+
+        sources = []
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sources = list(reader)
+
+        # Create Excel workbook
+        wb = Workbook()
+        wb.remove(wb.active)  # Remove default sheet
+
+        # Helper function to extract environment from labels
+        def extract_environment(labels_str):
+            """Extract environment value from labels like 'environment=media-dev'"""
+            if not labels_str:
+                return ''
+            for label in labels_str.split(','):
+                if 'environment=' in label.lower():
+                    return label.split('=')[1].strip()
+            return ''
+
+        # Helper function to determine source health
+        def get_source_health(status, total_allowed):
+            """Derive health status from source state and volume"""
+            if status == 'DISABLED':
+                return 'DISABLED'
+            elif total_allowed > 0:
+                return 'ACTIVE'
+            else:
+                return 'NO_RECENT_DATA'
+
+        # Create main Sources Summary sheet
+        ws_main = wb.create_sheet('Sources Summary')
+
+        # Main sheet headers - LLM-friendly normalized columns
+        main_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
+                       'environment', 'source_type', 'technical_type',
+                       'connected_destinations', 'connected_warehouses', 'labels',
+                       'total_events', 'traits_count', 'total_allowed_7d', 'total_blocked_7d',
+                       'has_recent_data', 'volume_window']
+
+        # Style headers
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        for col_idx, header in enumerate(main_headers, 1):
+            cell = ws_main.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        # Client for fetching schemas
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+
+        # Collect all events and traits for master sheet
+        all_master_rows = []
+
+        # Process each source
+        for row_idx, source in enumerate(sources, 2):
+            source_name = source.get('Name', '')
+            source_slug = source.get('Slug', '')
+            source_status = source.get('Status', '')
+            labels = source.get('Labels', '')
+            environment = extract_environment(labels)
+
+            # Track for main summary
+            traits_list = [t.strip() for t in source.get('Identify Traits', '').split(',') if t.strip()]
+
+            # Fetch schema data for this source
+            if source_slug:
+                try:
+                    schema_data = client.get_source_schema(source_slug)
+
+                    # Build event array (same logic as frontend)
+                    recent_events_map = {}
+                    for e in schema_data.get('events', []):
+                        recent_events_map[e['name']] = {
+                            'type': e['type'],
+                            'allowed': e.get('counts', {}).get('allowed', 0),
+                            'denied': e.get('counts', {}).get('denied', 0)
+                        }
+
+                    all_events_array = []
+
+                    # Collect events from collections
+                    for collection in schema_data.get('collections', []):
+                        for event in collection.get('events', []):
+                            recent_data = recent_events_map.get(event['name'])
+                            all_events_array.append({
+                                'name': event['name'],
+                                'type': 'TRACK',
+                                'isPlanned': event.get('isPlanned', False),
+                                'isRecent': recent_data is not None,
+                                'allowed': recent_data['allowed'] if recent_data else 0,
+                                'denied': recent_data['denied'] if recent_data else 0
+                            })
+
+                    # Add recent events not in schema
+                    for recent_event in schema_data.get('events', []):
+                        if not any(e['name'] == recent_event['name'] for e in all_events_array):
+                            all_events_array.append({
+                                'name': recent_event['name'],
+                                'type': recent_event['type'],
+                                'isPlanned': False,
+                                'isRecent': True,
+                                'allowed': recent_event.get('counts', {}).get('allowed', 0),
+                                'denied': recent_event.get('counts', {}).get('denied', 0)
+                            })
+
+                    total_events = len(all_events_array)
+                    total_allowed = sum(e['allowed'] for e in all_events_array)
+                    total_blocked = sum(e['denied'] for e in all_events_array)
+
+                    ws_main.cell(row=row_idx, column=10, value=total_events)
+                    ws_main.cell(row=row_idx, column=11, value=len(traits_list))
+                    ws_main.cell(row=row_idx, column=12, value=total_allowed)
+                    ws_main.cell(row=row_idx, column=13, value=total_blocked)
+
+                    # Only create detail sheets if there are events with volume
+                    events_with_volume = [e for e in all_events_array if e['allowed'] > 0 or e['denied'] > 0]
+
+                    if events_with_volume:
+                        # Create Events sheet for this source
+                        safe_sheet_name = source_name[:28] + '_E' if len(source_name) > 28 else source_name + '_Events'
+                        safe_sheet_name = ''.join(c for c in safe_sheet_name if c.isalnum() or c in (' ', '_', '-'))[:31]
+
+                        ws_events = wb.create_sheet(safe_sheet_name)
+
+                        # Events sheet headers
+                        event_headers = ['Event Name', 'Type', 'Status', 'Allowed (7d)', 'Blocked (7d)']
+                        for col_idx, header in enumerate(event_headers, 1):
+                            cell = ws_events.cell(row=1, column=col_idx, value=header)
+                            cell.fill = header_fill
+                            cell.font = header_font
+                            cell.alignment = Alignment(horizontal='center')
+
+                        # Sort events by volume (allowed desc)
+                        events_with_volume.sort(key=lambda x: x['allowed'], reverse=True)
+
+                        for evt_row, event in enumerate(events_with_volume, 2):
+                            event_type = event['type']
+                            if event_type == 'TRACK' and event['name'] == 'Page Viewed':
+                                event_type = 'PAGE'
+
+                            status = 'Planned' if event['isPlanned'] else 'Unplanned'
+
+                            ws_events.cell(row=evt_row, column=1, value=event['name'])
+                            ws_events.cell(row=evt_row, column=2, value=event_type)
+                            ws_events.cell(row=evt_row, column=3, value=status)
+                            ws_events.cell(row=evt_row, column=4, value=event['allowed'])
+                            ws_events.cell(row=evt_row, column=5, value=event['denied'])
+
+                        # Auto-size columns
+                        for col in ws_events.columns:
+                            max_length = 0
+                            column = col[0].column_letter
+                            for cell in col:
+                                if cell.value:
+                                    max_length = max(max_length, len(str(cell.value)))
+                            ws_events.column_dimensions[column].width = min(max_length + 2, 50)
+
+                    # Create Traits sheet if traits exist - with volume data
+                    if traits_list:
+                        # Fetch trait volume from objectProperties in "users" collection
+                        traits_with_volume = []
+                        for collection in schema_data.get('collections', []):
+                            if collection.get('name', '').lower() == 'users':
+                                for prop in collection.get('objectProperties', []):
+                                    if prop.get('enabled', True) and not prop.get('archived', False):
+                                        trait_key = prop.get('key', '')
+                                        stats = prop.get('stats', {})
+                                        allowed = stats.get('allowed', 0)
+                                        denied = stats.get('denied', 0)
+                                        # Only include traits with volume
+                                        if allowed > 0 or denied > 0:
+                                            traits_with_volume.append({
+                                                'key': trait_key,
+                                                'allowed': allowed,
+                                                'denied': denied
+                                            })
+                                break
+
+                        # Only create sheet if we have traits with actual volume
+                        if traits_with_volume:
+                            safe_sheet_name = source_name[:28] + '_T' if len(source_name) > 28 else source_name + '_Traits'
+                            safe_sheet_name = ''.join(c for c in safe_sheet_name if c.isalnum() or c in (' ', '_', '-'))[:31]
+
+                            ws_traits = wb.create_sheet(safe_sheet_name)
+
+                            trait_headers = ['Trait Name', 'Allowed (7d)', 'Blocked (7d)']
+                            for col_idx, header in enumerate(trait_headers, 1):
+                                cell = ws_traits.cell(row=1, column=col_idx, value=header)
+                                cell.fill = header_fill
+                                cell.font = header_font
+                                cell.alignment = Alignment(horizontal='center')
+
+                            # Sort traits by volume (allowed desc)
+                            traits_with_volume.sort(key=lambda x: x['allowed'], reverse=True)
+
+                            for trait_row, trait in enumerate(traits_with_volume, 2):
+                                ws_traits.cell(row=trait_row, column=1, value=trait['key'])
+                                ws_traits.cell(row=trait_row, column=2, value=trait['allowed'])
+                                ws_traits.cell(row=trait_row, column=3, value=trait['denied'])
+
+                            # Auto-size columns
+                            for col in ws_traits.columns:
+                                max_length = 0
+                                column = col[0].column_letter
+                                for cell in col:
+                                    if cell.value:
+                                        max_length = max(max_length, len(str(cell.value)))
+                                ws_traits.column_dimensions[column].width = min(max_length + 2, 50)
+
+                except Exception as e:
+                    print(f"Error fetching schema for {source_slug}: {e}")
+                    ws_main.cell(row=row_idx, column=10, value=0)
+                    ws_main.cell(row=row_idx, column=11, value=len(traits_list))
+                    ws_main.cell(row=row_idx, column=12, value=0)
+                    ws_main.cell(row=row_idx, column=13, value=0)
+            else:
+                ws_main.cell(row=row_idx, column=10, value=0)
+                ws_main.cell(row=row_idx, column=11, value=len(traits_list))
+                ws_main.cell(row=row_idx, column=12, value=0)
+                ws_main.cell(row=row_idx, column=13, value=0)
+
+        # Auto-size main sheet columns
+        for col in ws_main.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            ws_main.column_dimensions[column].width = min(max_length + 2, 50)
+
+        # Save to bytes
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        # Generate filename
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        filename = f"{workspace_slug}_sources_detailed_{date_str}.xlsx"
+
+        return send_file(
+            output,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        print(f"Error generating Excel: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-sources-excel-v2')
+def export_sources_excel_v2():
+    """Export sources - LLM-optimized with flattened master sheet"""
+    try:
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
+
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Session expired'}), 401
+
+        # Load sources
+        sources_file = DATA_DIR / 'gateway_sources.csv'
+        if not sources_file.exists():
+            return jsonify({'error': 'No source data'}), 404
+
+        sources = []
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            sources = list(csv.DictReader(f))
+
+        # Helper functions
+        def extract_environment(labels_str):
+            if not labels_str:
+                return ''
+            for label in labels_str.split(','):
+                if 'environment=' in label.lower():
+                    return label.split('=')[1].strip()
+            return ''
+
+        def get_source_health(status, total_allowed):
+            if status == 'DISABLED':
+                return 'DISABLED'
+            return 'ACTIVE' if total_allowed > 0 else 'NO_RECENT_DATA'
+
+        # Create workbook
+        wb = Workbook()
+        wb.remove(wb.active)
+
+        # Style
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+
+        # Master flattened table - all events and traits in one sheet
+        ws_master = wb.create_sheet('Master Data')
+        master_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
+                         'environment', 'source_type', 'technical_type', 'record_type', 'object_name',
+                         'object_type', 'planning_status', 'allowed_7d', 'blocked_7d',
+                         'volume_window', 'has_recent_data']
+
+        for col_idx, header in enumerate(master_headers, 1):
+            cell = ws_master.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        master_row_idx = 2
+
+        # Sources Summary sheet
+        ws_summary = wb.create_sheet('Sources Summary')
+        summary_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
+                          'environment', 'source_type', 'technical_type',
+                          'connected_destinations', 'connected_warehouses',
+                          'total_events', 'traits_count', 'total_allowed_7d', 'total_blocked_7d',
+                          'has_recent_data', 'volume_window']
+
+        for col_idx, header in enumerate(summary_headers, 1):
+            cell = ws_summary.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        # Process each source
+        for source in sources:
+            source_name = source.get('Name', '')
+            source_slug = source.get('Slug', '')
+            source_status = source.get('Status', '')
+            source_type = source.get('Type', '')
+            technical_type = source.get('Technical Type', '')
+            labels = source.get('Labels', '')
+            environment = extract_environment(labels)
+
+            total_allowed = 0
+            total_blocked = 0
+            total_events = 0
+            traits_count = 0
+
+            # Fetch schema
+            if source_slug:
+                try:
+                    schema_data = client.get_source_schema(source_slug)
+
+                    # Process events
+                    recent_events_map = {}
+                    for e in schema_data.get('events', []):
+                        recent_events_map[e['name']] = {
+                            'type': e['type'],
+                            'allowed': e.get('counts', {}).get('allowed', 0),
+                            'denied': e.get('counts', {}).get('denied', 0)
+                        }
+
+                    all_events = []
+                    for collection in schema_data.get('collections', []):
+                        for event in collection.get('events', []):
+                            recent = recent_events_map.get(event['name'])
+                            all_events.append({
+                                'name': event['name'],
+                                'type': 'TRACK',
+                                'isPlanned': event.get('isPlanned', False),
+                                'allowed': recent['allowed'] if recent else 0,
+                                'denied': recent['denied'] if recent else 0
+                            })
+
+                    # Add unplanned recent events
+                    for name, data in recent_events_map.items():
+                        if not any(e['name'] == name for e in all_events):
+                            all_events.append({
+                                'name': name,
+                                'type': data['type'],
+                                'isPlanned': False,
+                                'allowed': data['allowed'],
+                                'denied': data['denied']
+                            })
+
+                    total_events = len(all_events)
+                    total_allowed = sum(e['allowed'] for e in all_events)
+                    total_blocked = sum(e['denied'] for e in all_events)
+
+                    # Add events to master sheet (keep zeros)
+                    for event in all_events:
+                        event_type = event['type']
+                        if event_type == 'TRACK' and event['name'] == 'Page Viewed':
+                            event_type = 'PAGE'
+
+                        planning_status = 'Planned' if event['isPlanned'] else 'Unplanned'
+                        allowed = event['allowed']
+                        blocked = event['denied']
+
+                        ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
+                        ws_master.cell(row=master_row_idx, column=2, value=source_name)
+                        ws_master.cell(row=master_row_idx, column=3, value=source_slug)
+                        ws_master.cell(row=master_row_idx, column=4, value=source_status)
+                        ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
+                        ws_master.cell(row=master_row_idx, column=6, value=environment)
+                        ws_master.cell(row=master_row_idx, column=7, value=source_type)
+                        ws_master.cell(row=master_row_idx, column=8, value=technical_type)
+                        ws_master.cell(row=master_row_idx, column=9, value='event')
+                        ws_master.cell(row=master_row_idx, column=10, value=event['name'])
+                        ws_master.cell(row=master_row_idx, column=11, value=event_type)
+                        ws_master.cell(row=master_row_idx, column=12, value=planning_status)
+                        ws_master.cell(row=master_row_idx, column=13, value=allowed)
+                        ws_master.cell(row=master_row_idx, column=14, value=blocked)
+                        ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
+                        ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
+                        master_row_idx += 1
+
+                    # Process traits
+                    for collection in schema_data.get('collections', []):
+                        if collection.get('name', '').lower() == 'users':
+                            for prop in collection.get('objectProperties', []):
+                                if prop.get('enabled', True) and not prop.get('archived', False):
+                                    trait_key = prop.get('key', '')
+                                    stats = prop.get('stats', {})
+                                    allowed = stats.get('allowed', 0)
+                                    blocked = stats.get('denied', 0)
+                                    traits_count += 1
+
+                                    # Add trait to master (keep zeros)
+                                    ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
+                                    ws_master.cell(row=master_row_idx, column=2, value=source_name)
+                                    ws_master.cell(row=master_row_idx, column=3, value=source_slug)
+                                    ws_master.cell(row=master_row_idx, column=4, value=source_status)
+                                    ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
+                                    ws_master.cell(row=master_row_idx, column=6, value=environment)
+                                    ws_master.cell(row=master_row_idx, column=7, value=source_type)
+                                    ws_master.cell(row=master_row_idx, column=8, value=technical_type)
+                                    ws_master.cell(row=master_row_idx, column=9, value='trait')
+                                    ws_master.cell(row=master_row_idx, column=10, value=trait_key)
+                                    ws_master.cell(row=master_row_idx, column=11, value='')
+                                    ws_master.cell(row=master_row_idx, column=12, value='')
+                                    ws_master.cell(row=master_row_idx, column=13, value=allowed)
+                                    ws_master.cell(row=master_row_idx, column=14, value=blocked)
+                                    ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
+                                    ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
+                                    master_row_idx += 1
+                            break
+
+                except Exception as e:
+                    print(f"Error fetching schema for {source_slug}: {e}")
+
+            # Write to summary sheet
+            summary_row = [
+                workspace_slug, source_name, source_slug, source_status,
+                get_source_health(source_status, total_allowed), environment,
+                source_type, technical_type,
+                source.get('Connected Destinations', ''),
+                source.get('Connected Warehouses', ''),
+                total_events, traits_count, total_allowed, total_blocked,
+                'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days'
+            ]
+
+            summary_row_idx = sources.index(source) + 2  # +2 for header row and 1-indexed
+            for col_idx, value in enumerate(summary_row, 1):
+                ws_summary.cell(row=summary_row_idx, column=col_idx, value=value)
+
+        # Auto-size all columns
+        for ws in [ws_master, ws_summary]:
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[column].width = min(max_length + 2, 50)
+
+        # Save
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"{workspace_slug}_sources_llm_optimized_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+
+        return send_file(output,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        as_attachment=True,
+                        download_name=filename)
+
+    except Exception as e:
+        print(f"Error generating LLM-optimized Excel: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/recommendations')
+def recommendations_page():
+    """Recommendations page"""
+    workspace_slug = session.get('workspace_slug')
+    if not workspace_slug:
+        return redirect('/')
+    return render_template('recommendations.html', workspace_slug=workspace_slug)
+
+@app.route('/api/generate-recommendations', methods=['POST'])
+def generate_recommendations_api():
+    """Generate workspace recommendations using rule-based analysis + Gemini AI"""
+    try:
+        from recommendations_engine import generate_recommendations
+        from gemini_summarizer import generate_ai_summary
+        from recommendations_cache import RecommendationsCache
+
+        # Initialize cache
+        cache = RecommendationsCache(str(DATA_DIR))
+
+        # Check if Gemini API should be used
+        use_gemini = request.json.get('use_ai', False) if request.json else False
+
+        # Get workspace slug from session
+        workspace_slug = session.get('workspace_slug', 'unknown')
+
+        # Check cache first
+        cached = cache.get_cached_recommendations(workspace_slug, use_gemini)
+        if cached:
+            return jsonify({
+                'success': True,
+                'findings': cached.get('findings'),
+                'summary': cached.get('summary'),
+                'ai_enabled': use_gemini,
+                'cached': True
+            })
+
+        # Generate rule-based findings
+        print("🔍 Generating rule-based analysis...")
+        findings = generate_recommendations(str(DATA_DIR))
+
+        # Analyze business context
+        print("🔎 Analyzing business context from workspace data...")
+        from business_context_analyzer import BusinessContextAnalyzer
+        analyzer = BusinessContextAnalyzer(str(DATA_DIR))
+        business_context = analyzer.analyze_business_context()
+
+        result = {
+            'success': True,
+            'findings': findings,
+            'business_context': business_context,
+            'ai_enabled': False,
+            'cached': False
+        }
+
+        if use_gemini:
+            # Check rate limits before calling Gemini
+            allowed, reason = cache.check_rate_limit()
+            if not allowed:
+                return jsonify({
+                    'success': False,
+                    'error': reason,
+                    'rate_limited': True
+                }), 429
+
+            # Record that we're about to make an API call
+            cache.record_api_call()
+
+            # Get customer context (if available)
+            try:
+                from customer_context import CustomerContextLibrary
+                customer_context = CustomerContextLibrary.get_context(workspace_slug)
+                print(f"📋 Using context for {workspace_slug}: {customer_context.industry.value if customer_context else 'generic'}")
+            except Exception as e:
+                print(f"⚠️  Could not load customer context: {e}")
+                customer_context = None
+
+            # Try to generate AI summary
+            print("✨ Generating AI summary...")
+            summary = generate_ai_summary(findings, customer_context=customer_context)
+
+            result['summary'] = summary
+            result['ai_enabled'] = True
+
+        # Cache the result
+        cache.cache_recommendations(workspace_slug, result, use_gemini)
+
+        return jsonify(result)
+
+    except Exception as e:
+        print(f"Error generating recommendations: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/recommendations-status')
+def recommendations_status():
+    """Get current rate limit status"""
+    try:
+        from recommendations_cache import RecommendationsCache
+        cache = RecommendationsCache(str(DATA_DIR))
+        status = cache.get_rate_limit_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-recommendations-csv')
+def export_recommendations_csv():
+    """Export recommendations as CSV"""
+    try:
+        from recommendations_engine import generate_recommendations
+        from export_manager import ExportManager
+
+        # Generate recommendations
+        findings = generate_recommendations(str(DATA_DIR))
+
+        # Export to CSV
+        exporter = ExportManager(str(DATA_DIR))
+        csv_data = exporter.export_recommendations_csv(findings)
+
+        # Return as downloadable file
+        from flask import Response
+        return Response(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=recommendations.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-sources-destinations-csv')
+def export_sources_destinations_csv():
+    """Export sources with destinations as CSV"""
+    try:
+        from export_manager import ExportManager
+
+        exporter = ExportManager(str(DATA_DIR))
+        csv_data = exporter.export_sources_with_destinations_csv()
+
+        from flask import Response
+        return Response(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=sources_with_destinations.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-audiences-destinations-csv')
+def export_audiences_destinations_csv():
+    """Export audiences with destinations as CSV"""
+    try:
+        from export_manager import ExportManager
+
+        exporter = ExportManager(str(DATA_DIR))
+        csv_data = exporter.export_audiences_with_destinations_csv()
+
+        from flask import Response
+        return Response(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=audiences_with_destinations.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-all-audit-data')
+def export_all_audit_data():
+    """Export all audit data as ZIP"""
+    try:
+        from recommendations_engine import generate_recommendations
+        from export_manager import ExportManager
+
+        # Generate recommendations
+        findings = generate_recommendations(str(DATA_DIR))
+
+        # Export all as ZIP
+        exporter = ExportManager(str(DATA_DIR))
+        zip_data = exporter.export_all_as_zip(findings)
+
+        from flask import Response
+        workspace_slug = session.get('workspace_slug', 'workspace')
+        filename = f'segment_audit_{workspace_slug}_{datetime.now().strftime("%Y%m%d")}.zip'
+
+        return Response(
+            zip_data,
+            mimetype='application/zip',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

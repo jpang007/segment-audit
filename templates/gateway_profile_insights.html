@@ -25,8 +25,12 @@
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; background: #f7fafc;">🔍 Profile Insights</a>
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
                     </div>
                 </div>
+                <button onclick="exportAllToExcel()" class="btn btn-primary btn-sm" id="exportAllBtn" style="margin-right: 10px;">
+                    📥 Export All to Excel
+                </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
                     ← New Audit
                 </button>
@@ -67,9 +71,6 @@
                         <select id="spaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
                             <option value="">All Spaces</option>
                         </select>
-                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
-                            📥 Export CSV
-                        </button>
                     </div>
                 </div>
 
@@ -96,45 +97,6 @@
                 <div id="paginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
             </div>
 
-            <!-- Profile Violations Table -->
-            <div class="chart-section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2>Profile Violations & Errors</h2>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" id="violationSearchBox" placeholder="🔍 Search violations..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
-                        <select id="violationSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
-                            <option value="">All Spaces</option>
-                        </select>
-                        <button onclick="exportViolationsCSV()" class="btn btn-secondary btn-sm">
-                            📥 Export CSV
-                        </button>
-                    </div>
-                </div>
-
-                <div id="noViolationsMessage" style="display: none; text-align: center; padding: 40px; background: #d4edda; border: 2px solid #28a745; border-radius: 12px;">
-                    <div style="font-size: 3rem; margin-bottom: 15px;">✅</div>
-                    <h3 style="color: #155724; margin-bottom: 10px; font-size: 1.2rem;">No Violations Found</h3>
-                    <p style="color: #155724; font-size: 0.95rem;">No profile violations or errors detected in the workspace.</p>
-                </div>
-
-                <div class="table-container" id="violationsTable" style="display: none;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Space</th>
-                                <th>Time</th>
-                                <th>Event Type</th>
-                                <th>Violation Type</th>
-                                <th>External IDs</th>
-                                <th>Dropped Identifiers</th>
-                            </tr>
-                        </thead>
-                        <tbody id="violationsTableBody"></tbody>
-                    </table>
-                </div>
-                <div id="violationsPaginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
-            </div>
-
             <!-- Space Sources Table (Inbound) -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -144,9 +106,6 @@
                         <select id="sourceSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
                             <option value="">All Spaces</option>
                         </select>
-                        <button onclick="exportSourcesCSV()" class="btn btn-secondary btn-sm">
-                            📥 Export CSV
-                        </button>
                     </div>
                 </div>
 
@@ -180,9 +139,6 @@
                         <select id="debuggerSpaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
                             <option value="">All Spaces</option>
                         </select>
-                        <button onclick="exportDebuggersCSV()" class="btn btn-secondary btn-sm">
-                            📥 Export CSV
-                        </button>
                     </div>
                 </div>
 
@@ -218,14 +174,11 @@
         let allSpaceSources = [];
         let inboundSources = [];
         let debuggerSources = [];
-        let allViolations = [];
         let filteredSources = [];
         let filteredDebuggers = [];
-        let filteredViolations = [];
         let currentPage = 1;
         let currentSourcePage = 1;
         let currentDebuggerPage = 1;
-        let currentViolationPage = 1;
         const pageSize = 50;
 
         function toggleNavDropdown() {
@@ -269,13 +222,6 @@
                     debuggerSources = allSpaceSources.filter(s => s['Type'] === 'Personas');
                 }
 
-                // Load profile violations CSV
-                const violationsResponse = await fetch('/audit_data/gateway_profile_violations.csv');
-                if (violationsResponse.ok) {
-                    const csvText = await violationsResponse.text();
-                    allViolations = parseCSV(csvText);
-                }
-
                 await loadSummary();
 
                 if (allIdentityConfigs.length === 0) {
@@ -310,17 +256,6 @@
                     document.getElementById('debuggersTable').style.display = 'block';
                 } else {
                     document.getElementById('noDebuggersMessage').style.display = 'block';
-                }
-
-                // Handle violations
-                if (allViolations.length > 0) {
-                    populateViolationFilters();
-                    filteredViolations = [...allViolations];
-                    renderViolationsTable();
-                    renderViolationsPagination();
-                    document.getElementById('violationsTable').style.display = 'block';
-                } else {
-                    document.getElementById('noViolationsMessage').style.display = 'block';
                 }
 
                 document.getElementById('loading').style.display = 'none';
@@ -526,29 +461,49 @@
             renderPagination();
         }
 
-        function exportToCSV() {
-            const headers = Object.keys(allIdentityConfigs[0]);
-            const csvRows = [headers.join(',')];
+        async function exportAllToExcel() {
+            const btn = document.getElementById('exportAllBtn');
+            const originalText = btn.textContent;
+            btn.textContent = '⏳ Generating Excel...';
+            btn.disabled = true;
 
-            filteredConfigs.forEach(config => {
-                const values = headers.map(header => {
-                    const value = config[header] || '';
-                    return `"${value.toString().replace(/"/g, '""')}"`;
+            try {
+                const response = await fetch('/api/export-profile-insights-excel', {
+                    credentials: 'include'
                 });
-                csvRows.push(values.join(','));
-            });
 
-            const csvContent = csvRows.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
 
-            link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_profile_insights_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+                    // Get filename from Content-Disposition header or generate one
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = 'profile_insights.xlsx';
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                        if (filenameMatch && filenameMatch[1]) {
+                            filename = filenameMatch[1].replace(/['"]/g, '');
+                        }
+                    }
+
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    const errorData = await response.json();
+                    alert(`Export failed: ${errorData.error || 'Unknown error'}`);
+                }
+            } catch (e) {
+                console.error('Export error:', e);
+                alert('Export failed. Check console for details.');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
 
         // Space Sources Functions (Inbound)
@@ -771,197 +726,13 @@
             renderDebuggersPagination();
         }
 
-        function exportDebuggersCSV() {
-            const headers = ['Space', 'Space ID', 'Source Name', 'Status', 'Destinations'];
-            const csvRows = [headers.join(',')];
-
-            filteredDebuggers.forEach(source => {
-                const values = headers.map(header => {
-                    const value = source[header] || '';
-                    return `"${value.toString().replace(/"/g, '""')}"`;
-                });
-                csvRows.push(values.join(','));
-            });
-
-            const csvContent = csvRows.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-
-            link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_profile_debuggers_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        function exportSourcesCSV() {
-            const headers = ['Space', 'Space ID', 'Source Name', 'Status'];
-            const csvRows = [headers.join(',')];
-
-            filteredSources.forEach(source => {
-                const values = headers.map(header => {
-                    const value = source[header] || '';
-                    return `"${value.toString().replace(/"/g, '""')}"`;
-                });
-                csvRows.push(values.join(','));
-            });
-
-            const csvContent = csvRows.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-
-            link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_inbound_sources_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        // Violations Functions
-        function populateViolationFilters() {
-            const spaces = new Set(allViolations.map(v => v['Space']).filter(s => s));
-            const spaceFilter = document.getElementById('violationSpaceFilter');
-
-            Array.from(spaces).sort().forEach(space => {
-                const option = document.createElement('option');
-                option.value = space;
-                option.textContent = space;
-                spaceFilter.appendChild(option);
-            });
-        }
-
-        function renderViolationsTable() {
-            const tbody = document.getElementById('violationsTableBody');
-            tbody.innerHTML = '';
-
-            const start = (currentViolationPage - 1) * pageSize;
-            const end = start + pageSize;
-            const pageData = filteredViolations.slice(start, end);
-
-            pageData.forEach(violation => {
-                const row = document.createElement('tr');
-
-                const space = violation['Space'] || '';
-                const time = violation['Time'] || '';
-                const eventType = violation['Event Type'] || '';
-                const violationType = violation['Violation Type'] || '';
-                const externalIds = violation['External IDs'] || '';
-                const droppedIds = violation['Dropped Identifiers'] || '';
-
-                // Format time
-                const timeDisplay = time ? new Date(parseInt(time)).toLocaleString() : '—';
-
-                row.innerHTML = `
-                    <td>${space}</td>
-                    <td style="white-space: nowrap;">${timeDisplay}</td>
-                    <td>${eventType}</td>
-                    <td><span style="background: #f56565; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${violationType || 'VIOLATION'}</span></td>
-                    <td style="font-size: 0.85rem;">${externalIds || '—'}</td>
-                    <td style="font-size: 0.85rem;">${droppedIds || '—'}</td>
-                `;
-
-                tbody.appendChild(row);
-            });
-        }
-
-        function renderViolationsPagination() {
-            const totalPages = Math.ceil(filteredViolations.length / pageSize);
-            const controls = document.getElementById('violationsPaginationControls');
-            controls.innerHTML = '';
-
-            if (totalPages <= 1) return;
-
-            const prevBtn = document.createElement('button');
-            prevBtn.textContent = '← Previous';
-            prevBtn.className = 'btn btn-secondary btn-sm';
-            prevBtn.disabled = currentViolationPage === 1;
-            prevBtn.onclick = () => {
-                if (currentViolationPage > 1) {
-                    currentViolationPage--;
-                    renderViolationsTable();
-                    renderViolationsPagination();
-                }
-            };
-            controls.appendChild(prevBtn);
-
-            const pageInfo = document.createElement('span');
-            pageInfo.textContent = `Page ${currentViolationPage} of ${totalPages}`;
-            pageInfo.style.padding = '8px 16px';
-            pageInfo.style.color = '#2d3748';
-            pageInfo.style.fontWeight = '600';
-            controls.appendChild(pageInfo);
-
-            const nextBtn = document.createElement('button');
-            nextBtn.textContent = 'Next →';
-            nextBtn.className = 'btn btn-secondary btn-sm';
-            nextBtn.disabled = currentViolationPage === totalPages;
-            nextBtn.onclick = () => {
-                if (currentViolationPage < totalPages) {
-                    currentViolationPage++;
-                    renderViolationsTable();
-                    renderViolationsPagination();
-                }
-            };
-            controls.appendChild(nextBtn);
-        }
-
-        function applyViolationFilters() {
-            const searchTerm = document.getElementById('violationSearchBox').value.toLowerCase();
-            const spaceFilter = document.getElementById('violationSpaceFilter').value;
-
-            filteredViolations = allViolations.filter(violation => {
-                const space = (violation['Space'] || '').toLowerCase();
-                const eventType = (violation['Event Type'] || '').toLowerCase();
-                const violationType = (violation['Violation Type'] || '').toLowerCase();
-
-                const matchesSearch = space.includes(searchTerm) || eventType.includes(searchTerm) || violationType.includes(searchTerm);
-                const matchesSpace = !spaceFilter || violation['Space'] === spaceFilter;
-
-                return matchesSearch && matchesSpace;
-            });
-
-            currentViolationPage = 1;
-            renderViolationsTable();
-            renderViolationsPagination();
-        }
-
-        function exportViolationsCSV() {
-            const headers = ['Space', 'Space ID', 'Type', 'Time', 'Event Type', 'Violation Type', 'External IDs', 'Dropped Identifiers'];
-            const csvRows = [headers.join(',')];
-
-            filteredViolations.forEach(violation => {
-                const values = headers.map(header => {
-                    const value = violation[header] || '';
-                    return `"${value.toString().replace(/"/g, '""')}"`;
-                });
-                csvRows.push(values.join(','));
-            });
-
-            const csvContent = csvRows.join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-
-            link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_profile_violations_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
+        // Event listeners
         document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
         document.getElementById('spaceFilter').addEventListener('change', applyFiltersAndSort);
         document.getElementById('sourceSearchBox').addEventListener('input', applySourceFilters);
         document.getElementById('sourceSpaceFilter').addEventListener('change', applySourceFilters);
         document.getElementById('debuggerSearchBox').addEventListener('input', applyDebuggerFilters);
         document.getElementById('debuggerSpaceFilter').addEventListener('change', applyDebuggerFilters);
-        document.getElementById('violationSearchBox').addEventListener('input', applyViolationFilters);
-        document.getElementById('violationSpaceFilter').addEventListener('change', applyViolationFilters);
 
         loadProfileInsightsData();
     </script>

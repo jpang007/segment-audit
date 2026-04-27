@@ -22,6 +22,21 @@ This is a test environment to validate that the Gateway API can provide all nece
 ✅ **Audiences** - With destinations and folder organization  
 ✅ **Source-Destination Connections** - Full graph of connections  
 ✅ **Metadata** - Logos, categories, labels  
+✅ **Recommendations** - AI-powered workspace analysis (NEW!)
+
+## New Feature: Workspace Recommendations 💡
+
+Automatically analyzes your workspace and provides actionable insights:
+- **Activation Gaps**: Audiences not connected to destinations
+- **Underutilized Sources**: Data collected but not used
+- **Delivery Issues**: High failure rates
+- **Quick Wins**: Low-effort, high-impact improvements
+
+**Two modes:**
+1. **Rule-Based Analysis** (free, instant)
+2. **AI Summary** (optional, requires Gemini API key)
+
+See [RECOMMENDATIONS_FEATURE.md](RECOMMENDATIONS_FEATURE.md) for full details.
 
 ## What's Missing (for now)
 

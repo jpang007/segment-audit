@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace Recommendations</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .recommendations-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .rec-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+            transition: all 0.3s;
+        }
+
+        .rec-card:hover {
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+        }
+
+        .rec-card.high {
+            border-left-color: #ef4444;
+        }
+
+        .rec-card.medium {
+            border-left-color: #f59e0b;
+        }
+
+        .rec-card.low {
+            border-left-color: #10b981;
+        }
+
+        .severity-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .severity-badge.high {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .severity-badge.medium {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .severity-badge.low {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .finding-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin: 12px 0 8px 0;
+        }
+
+        .finding-section {
+            margin: 12px 0;
+        }
+
+        .finding-label {
+            font-weight: 600;
+            color: #6b7280;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .finding-text {
+            color: #374151;
+            line-height: 1.6;
+        }
+
+        .recommendation-box {
+            background: #f0fdf4;
+            border-left: 3px solid #10b981;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+
+        .affected-items {
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .affected-items-toggle {
+            color: #667eea;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.875rem;
+            margin-top: 8px;
+            display: inline-block;
+        }
+
+        .affected-items-toggle:hover {
+            text-decoration: underline;
+        }
+
+        .ai-summary-section {
+            background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+        }
+
+        .ai-summary-card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+            color: #1f2937;
+        }
+
+        .ai-recommendation-item {
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 3px solid #a78bfa;
+        }
+
+        .generate-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1rem;
+        }
+
+        .generate-btn:hover {
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .summary-stat {
+            background: rgba(255,255,255,0.1);
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .summary-stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .summary-stat-label {
+            font-size: 0.875rem;
+            opacity: 0.9;
+            margin-top: 4px;
+        }
+
+        .quick-win-item {
+            background: #fef3c7;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            border-left: 3px solid #f59e0b;
+        }
+
+        .next-step-item {
+            display: flex;
+            align-items: start;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .next-step-checkbox {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #667eea;
+            border-radius: 4px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Workspace Recommendations</h1>
+                <p class="subtitle">Powered by rule-based analysis + AI insights</p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>💡 Recommendations</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/connections" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔗 Connections</a>
+                        <a href="/computed-traits" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🧮 Computed Traits</a>
+                        <a href="/retl-models" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔄 RETL Models</a>
+                        <a href="/observability" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Observability</a>
+                        <a href="/warehouses" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🗄️ Warehouses</a>
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; background: #f7fafc;">💡 Recommendations</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <!-- Generate Recommendations Section -->
+        <div class="recommendations-header">
+            <h2 style="margin-top: 0;">Generate Workspace Analysis</h2>
+            <p style="opacity: 0.9; margin-bottom: 20px;">
+                Analyze your workspace for optimization opportunities and best practice recommendations.
+            </p>
+
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <button id="generateBasicBtn" onclick="generateRecommendations(false)" class="generate-btn">
+                    🔍 Generate Analysis
+                </button>
+                <button id="generateAIBtn" onclick="generateRecommendations(true)" class="generate-btn" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%);">
+                    ✨ Generate with AI Summary
+                </button>
+            </div>
+
+            <p style="font-size: 0.875rem; margin-top: 16px; opacity: 0.8;">
+                <strong>Basic Analysis:</strong> Fast, rule-based findings (free)<br>
+                <strong>AI Summary:</strong> Includes Gemini-powered executive summary and prioritized recommendations (requires API key)
+            </p>
+
+            <div id="rateLimitStatus" style="font-size: 0.75rem; margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 8px; display: none;">
+                <div style="display: flex; gap: 20px;">
+                    <div>📊 API Calls Today: <strong id="callsToday">-</strong></div>
+                    <div>⏱️ This Minute: <strong id="callsMinute">-</strong></div>
+                    <div>💾 Cache: <strong id="cacheStatus">-</strong></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" style="display: none; text-align: center; padding: 40px;">
+            <div class="loading-spinner" style="margin: 0 auto 20px;"></div>
+            <p>Analyzing workspace...</p>
+        </div>
+
+        <!-- AI Summary Section -->
+        <div id="aiSummarySection" style="display: none;">
+            <!-- Will be populated dynamically -->
+        </div>
+
+        <!-- Business Context Insights -->
+        <div id="businessContext" style="display: none; margin-bottom: 30px;">
+            <!-- Will be populated dynamically -->
+        </div>
+
+        <!-- Summary Stats -->
+        <div id="summaryStats" style="display: none;">
+            <!-- Will be populated dynamically -->
+        </div>
+
+        <!-- Export Options -->
+        <div id="exportOptions" style="display: none; margin-bottom: 30px;">
+            <div style="background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <h3 style="margin-top: 0; color: #1f2937;">📥 Export Options</h3>
+                <p style="color: #6b7280; margin-bottom: 20px;">Download audit data and recommendations for reporting and analysis</p>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                    <button onclick="exportRecommendations()" class="btn btn-secondary" style="width: 100%;">
+                        📋 Recommendations CSV
+                    </button>
+                    <button onclick="exportSourcesDestinations()" class="btn btn-secondary" style="width: 100%;">
+                        🔌 Sources & Destinations
+                    </button>
+                    <button onclick="exportAudiencesDestinations()" class="btn btn-secondary" style="width: 100%;">
+                        👥 Audiences & Destinations
+                    </button>
+                    <button onclick="exportAllData()" class="btn btn-primary" style="width: 100%;">
+                        📦 Download All (ZIP)
+                    </button>
+                </div>
+
+                <div style="margin-top: 16px; padding: 12px; background: #f0fdf4; border-radius: 8px; border-left: 3px solid #10b981;">
+                    <strong style="color: #065f46;">ZIP includes:</strong>
+                    <ul style="margin: 8px 0 0 20px; color: #065f46; font-size: 0.875rem;">
+                        <li>Recommendations with use cases</li>
+                        <li>Sources with destinations and volumes</li>
+                        <li>Audiences with activation status</li>
+                        <li>Top events analysis</li>
+                        <li>Summary README</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Findings List -->
+        <div id="findingsList">
+            <!-- Will be populated dynamically -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" style="text-align: center; padding: 60px 20px; color: #6b7280;">
+            <div style="font-size: 4rem; margin-bottom: 20px;">📊</div>
+            <h3>Ready to Analyze</h3>
+            <p>Click "Generate Analysis" above to get started</p>
+        </div>
+    </div>
+
+    <script>
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (!dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        // Load rate limit status on page load
+        async function loadRateLimitStatus() {
+            try {
+                const response = await fetch('/api/recommendations-status');
+                const status = await response.json();
+
+                document.getElementById('callsToday').textContent = `${status.calls_today} / 1000`;
+                document.getElementById('callsMinute').textContent = `${status.calls_this_minute} / 10`;
+                document.getElementById('cacheStatus').textContent = 'Active';
+                document.getElementById('rateLimitStatus').style.display = 'block';
+            } catch (error) {
+                console.error('Failed to load rate limit status:', error);
+            }
+        }
+
+        // Load on page load
+        document.addEventListener('DOMContentLoaded', loadRateLimitStatus);
+
+        async function generateRecommendations(useAI) {
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('summaryStats').style.display = 'none';
+            document.getElementById('aiSummarySection').style.display = 'none';
+            document.getElementById('findingsList').innerHTML = '';
+
+            // Disable buttons
+            document.getElementById('generateBasicBtn').disabled = true;
+            document.getElementById('generateAIBtn').disabled = true;
+
+            try {
+                const response = await fetch('/api/generate-recommendations', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ use_ai: useAI })
+                });
+
+                const data = await response.json();
+
+                if (!data.success) {
+                    if (data.rate_limited) {
+                        throw new Error(`⏱️ ${data.error}\n\nYour recommendations have been cached. Try again in a minute or use "Generate Analysis" (no AI) instead.`);
+                    }
+                    throw new Error(data.error || 'Failed to generate recommendations');
+                }
+
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+
+                // Display results
+                displayFindings(data.findings);
+
+                // Display business context if available
+                if (data.business_context) {
+                    displayBusinessContext(data.business_context);
+                }
+
+                if (data.ai_enabled && data.summary) {
+                    displayAISummary(data.summary, data.cached);
+                }
+
+                // Show cache indicator if cached
+                if (data.cached) {
+                    document.getElementById('cacheStatus').textContent = 'Hit ✓';
+                    document.getElementById('cacheStatus').style.color = '#10b981';
+                } else {
+                    document.getElementById('cacheStatus').textContent = 'Miss (generated fresh)';
+                }
+
+                // Show export options
+                document.getElementById('exportOptions').style.display = 'block';
+
+                // Refresh rate limit status
+                loadRateLimitStatus();
+
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('emptyState').innerHTML = `
+                    <div style="color: #ef4444;">
+                        <div style="font-size: 3rem; margin-bottom: 20px;">⚠️</div>
+                        <h3>Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                document.getElementById('emptyState').style.display = 'block';
+            } finally {
+                // Re-enable buttons
+                document.getElementById('generateBasicBtn').disabled = false;
+                document.getElementById('generateAIBtn').disabled = false;
+            }
+        }
+
+        function displayFindings(findings) {
+            const statsHtml = `
+                <div class="stats-grid" style="margin-bottom: 30px;">
+                    <div class="stat-card primary">
+                        <div class="label">Total Findings</div>
+                        <div class="value">${findings.total_findings}</div>
+                        <div class="subtext">${findings.workspace_name}</div>
+                    </div>
+                    <div class="stat-card" style="border-left: 4px solid #ef4444;">
+                        <div class="label">High Priority</div>
+                        <div class="value">${findings.high_priority}</div>
+                        <div class="subtext">Immediate attention</div>
+                    </div>
+                    <div class="stat-card" style="border-left: 4px solid #f59e0b;">
+                        <div class="label">Medium Priority</div>
+                        <div class="value">${findings.medium_priority}</div>
+                        <div class="subtext">Important improvements</div>
+                    </div>
+                    <div class="stat-card" style="border-left: 4px solid #10b981;">
+                        <div class="label">Low Priority</div>
+                        <div class="value">${findings.low_priority}</div>
+                        <div class="subtext">Optimization opportunities</div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('summaryStats').innerHTML = statsHtml;
+            document.getElementById('summaryStats').style.display = 'block';
+
+            // Display findings
+            const findingsHtml = findings.findings.map((finding, index) => {
+                const affectedItemsHtml = finding.affected_items && finding.affected_items.length > 0 ? `
+                    <div class="finding-section">
+                        <div class="finding-label">Affected Items (${finding.count})</div>
+                        <a class="affected-items-toggle" onclick="toggleAffectedItems(${index})">
+                            Show details ▼
+                        </a>
+                        <div id="affected-${index}" class="affected-items" style="display: none;">
+                            ${finding.affected_items.slice(0, 20).map(item => `<div>• ${item}</div>`).join('')}
+                            ${finding.affected_items.length > 20 ? `<div style="margin-top: 8px; font-style: italic; color: #6b7280;">... and ${finding.affected_items.length - 20} more</div>` : ''}
+                        </div>
+                    </div>
+                ` : '';
+
+                return `
+                    <div class="rec-card ${finding.severity}">
+                        <span class="severity-badge ${finding.severity}">${finding.severity} priority</span>
+                        <div class="finding-title">${finding.title}</div>
+
+                        <div class="finding-section">
+                            <div class="finding-label">Evidence</div>
+                            <div class="finding-text">${finding.evidence}</div>
+                        </div>
+
+                        <div class="finding-section">
+                            <div class="finding-label">Impact</div>
+                            <div class="finding-text">${finding.impact}</div>
+                        </div>
+
+                        <div class="recommendation-box">
+                            <div class="finding-label">Recommendation</div>
+                            <div class="finding-text">${finding.recommendation}</div>
+                        </div>
+
+                        ${affectedItemsHtml}
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('findingsList').innerHTML = findingsHtml;
+        }
+
+        function displayAISummary(summary, cached) {
+            const cacheIndicator = cached ? '<span style="background: rgba(16,185,129,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">💾 Cached</span>' : '';
+            const summaryHtml = `
+                <div class="ai-summary-section">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">✨ AI-Powered Executive Summary</h2>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            ${cacheIndicator}
+                            <span style="font-size: 0.875rem; opacity: 0.9;">Powered by Gemini</span>
+                        </div>
+                    </div>
+
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">Executive Summary</h3>
+                        <p style="line-height: 1.8; color: #374151;">${summary.executive_summary}</p>
+                    </div>
+
+                    ${summary.top_recommendations && summary.top_recommendations.length > 0 ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">Top Recommendations</h3>
+                        ${summary.top_recommendations.map(rec => `
+                            <div class="ai-recommendation-item">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <span class="severity-badge ${rec.priority}">${rec.priority}</span>
+                                    <strong>${rec.action}</strong>
+                                </div>
+                                <div style="color: #6b7280; font-size: 0.875rem; margin-bottom: 8px;">${rec.reason}</div>
+                                <div style="color: #10b981; font-size: 0.875rem;"><strong>Expected Impact:</strong> ${rec.estimated_impact}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+
+                    ${summary.quick_wins && summary.quick_wins.length > 0 ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">🚀 Quick Wins</h3>
+                        ${summary.quick_wins.map(win => `
+                            <div class="quick-win-item">
+                                <div style="font-weight: 600; margin-bottom: 4px;">${win.action}</div>
+                                <div style="font-size: 0.875rem; color: #6b7280;">
+                                    Effort: ${win.effort} | Impact: ${win.impact}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+
+                    ${summary.next_steps && summary.next_steps.length > 0 ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">📋 Next Steps</h3>
+                        ${summary.next_steps.map((step, idx) => `
+                            <div class="next-step-item">
+                                <div class="next-step-checkbox"></div>
+                                <div>${idx + 1}. ${step}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            document.getElementById('aiSummarySection').innerHTML = summaryHtml;
+            document.getElementById('aiSummarySection').style.display = 'block';
+        }
+
+        function displayBusinessContext(context) {
+            const industries = context.likely_industries || [];
+            const opportunities = context.use_case_opportunities || [];
+            const patterns = context.audience_patterns || {};
+
+            let contextHtml = `
+                <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 12px; padding: 24px; color: white;">
+                    <h3 style="margin-top: 0; display: flex; align-items: center; gap: 10px;">
+                        🎯 Detected Business Context
+                    </h3>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 20px;">
+                        <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px;">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 4px;">Likely Industry</div>
+                            <div style="font-size: 1.25rem; font-weight: 700;">${industries.join(', ')}</div>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px;">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 4px;">Audiences Analyzed</div>
+                            <div style="font-size: 1.25rem; font-weight: 700;">${patterns.total_audiences || 0}</div>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px;">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 4px;">With Users</div>
+                            <div style="font-size: 1.25rem; font-weight: 700;">${patterns.with_users || 0}</div>
+                        </div>
+
+                        <div style="background: rgba(255,255,255,0.15); padding: 16px; border-radius: 8px;">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 4px;">Use Case Opportunities</div>
+                            <div style="font-size: 1.25rem; font-weight: 700;">${opportunities.length}</div>
+                        </div>
+                    </div>
+            `;
+
+            // Show use case opportunities
+            if (opportunities.length > 0) {
+                contextHtml += `
+                    <div style="margin-top: 24px;">
+                        <h4 style="margin-bottom: 16px; font-size: 1rem;">💡 Recommended Use Cases (Based on Your Data)</h4>
+                        <div style="display: grid; gap: 12px;">
+                `;
+
+                opportunities.slice(0, 5).forEach((opp, idx) => {
+                    contextHtml += `
+                        <div style="background: rgba(255,255,255,0.95); color: #1f2937; padding: 16px; border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                <div style="font-weight: 600; color: #059669;">${opp.category}</div>
+                                <div style="font-size: 0.75rem; background: #10b981; color: white; padding: 2px 8px; border-radius: 4px;">
+                                    ${opp.opportunity}
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 8px; font-size: 0.95rem;">${opp.use_case}</div>
+                            ${opp.specific_actions ? `
+                                <details style="margin-top: 8px;">
+                                    <summary style="cursor: pointer; font-size: 0.875rem; color: #059669; font-weight: 500;">
+                                        Show specific actions →
+                                    </summary>
+                                    <ul style="margin: 8px 0 0 20px; font-size: 0.875rem;">
+                                        ${opp.specific_actions.map(action => `<li style="margin-bottom: 4px;">${action}</li>`).join('')}
+                                    </ul>
+                                </details>
+                            ` : ''}
+                            <div style="margin-top: 8px; font-size: 0.875rem; color: #059669; font-weight: 500;">
+                                💪 Impact: ${opp.impact}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                contextHtml += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            contextHtml += `
+                </div>
+            `;
+
+            document.getElementById('businessContext').innerHTML = contextHtml;
+            document.getElementById('businessContext').style.display = 'block';
+        }
+
+        function toggleAffectedItems(index) {
+            const elem = document.getElementById(`affected-${index}`);
+            const toggle = elem.previousElementSibling;
+
+            if (elem.style.display === 'none') {
+                elem.style.display = 'block';
+                toggle.innerHTML = 'Hide details ▲';
+            } else {
+                elem.style.display = 'none';
+                toggle.innerHTML = 'Show details ▼';
+            }
+        }
+
+        // Export functions
+        function exportRecommendations() {
+            window.location.href = '/api/export-recommendations-csv';
+        }
+
+        function exportSourcesDestinations() {
+            window.location.href = '/api/export-sources-destinations-csv';
+        }
+
+        function exportAudiencesDestinations() {
+            window.location.href = '/api/export-audiences-destinations-csv';
+        }
+
+        function exportAllData() {
+            window.location.href = '/api/export-all-audit-data';
+        }
+    </script>
+</body>
+</html>

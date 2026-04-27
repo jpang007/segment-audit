@@ -25,6 +25,7 @@
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
                     </div>
                 </div>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
@@ -465,6 +466,31 @@
         function astToReadable(ast, depth = 0) {
             if (!ast) return '';
 
+            // Handle event.count type (event with conditions)
+            if (ast.type === 'event.count') {
+                const eventName = ast.value || '';
+                const options = ast.options || {};
+                const duration = options.duration || 0;
+                const days = duration > 86400 ? Math.round(duration / 86400) : duration;
+
+                // Check for filter conditions in children
+                let filterDesc = '';
+                if (ast.children && ast.children.length > 0) {
+                    const filter = ast.children[0];
+                    if (filter.type === 'operator' && filter.value === 'contains' && filter.children) {
+                        const propName = filter.children[0]?.value || '';
+                        const propValue = filter.children[1]?.value || '';
+                        filterDesc = ` where ${propName} contains "${propValue}"`;
+                    } else if (filter.type === 'operator' && filter.children && filter.children.length === 2) {
+                        const propName = filter.children[0]?.value || '';
+                        const propValue = filter.children[1]?.value || '';
+                        filterDesc = ` where ${propName} ${filter.value} "${propValue}"`;
+                    }
+                }
+
+                return `"${eventName}"${filterDesc}`;
+            }
+
             if (ast.type === 'operator') {
                 const operator = ast.value;
                 const children = ast.children || [];
@@ -479,14 +505,85 @@
                     return childStrings.join(` ${operator.toUpperCase()} `);
                 } else if (operator === 'within last') {
                     if (children.length === 2) {
-                        const trait = children[0]?.value || '';
-                        const value = children[1]?.value || '';
-                        const unit = children[1]?.options?.valueUnit || 'seconds';
-                        // Simplify to "trait within last X days" format
-                        return `${trait} within last ${value} ${unit}${value > 1 ? 's' : ''}`;
+                        const aggregation = children[0];
+                        const timeValue = children[1]?.value || '';
+
+                        // Convert seconds to days if needed
+                        let days = timeValue;
+                        if (timeValue && timeValue > 86400) {
+                            days = Math.round(timeValue / 86400);
+                        }
+
+                        // Check if it's an aggregation (event count)
+                        if (aggregation?.type === 'aggregation' || aggregation?.type?.startsWith('aggregation.')) {
+                            const eventName = aggregation.value || '';
+                            const n = aggregation.options?.n || 1;
+
+                            // Check for filter on event properties
+                            let filterDesc = '';
+                            if (aggregation.filter) {
+                                const filter = aggregation.filter;
+                                if (filter.type === 'operator') {
+                                    const filterOp = filter.value;
+                                    if (filter.children && filter.children.length === 2) {
+                                        const propName = filter.children[0]?.value || '';
+                                        const propValue = filter.children[1]?.value || '';
+                                        if (filterOp === 'contains') {
+                                            filterDesc = ` where ${propName} contains "${propValue}"`;
+                                        } else if (filterOp === '=') {
+                                            filterDesc = ` where ${propName} = "${propValue}"`;
+                                        } else {
+                                            filterDesc = ` where ${propName} ${filterOp} "${propValue}"`;
+                                        }
+                                    }
+                                }
+                            }
+
+                            return `performed "${eventName}" >= ${n} time${n > 1 ? 's' : ''}${filterDesc} within last ${days} days`;
+                        } else {
+                            // Simple trait within last
+                            const trait = aggregation?.value || '';
+                            return `${trait} within last ${days} days`;
+                        }
+                    }
+                } else if (operator === '>=' || operator === '>' || operator === '<' || operator === '<=') {
+                    // Special handling for event count comparisons
+                    if (children.length === 2) {
+                        const left = children[0];
+                        const right = children[1];
+
+                        // Check if left side is event.count
+                        if (left.type === 'event.count') {
+                            const eventName = left.value || '';
+                            const options = left.options || {};
+                            const duration = options.duration || 0;
+                            const days = duration > 86400 ? Math.round(duration / 86400) : duration;
+                            const threshold = right.value || 1;
+
+                            // Check for filter conditions in children
+                            let filterDesc = '';
+                            if (left.children && left.children.length > 0) {
+                                const filter = left.children[0];
+                                if (filter.type === 'operator' && filter.value === 'contains' && filter.children) {
+                                    const propName = filter.children[0]?.value || '';
+                                    const propValue = filter.children[1]?.value || '';
+                                    filterDesc = ` where ${propName} contains "${propValue}"`;
+                                } else if (filter.type === 'operator' && filter.children && filter.children.length === 2) {
+                                    const propName = filter.children[0]?.value || '';
+                                    const propValue = filter.children[1]?.value || '';
+                                    filterDesc = ` where ${propName} ${filter.value} "${propValue}"`;
+                                }
+                            }
+
+                            return `performed "${eventName}" ${operator} ${threshold} time${threshold > 1 ? 's' : ''}${filterDesc} within last ${days} days`;
+                        } else {
+                            const leftStr = astToReadable(left, depth);
+                            const rightStr = astToReadable(right, depth);
+                            return `${leftStr} ${operator} ${rightStr}`;
+                        }
                     }
                 } else {
-                    // Comparison operators like =, !=, >, <, etc.
+                    // Other comparison operators like =, !=
                     if (children.length === 2) {
                         const left = astToReadable(children[0], depth);
                         const right = astToReadable(children[1], depth);
@@ -495,10 +592,7 @@
                         let opDisplay = operator;
                         if (operator === '=') opDisplay = '=';
                         else if (operator === '!=') opDisplay = '!=';
-                        else if (operator === '>') opDisplay = '>';
-                        else if (operator === '<') opDisplay = '<';
-                        else if (operator === '>=') opDisplay = '>=';
-                        else if (operator === '<=') opDisplay = '<=';
+                        else if (operator === 'contains') opDisplay = 'contains';
 
                         return `${left} ${opDisplay} ${right}`;
                     }
@@ -687,7 +781,20 @@
             html += '<h3 style="color: #2d3748; margin-bottom: 15px; font-size: 1.1rem;">📋 Audience Logic</h3>';
 
             if (definition.type === 'ast' && definition.options?.ast) {
+                // First show readable version
+                const readable = astToReadable(definition.options.ast);
+                if (readable) {
+                    html += `
+                        <div style="border: 2px solid #667eea; border-radius: 8px; padding: 20px; background: #f7fafc; margin-bottom: 20px;">
+                            <div style="font-weight: 600; color: #667eea; margin-bottom: 10px; font-size: 0.9rem;">READABLE FORMAT:</div>
+                            <div style="font-size: 1rem; color: #2d3748; line-height: 1.6;">${readable}</div>
+                        </div>
+                    `;
+                }
+
+                // Then show structured AST
                 html += '<div style="border: 2px solid #e2e8f0; border-radius: 8px; padding: 20px; background: white;">';
+                html += '<div style="font-weight: 600; color: #718096; margin-bottom: 15px; font-size: 0.85rem;">STRUCTURED VIEW:</div>';
                 html += parseAST(definition.options.ast);
                 html += '</div>';
             } else if (definition.options?.query) {
