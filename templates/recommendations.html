@@ -545,6 +545,7 @@
             const cacheIndicator = cached ? '<span style="background: rgba(16,185,129,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">💾 Cached</span>' : '';
 
             const layer0 = summary.layer0_business_inference || {};
+            const collective = summary.collective_insights || {};
             const layer1 = summary.layer1_summary || {};
             const layer2 = summary.layer2_diagnosis || {};
             const layer3 = summary.layer3_use_cases || {};
@@ -605,6 +606,53 @@
                                 ` : ''}
                             </div>
                         </details>
+                    </div>
+                    ` : ''}
+
+                    <!-- Collective Intelligence Benchmarks -->
+                    ${collective.benchmarks && collective.benchmarks.sample_size > 0 ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);">
+                        <h3 style="margin-top: 0; color: #92400e;">📊 Industry Benchmarks</h3>
+                        <p style="color: #78350f; margin-bottom: 16px;">
+                            Based on ${collective.benchmarks.sample_size} ${collective.industry} workspaces analyzed
+                        </p>
+                        <div style="background: white; padding: 16px; border-radius: 8px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+                                <div style="text-align: center; padding: 12px; background: #fef3c7; border-radius: 6px;">
+                                    <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 4px;">AVG AUDIENCES</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #78350f;">${collective.benchmarks.avg_total_audiences}</div>
+                                </div>
+                                <div style="text-align: center; padding: 12px; background: #fef3c7; border-radius: 6px;">
+                                    <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 4px;">AVG ENABLED</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #78350f;">${collective.benchmarks.avg_enabled_audiences}</div>
+                                </div>
+                                <div style="text-align: center; padding: 12px; background: #fef3c7; border-radius: 6px;">
+                                    <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 4px;">ACTIVATION RATE</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #78350f;">${collective.benchmarks.avg_activation_rate}%</div>
+                                </div>
+                                <div style="text-align: center; padding: 12px; background: #fef3c7; border-radius: 6px;">
+                                    <div style="font-size: 0.75rem; color: #92400e; margin-bottom: 4px;">AVG USERS</div>
+                                    <div style="font-size: 1.5rem; font-weight: 700; color: #78350f;">${(collective.benchmarks.avg_total_users / 1000000).toFixed(1)}M</div>
+                                </div>
+                            </div>
+                        </div>
+                        ${collective.best_practices && collective.best_practices.length > 0 ? `
+                        <div style="background: white; padding: 16px; border-radius: 8px; margin-top: 12px;">
+                            <h4 style="margin: 0 0 12px 0; color: #78350f;">✨ Emerged Best Practices</h4>
+                            <p style="font-size: 0.875rem; color: #92400e; margin-bottom: 12px;">
+                                Patterns that have worked for similar ${collective.industry} companies
+                            </p>
+                            ${collective.best_practices.map(practice => `
+                                <div style="padding: 12px; background: #fef3c7; border-radius: 6px; margin-bottom: 8px;">
+                                    <div style="font-weight: 600; color: #78350f; margin-bottom: 4px;">${practice.practice_title}</div>
+                                    <div style="font-size: 0.875rem; color: #92400e;">${practice.practice_description}</div>
+                                    <div style="font-size: 0.75rem; color: #a16207; margin-top: 4px;">
+                                        ✓ Validated by ${practice.evidence_count} workspace${practice.evidence_count > 1 ? 's' : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ` : ''}
                     </div>
                     ` : ''}
 

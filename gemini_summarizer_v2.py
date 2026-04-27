@@ -11,6 +11,7 @@ import requests
 from data_structurer import DataStructurer
 from multi_layer_prompts import MultiLayerPrompts
 from business_inference_prompts import BusinessInferencePrompts
+from mcp_collective_intelligence import MCPCollectiveIntelligence
 
 
 class GeminiSummarizerV2:
@@ -26,6 +27,7 @@ class GeminiSummarizerV2:
         self.structurer = DataStructurer()
         self.prompts = MultiLayerPrompts()
         self.inference_prompts = BusinessInferencePrompts()
+        self.mcp = MCPCollectiveIntelligence()
 
     def analyze_workspace(self, findings_data: Dict[str, Any], multi_layer: bool = True) -> Dict[str, Any]:
         """
@@ -65,31 +67,42 @@ class GeminiSummarizerV2:
         context_guidance = self.inference_prompts.get_context_enrichment_prompt(layer0_result)
         print(f"   ✓ Inferred: {layer0_result.get('industry', {}).get('primary', 'Unknown')} business")
 
-        # Layer 1: Summarization (now enriched with business context)
+        # Query collective intelligence for benchmarks and best practices
+        print("   📊 Querying collective intelligence from similar workspaces...")
+        collective_insights = self.mcp.get_contextual_insights(layer0_result)
+        collective_context = collective_insights.get('collective_context', '')
+
+        if collective_insights.get('similar_workspaces_analyzed', 0) > 0:
+            print(f"   ✓ Found {collective_insights['similar_workspaces_analyzed']} similar workspaces for benchmarking")
+
+        # Combine individual context with collective intelligence
+        full_context = context_guidance + "\n" + collective_context
+
+        # Layer 1: Summarization (now enriched with business context + collective intelligence)
         print("   Layer 1: Summarization (What's happening?)...")
         layer1_result = self._call_gemini(
-            self.prompts.layer1_summarization(structured_data, context_guidance),
+            self.prompts.layer1_summarization(structured_data, full_context),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 2: Diagnosis
         print("   Layer 2: Diagnosis (What's wrong/missing?)...")
         layer2_result = self._call_gemini(
-            self.prompts.layer2_diagnosis(structured_data, context_guidance),
+            self.prompts.layer2_diagnosis(structured_data, full_context),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 3: Opportunities
         print("   Layer 3: Opportunities (What could they do?)...")
         layer3_result = self._call_gemini(
-            self.prompts.layer3_opportunities(structured_data, None, context_guidance),
+            self.prompts.layer3_opportunities(structured_data, None, full_context),
             system_instructions=self.prompts.get_system_instructions()
         )
 
         # Layer 4: Execution Plan
         print("   Layer 4: Execution (What should they do next?)...")
         layer4_result = self._call_gemini(
-            self.prompts.layer4_execution(structured_data, layer2_result, layer3_result, context_guidance),
+            self.prompts.layer4_execution(structured_data, layer2_result, layer3_result, full_context),
             system_instructions=self.prompts.get_system_instructions()
         )
 
@@ -98,15 +111,24 @@ class GeminiSummarizerV2:
             "meta": {
                 "workspace": findings_data.get('workspace'),
                 "analysis_type": "multi_layer",
-                "layers_completed": 5  # Now includes Layer 0
+                "layers_completed": 5,  # Layer 0-4
+                "collective_intelligence": collective_insights.get('similar_workspaces_analyzed', 0) > 0
             },
-            "layer0_business_inference": layer0_result,  # NEW: Business context
+            "layer0_business_inference": layer0_result,  # Business context
+            "collective_insights": collective_insights,  # Benchmarks + best practices
             "layer1_summary": layer1_result,
             "layer2_diagnosis": layer2_result,
             "layer3_use_cases": layer3_result,
             "layer4_execution": layer4_result,
             "structured_data": structured_data  # Include for reference
         }
+
+        # Contribute this analysis to collective learning (async/background)
+        print("\n📚 Contributing to collective intelligence...")
+        try:
+            self.mcp.contribute_analysis(combined_result, findings_data.get('workspace', 'unknown'))
+        except Exception as e:
+            print(f"   ⚠️  Could not contribute (non-critical): {e}")
 
         print("\n✅ Analysis complete!")
         print("="*70 + "\n")
