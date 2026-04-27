@@ -2238,9 +2238,16 @@ def generate_recommendations_api():
                 print(f"⚠️  Could not load customer context: {e}")
                 customer_context = None
 
-            # Try to generate AI summary
-            print("✨ Generating AI summary...")
-            summary = generate_ai_summary(findings, customer_context=customer_context)
+            # Try to generate AI summary with V2 multi-layer approach
+            print("✨ Generating AI summary with multi-layer analysis...")
+            try:
+                from gemini_summarizer_v2 import generate_ai_summary_v2
+                # Use multi-layer analysis for best quality
+                summary = generate_ai_summary_v2(findings, multi_layer=True)
+            except Exception as e:
+                print(f"⚠️  V2 summarizer failed, falling back to V1: {e}")
+                # Fallback to original summarizer
+                summary = generate_ai_summary(findings, customer_context=customer_context)
 
             result['summary'] = summary
             result['ai_enabled'] = True

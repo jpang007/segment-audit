@@ -541,8 +541,188 @@
             document.getElementById('findingsList').innerHTML = findingsHtml;
         }
 
+        function displayMultiLayerSummary(summary, cached) {
+            const cacheIndicator = cached ? '<span style="background: rgba(16,185,129,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">💾 Cached</span>' : '';
+
+            const layer1 = summary.layer1_summary || {};
+            const layer2 = summary.layer2_diagnosis || {};
+            const layer3 = summary.layer3_use_cases || {};
+            const layer4 = summary.layer4_execution || {};
+
+            let html = `
+                <div class="ai-summary-section">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">✨ AI-Powered Workspace Analysis</h2>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            ${cacheIndicator}
+                            <span style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%); color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">Multi-Layer Analysis</span>
+                        </div>
+                    </div>
+
+                    <!-- Executive Summary -->
+                    ${layer1.executive_summary ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">📊 Executive Summary</h3>
+                        <p style="line-height: 1.8; color: #374151; font-size: 1.05rem;">${layer1.executive_summary}</p>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px;">
+                            ${layer1.maturity_level ? `
+                                <div style="background: #f3f4f6; padding: 12px; border-radius: 8px;">
+                                    <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase;">Maturity</div>
+                                    <div style="font-weight: 600; color: #1f2937; margin-top: 4px;">${layer1.maturity_level}</div>
+                                </div>
+                            ` : ''}
+                            ${layer1.key_strength ? `
+                                <div style="background: #d1fae5; padding: 12px; border-radius: 8px;">
+                                    <div style="font-size: 0.75rem; color: #065f46; text-transform: uppercase;">Strength</div>
+                                    <div style="font-weight: 600; color: #047857; margin-top: 4px;">${layer1.key_strength}</div>
+                                </div>
+                            ` : ''}
+                            ${layer1.biggest_gap ? `
+                                <div style="background: #fef3c7; padding: 12px; border-radius: 8px;">
+                                    <div style="font-size: 0.75rem; color: #92400e; text-transform: uppercase;">Biggest Gap</div>
+                                    <div style="font-weight: 600; color: #b45309; margin-top: 4px;">${layer1.biggest_gap}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Key Issues (Layer 2) -->
+                    ${layer2.issues && layer2.issues.length > 0 ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">🔍 Data Utilization Issues</h3>
+                        ${layer2.issues.slice(0, 5).map((issue, idx) => `
+                            <div class="ai-recommendation-item" style="border-left: 3px solid ${idx === 0 ? '#ef4444' : '#f59e0b'};">
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <div style="background: ${idx === 0 ? '#fee2e2' : '#fef3c7'}; color: ${idx === 0 ? '#991b1b' : '#92400e'}; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; flex-shrink: 0;">${issue.category?.toUpperCase()}</div>
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; color: #1f2937; margin-bottom: 6px;">${issue.specific_item}</div>
+                                        <div style="color: #6b7280; font-size: 0.875rem; margin-bottom: 6px;">${issue.problem}</div>
+                                        <div style="color: #059669; font-size: 0.875rem; background: #d1fae5; padding: 8px; border-radius: 6px; margin-top: 8px;">
+                                            <strong>💡 Recommendation:</strong> ${issue.recommendation}
+                                        </div>
+                                        ${issue.estimated_impact ? `
+                                            <div style="color: #2563eb; font-size: 0.875rem; margin-top: 6px;">
+                                                <strong>📈 Impact:</strong> ${issue.estimated_impact}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+
+                    <!-- Use Cases (Layer 3) -->
+                    ${layer3.use_cases && layer3.use_cases.length > 0 ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 100%);">
+                        <h3 style="margin-top: 0; color: #065f46;">🚀 Marketing & Growth Opportunities</h3>
+                        <p style="color: #047857; margin-bottom: 20px;">Specific, implementable campaigns based on your data</p>
+                        <div style="display: grid; gap: 16px;">
+                            ${layer3.use_cases.slice(0, 5).map((useCase, idx) => `
+                                <div style="background: white; padding: 16px; border-radius: 8px; border-left: 4px solid #10b981;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                        <h4 style="margin: 0; color: #065f46;">${useCase.name}</h4>
+                                        <span style="background: ${useCase.complexity === 'low' ? '#d1fae5' : useCase.complexity === 'medium' ? '#fef3c7' : '#fee2e2'};
+                                                      color: ${useCase.complexity === 'low' ? '#065f46' : useCase.complexity === 'medium' ? '#92400e' : '#991b1b'};
+                                                      padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                            ${useCase.complexity} effort
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 0.875rem; color: #374151; line-height: 1.6;">
+                                        <div style="margin-bottom: 8px;"><strong>Target:</strong> ${useCase.target_audience}</div>
+                                        <div style="margin-bottom: 8px;"><strong>Trigger:</strong> ${useCase.trigger}</div>
+                                        <div style="margin-bottom: 8px;"><strong>Channel:</strong> ${useCase.channel}</div>
+                                        <div style="margin-bottom: 8px;">${useCase.campaign}</div>
+                                        <div style="background: #f3f4f6; padding: 8px; border-radius: 6px; margin-top: 8px;">
+                                            <strong>💪 Expected Impact:</strong> ${useCase.expected_impact}
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Execution Plan (Layer 4) -->
+                    ${layer4.top_5_actions && layer4.top_5_actions.length > 0 ? `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">📋 Prioritized Action Plan</h3>
+                        <p style="color: #6b7280; margin-bottom: 20px;">Top 5 actions ordered by impact</p>
+                        ${layer4.top_5_actions.map((action, idx) => `
+                            <div class="ai-recommendation-item">
+                                <div style="display: flex; gap: 12px; align-items: start;">
+                                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;
+                                                width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
+                                                justify-content: center; font-weight: 700; flex-shrink: 0;">
+                                        ${action.priority}
+                                    </div>
+                                    <div style="flex: 1;">
+                                        <div style="font-weight: 600; color: #1f2937; margin-bottom: 6px;">${action.action}</div>
+                                        <div style="color: #6b7280; font-size: 0.875rem; margin-bottom: 8px;">${action.why}</div>
+                                        <div style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.75rem;">
+                                            <span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px;">
+                                                📊 ${action.outcome}
+                                            </span>
+                                            <span style="background: #e0e7ff; color: #3730a3; padding: 4px 8px; border-radius: 4px;">
+                                                ⚡ ${action.effort} effort
+                                            </span>
+                                            <span style="background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px;">
+                                                ⏱️ ${action.time_to_value}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+
+                    <!-- Quick Wins -->
+                    ${layer4.quick_wins && layer4.quick_wins.length > 0 ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);">
+                        <h3 style="margin-top: 0; color: #92400e;">⚡ Quick Wins (< 1 Day)</h3>
+                        ${layer4.quick_wins.map(win => `
+                            <div class="quick-win-item" style="background: white;">
+                                <div style="font-weight: 600; margin-bottom: 4px;">${win.action}</div>
+                                <div style="font-size: 0.875rem; color: #6b7280; margin-bottom: 4px;">${win.impact}</div>
+                                ${win.how_to ? `<div style="font-size: 0.875rem; color: #059669;"><strong>How:</strong> ${win.how_to}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                    ` : ''}
+
+                    <!-- Biggest Opportunity -->
+                    ${layer4.biggest_missed_opportunity ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);">
+                        <h3 style="margin-top: 0; color: #991b1b;">🎯 Biggest Missed Opportunity</h3>
+                        <div style="background: white; padding: 16px; border-radius: 8px;">
+                            <div style="font-weight: 600; color: #dc2626; margin-bottom: 8px; font-size: 1.1rem;">${layer4.biggest_missed_opportunity.opportunity}</div>
+                            <div style="color: #374151; margin-bottom: 12px;">${layer4.biggest_missed_opportunity.why_critical}</div>
+                            <div style="background: #f3f4f6; padding: 12px; border-radius: 6px;">
+                                <strong>How to capture:</strong><br>
+                                ${layer4.biggest_missed_opportunity.how_to_capture}
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+
+            document.getElementById('aiSummarySection').innerHTML = html;
+            document.getElementById('aiSummarySection').style.display = 'block';
+        }
+
         function displayAISummary(summary, cached) {
             const cacheIndicator = cached ? '<span style="background: rgba(16,185,129,0.2); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">💾 Cached</span>' : '';
+
+            // Check if multi-layer V2 format
+            if (summary.layer1_summary || summary.meta?.analysis_type === 'multi_layer') {
+                displayMultiLayerSummary(summary, cached);
+                return;
+            }
+
+            // V1 format (single-pass)
             const summaryHtml = `
                 <div class="ai-summary-section">
                     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
