@@ -2179,7 +2179,8 @@ def generate_recommendations_api():
         from business_inference_prompts import BusinessInferencePrompts
         from goal_driven_prompts import GoalDrivenPrompts
         from mcp_collective_intelligence import MCPCollectiveIntelligence
-        import google.generativeai as genai
+        from gemini_client import GeminiClient
+        import re
 
         # Initialize cache
         cache = RecommendationsCache(str(DATA_DIR))
@@ -2247,8 +2248,8 @@ def generate_recommendations_api():
                 'error': 'GEMINI_API_KEY environment variable not set'
             }), 500
 
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        # Initialize Gemini client (handles SSL bypass in dev mode)
+        gemini_client = GeminiClient(gemini_api_key)
 
         if industry_override and business_model_override:
             print(f"   Using overrides: {industry_override} / {business_model_override}")
@@ -2258,8 +2259,21 @@ def generate_recommendations_api():
             }
         else:
             layer0_prompt = BusinessInferencePrompts.get_business_inference_prompt(structured_data)
-            layer0_response = model.generate_content(layer0_prompt)
-            layer0_result = json.loads(layer0_response.text)
+            layer0_response_text = gemini_client.generate_content(layer0_prompt, model='gemini-2.5-flash')
+
+            # Extract JSON from response
+            try:
+                layer0_result = json.loads(layer0_response_text)
+            except json.JSONDecodeError:
+                # Try extracting from markdown
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', layer0_response_text, re.DOTALL)
+                if json_match:
+                    layer0_result = json.loads(json_match.group(1))
+                else:
+                    layer0_result = {
+                        'industry': {'primary': 'Unknown'},
+                        'business_model': {'primary': 'Unknown'}
+                    }
 
         # Step 4: Query MCP for collective intelligence
         print("🌐 Querying collective intelligence...")
@@ -2295,10 +2309,7 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         # Step 7: Call Gemini with goal-specific prompt
         print(f"✨ Calling Gemini for {goal} analysis...")
         print(f"   Prompt length: {len(prompt)} characters")
-        response = model.generate_content(prompt)
-
-        # Extract JSON from response (handle markdown code blocks)
-        response_text = response.text.strip()
+        response_text = gemini_client.generate_content(prompt, model='gemini-2.5-flash').strip()
         print(f"   Response length: {len(response_text)} characters")
         print(f"   Response preview: {response_text[:200]}")
 
