@@ -237,9 +237,9 @@ You are a growth strategist generating **implementable marketing use cases**.
 - Available destinations: {', '.join(destinations.get('all_destinations', [])[:5])}
 - Destination categories: {', '.join(destinations.get('by_category', {}).keys())}
 
-### Task: Generate 5-7 Implementable Marketing Use Cases
+### Task: Generate 3-5 Implementable Marketing Use Cases
 
-Each use case MUST:
+IMPORTANT: Keep responses concise. Each use case MUST:
 - Be tied to actual audiences in the workspace
 - Use available destinations only
 - Include specific trigger conditions

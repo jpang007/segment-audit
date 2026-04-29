@@ -30,59 +30,97 @@ class GeminiClient:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    def generate_content(self, prompt: str, model: str = "gemini-2.0-flash") -> str:
+    def generate_content(self, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 2) -> str:
         """
-        Generate content using Gemini REST API
+        Generate content using Gemini REST API with retry logic
         Returns the response text
         """
-        url = f"{self.base_url}/{model}:generateContent?key={self.api_key}"
+        # Model fallback order
+        models_to_try = [model]
+        if model == "gemini-2.5-flash":
+            models_to_try.append("gemini-2.0-flash")  # Fallback if 2.5 unavailable
 
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": prompt
-                }]
-            }],
-            "generationConfig": {
-                "temperature": 0.7,
-                "topK": 40,
-                "topP": 0.95,
-                "maxOutputTokens": 8192,
+        last_error = None
+
+        for model_name in models_to_try:
+            url = f"{self.base_url}/{model_name}:generateContent?key={self.api_key}"
+
+            payload = {
+                "contents": [{
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "topK": 40,
+                    "topP": 0.95,
+                    "maxOutputTokens": 16384,  # Increased from 8192 to handle longer responses
+                }
             }
-        }
 
-        headers = {
-            "Content-Type": "application/json"
-        }
+            headers = {
+                "Content-Type": "application/json"
+            }
 
-        # In dev mode, disable SSL verification
-        # In production (Render), use proper SSL verification
-        verify_ssl = not self.is_dev_mode
+            # In dev mode, disable SSL verification
+            # In production (Render), use proper SSL verification
+            verify_ssl = not self.is_dev_mode
 
-        try:
-            response = requests.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=60,
-                verify=verify_ssl  # False in dev, True in production
-            )
-            response.raise_for_status()
+            # Try with retries
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(
+                        url,
+                        json=payload,
+                        headers=headers,
+                        timeout=60,
+                        verify=verify_ssl  # False in dev, True in production
+                    )
+                    response.raise_for_status()
 
-            result = response.json()
+                    result = response.json()
 
-            # Extract text from response
-            if 'candidates' in result and len(result['candidates']) > 0:
-                candidate = result['candidates'][0]
-                if 'content' in candidate and 'parts' in candidate['content']:
-                    parts = candidate['content']['parts']
-                    if len(parts) > 0 and 'text' in parts[0]:
-                        return parts[0]['text']
+                    # Extract text from response
+                    if 'candidates' in result and len(result['candidates']) > 0:
+                        candidate = result['candidates'][0]
+                        if 'content' in candidate and 'parts' in candidate['content']:
+                            parts = candidate['content']['parts']
+                            if len(parts) > 0 and 'text' in parts[0]:
+                                if attempt > 0 or model_name != model:
+                                    print(f"   ✓ Succeeded with {model_name} on attempt {attempt + 1}")
+                                return parts[0]['text']
 
-            raise ValueError(f"Unexpected response format: {result}")
+                    raise ValueError(f"Unexpected response format: {result}")
 
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Gemini API call failed: {str(e)}")
+                except requests.exceptions.HTTPError as e:
+                    if e.response.status_code == 503 and attempt < max_retries - 1:
+                        # Service unavailable, wait and retry
+                        import time
+                        wait_time = (attempt + 1) * 2  # 2s, 4s
+                        print(f"   ⚠️  503 error with {model_name}, retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    elif e.response.status_code == 429:
+                        # Rate limited
+                        last_error = Exception(f"Rate limited. Please wait a moment and try again.")
+                        break  # Don't retry on rate limit
+                    else:
+                        last_error = Exception(f"Gemini API call failed: {str(e)}")
+                        break
+                except requests.exceptions.RequestException as e:
+                    last_error = Exception(f"Gemini API call failed: {str(e)}")
+                    if attempt < max_retries - 1:
+                        import time
+                        print(f"   ⚠️  Request failed with {model_name}, retrying...")
+                        time.sleep(2)
+                        continue
+                    break
+
+        # If we got here, all attempts failed
+        if last_error:
+            raise last_error
+        raise Exception("All Gemini API attempts failed")
 
 
 # Test

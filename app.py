@@ -2178,7 +2178,7 @@ def generate_recommendations_api():
         from data_structurer import DataStructurer
         from business_inference_prompts import BusinessInferencePrompts
         from goal_driven_prompts import GoalDrivenPrompts
-        from mcp_collective_intelligence import MCPCollectiveIntelligence
+        # from mcp_collective_intelligence import MCPCollectiveIntelligence  # Disabled - no database
         from gemini_client import GeminiClient
         import re
 
@@ -2237,8 +2237,8 @@ def generate_recommendations_api():
         structurer = DataStructurer(str(DATA_DIR))
         structured_data = structurer.structure_for_gemini(findings)
 
-        # Step 3: Run Layer 0 business inference (unless overridden)
-        print("🔍 Inferring business context...")
+        # Step 3: Business context (use overrides or simple default - SKIP AI inference to save API calls)
+        print("🔍 Setting business context...")
 
         # Get Gemini API key
         gemini_api_key = os.environ.get('GEMINI_API_KEY')
@@ -2258,27 +2258,27 @@ def generate_recommendations_api():
                 'business_model': {'primary': business_model_override, 'primary_confidence': 'high'}
             }
         else:
-            layer0_prompt = BusinessInferencePrompts.get_business_inference_prompt(structured_data)
-            layer0_response_text = gemini_client.generate_content(layer0_prompt, model='gemini-2.5-flash')
+            # Use simple default to avoid extra API call
+            # User can override in the UI if needed
+            workspace_slug = session.get('workspace_slug', 'unknown')
+            print(f"   Using default context for {workspace_slug}")
+            layer0_result = {
+                'industry': {'primary': 'Media/Publishing', 'primary_confidence': 'medium'},
+                'business_model': {'primary': 'Subscription', 'primary_confidence': 'medium'}
+            }
 
-            # Extract JSON from response
-            try:
-                layer0_result = json.loads(layer0_response_text)
-            except json.JSONDecodeError:
-                # Try extracting from markdown
-                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', layer0_response_text, re.DOTALL)
-                if json_match:
-                    layer0_result = json.loads(json_match.group(1))
-                else:
-                    layer0_result = {
-                        'industry': {'primary': 'Unknown'},
-                        'business_model': {'primary': 'Unknown'}
-                    }
-
-        # Step 4: Query MCP for collective intelligence
-        print("🌐 Querying collective intelligence...")
-        mcp = MCPCollectiveIntelligence()
-        collective_insights = mcp.get_contextual_insights(layer0_result)
+        # Step 4: Query MCP for collective intelligence (DISABLED FOR NOW)
+        print("🌐 Skipping collective intelligence (database disabled)...")
+        # mcp = MCPCollectiveIntelligence()
+        # collective_insights = mcp.get_contextual_insights(layer0_result)
+        collective_insights = {
+            'industry': layer0_result.get('industry', {}).get('primary', 'Unknown'),
+            'business_model': layer0_result.get('business_model', {}).get('primary', 'Unknown'),
+            'similar_workspaces_analyzed': 0,
+            'benchmarks': {},
+            'best_practices': [],
+            'collective_context': ''
+        }
 
         # Step 5: Build business context string
         business_context = f"""
@@ -2320,16 +2320,21 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         except json.JSONDecodeError as e:
             print(f"   ⚠️ Direct JSON parse failed: {e}")
             # Try extracting from markdown code block
-            import re
-            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1)
-                print(f"   Found JSON in markdown block: {len(json_str)} chars")
+            # Look for ```json or ``` followed by JSON content
+            if response_text.strip().startswith('```'):
+                # Remove opening ``` and optional json marker
+                json_str = response_text.strip()
+                json_str = re.sub(r'^```(?:json)?\s*', '', json_str)
+                # Remove closing ```
+                json_str = re.sub(r'\s*```\s*$', '', json_str)
+
+                print(f"   Extracted from markdown block: {len(json_str)} chars")
                 try:
                     result = json.loads(json_str)
                     print(f"   ✓ Markdown JSON parse successful, keys: {list(result.keys())}")
                 except json.JSONDecodeError as e2:
                     print(f"   ✗ Markdown JSON parse failed: {e2}")
+                    print(f"   First 200 chars of extracted JSON: {json_str[:200]}")
                     return jsonify({
                         'success': False,
                         'error': f'Could not parse JSON from markdown: {str(e2)}',
@@ -2344,17 +2349,9 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
                     'response_preview': response_text[:500]
                 }), 500
 
-        # Step 8: Contribute to MCP for future learning
-        try:
-            analysis_result = {
-                'layer0_business_inference': layer0_result,
-                'structured_data': structured_data,
-                'goal': goal,
-                'output_type': output_type
-            }
-            mcp.contribute_analysis(analysis_result, workspace_slug)
-        except Exception as e:
-            print(f"⚠️  Could not contribute to MCP: {e}")
+        # Step 8: Contribute to MCP for future learning (DISABLED)
+        # Database functionality disabled per user request
+        print("📝 Skipping MCP contribution (database disabled)")
 
         # Prepare response
         response_data = {
