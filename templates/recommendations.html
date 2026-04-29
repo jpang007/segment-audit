@@ -275,10 +275,9 @@
                 </label>
                 <select id="goalSelect" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.95); color: #1f2937; font-size: 1rem; cursor: pointer;">
                     <option value="">Select a goal...</option>
-                    <option value="quick_wins">⚡ Find Quick Wins - Low-effort, high-impact opportunities</option>
-                    <option value="data_strategy">📊 Improve Data Strategy - Identity, events, audiences, governance</option>
-                    <option value="growth_usecases">🚀 Generate Growth Use Cases - Lifecycle campaigns, behavioral targeting</option>
-                    <option value="expansion">💼 Identify Expansion Opportunities - Unused destinations, upsell, activation gaps</option>
+                    <option value="workspace_audit">🔍 Workspace Audit - Technical + strategic workspace health analysis</option>
+                    <option value="growth_usecases">🚀 Growth Use Cases - Marketing and lifecycle activation ideas</option>
+                    <option value="activation_expansion">💼 Activation & Expansion - Underutilization and upsell opportunities</option>
                 </select>
             </div>
 
@@ -530,17 +529,15 @@
             };
 
             const goalIcons = {
-                'quick_wins': '⚡',
-                'data_strategy': '📊',
+                'workspace_audit': '🔍',
                 'growth_usecases': '🚀',
-                'expansion': '💼'
+                'activation_expansion': '💼'
             };
 
             const goalNames = {
-                'quick_wins': 'Quick Wins',
-                'data_strategy': 'Data Strategy',
+                'workspace_audit': 'Workspace Audit',
                 'growth_usecases': 'Growth Use Cases',
-                'expansion': 'Expansion Opportunities'
+                'activation_expansion': 'Activation & Expansion'
             };
 
             const result = data.result || {};

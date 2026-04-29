@@ -20,7 +20,11 @@ from typing import Dict, Any
 class GoalDrivenPrompts:
     """
     Generates targeted prompts based on user's selected goal and output type
-    This replaces the generic 5-layer analysis with focused, goal-specific analysis
+
+    Three distinct goals:
+    1. Workspace Audit - Technical/strategic workspace analysis
+    2. Growth Use Cases - Marketing/lifecycle activation ideas
+    3. Activation & Expansion - Underutilization and upsell opportunities
     """
 
     @staticmethod
@@ -32,20 +36,19 @@ Your expertise:
 - CDP architecture and data governance
 - Audience activation strategies
 - Marketing technology optimization
-- Growth marketing and lifecycle campaigns
-- ROI analysis and business impact
+- Data utilization and workspace health
 
 Your communication style:
-- Specific (use actual audience names, destinations, numbers)
-- Actionable (clear next steps, not theory)
-- Business-focused (tie to revenue, efficiency, growth)
-- Realistic (implementable recommendations)
+- Evidence-based (only reference observable data)
+- Consultative (diagnostic, not prescriptive)
+- Specific (use actual names, numbers from data)
+- Actionable (clear, realistic next steps)
 
 Critical rules:
 - Use ONLY the data provided
 - Reference specific audiences, events, destinations by name
-- Avoid generic best practices
-- Provide quantified impact estimates where possible"""
+- No fabricated metrics or performance claims
+- Clear about assumptions vs. observations"""
 
     @staticmethod
     def goal_quick_wins(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
@@ -170,156 +173,152 @@ DO:
 Generate quick wins now."""
 
     @staticmethod
-    def goal_data_strategy(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
+    def goal_workspace_audit(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
         """
-        GOAL: Improve Data & Audience Strategy
-        Focus: Identity, event usage, audience structure, governance
+        GOAL 1: Workspace Audit
+        Technical + strategic analysis of workspace health and architecture
+        Focus: sources, events, audiences, destinations, risks, opportunities
         """
         workspace = structured_data.get('workspace_summary', {})
         audiences = structured_data.get('audience_insights', [])
         sources = structured_data.get('source_insights', [])
 
-        return f"""## Evidence-Based Data Strategy Audit
+        return f"""## Workspace Audit - Technical & Strategic Analysis
 
-You are a Segment Solutions Architect conducting a technical workspace audit.
+You are a Segment Solutions Architect conducting a comprehensive workspace audit.
 
 {business_context}
 
 {"### Customer Context: " + user_notes if user_notes else ""}
 
-### Workspace Overview
-- Total sources: {workspace.get('total_sources', 0)}
-- Total audiences: {workspace.get('total_audiences', 0)}
-- Enabled audiences: {workspace.get('enabled_audiences', 0)}
-- Total users in audiences: {workspace.get('total_users_in_audiences', 0):,}
+### Workspace Snapshot
+- Sources: {workspace.get('total_sources', 0)}
+- Audiences: {workspace.get('total_audiences', 0)} ({workspace.get('enabled_audiences', 0)} enabled)
+- Total users: {workspace.get('total_users_in_audiences', 0):,}
+
+### Goal: Workspace Audit
+
+This is a **technical + strategic assessment** covering:
+1. **Sources & Events**: Data collection health, volumes, instrumentation quality
+2. **Audience Health**: Usage patterns, redundancies, unactivated audiences
+3. **Destination Coverage**: Activation strategy and gaps
+4. **Key Risks**: Broken sources, stale data, governance issues
+5. **Underutilized Data**: High-volume events not used, audiences not activated
 
 ### Critical Instructions
 
-**DATA GROUNDING REQUIREMENTS:**
-1. Base all observations on workspace configuration data
-2. DO NOT assume business processes or team structures
-3. DO NOT claim performance benchmarks without data
-4. ONLY identify patterns observable in the workspace
+**DATA GROUNDING:**
+- Analyze only what exists in the workspace data
+- Identify patterns, gaps, and risks based on configuration
+- Do NOT fabricate metrics or assume business context
+- Be specific with names and numbers
 
-**FORBIDDEN:**
-- Industry benchmark comparisons without clear basis
-- Assumptions about "best practices" not grounded in this workspace
-- Claims about what "should" exist without evidence
-- Speculation about business impact
+**TONE:**
+- Technical consultant conducting a workspace review
+- Diagnostic and analytical, not prescriptive
+- Honest about data limitations
 
 ### Data Available
 ```json
 {json.dumps(structured_data, indent=2)}
 ```
 
-### Task: Technical Workspace Assessment
-
-Analyze workspace configuration and identify:
-1. **Data Collection Gaps**: Sources, events, or schemas that appear incomplete
-2. **Audience Architecture Issues**: Redundancies, naming inconsistencies, unused audiences
-3. **Governance Issues**: Disabled resources with users, empty audiences, quota waste
-4. **Activation Gaps**: Audiences with users but no destinations
-
 ### Output Format
 
 Return JSON with this EXACT structure:
 ```json
 {{
-  "data_collection": {{
-    "sources_analyzed": 16,
+  "workspace_summary": {{
+    "overall_health": "good | fair | poor",
+    "health_summary": "2-3 sentence diagnostic summary",
+    "key_metrics": {{
+      "sources": 16,
+      "audiences_total": 242,
+      "audiences_activated": 120,
+      "activation_rate": "50%",
+      "total_addressable_users": 62000000
+    }}
+  }},
+  "sources_and_events": {{
     "observations": [
       {{
-        "finding": "Specific observation from data",
-        "evidence": "What in the data shows this",
-        "impact_level": "high | medium | low",
-        "recommendation": "Specific, actionable next step"
+        "finding": "Specific pattern or issue",
+        "evidence": "What data shows this",
+        "risk_level": "high | medium | low",
+        "recommendation": "Actionable next step"
       }}
     ],
-    "data_quality_assessment": "Brief summary of data completeness"
-  }},
-  "audience_architecture": {{
-    "total_audiences": 242,
-    "enabled_audiences": 166,
-    "observations": [
+    "high_volume_events_unused": [
       {{
-        "pattern": "What pattern you observed (e.g., naming convention inconsistency)",
-        "examples": ["aud_name_1", "aud_name_2"],
-        "impact": "Why this matters",
-        "recommendation": "What to do about it",
-        "confidence": "high | medium | low"
+        "event_name": "actual event name",
+        "volume": "observed or 'high'",
+        "why_matters": "Opportunity this represents",
+        "suggested_use": "How it could be activated"
+      }}
+    ]
+  }},
+  "audience_health": {{
+    "unactivated_audiences": [
+      {{
+        "name": "audience_name",
+        "size": 12345,
+        "reason": "why not activated",
+        "opportunity": "what could be done"
       }}
     ],
     "potential_redundancies": [
       {{
-        "audience_group": ["list", "of", "similar", "audiences"],
-        "similarity_basis": "What makes them appear similar",
-        "requires_verification": "What you'd need to confirm this"
+        "audiences": ["name1", "name2"],
+        "similarity": "why they appear similar",
+        "recommendation": "consolidate or clarify"
       }}
-    ]
-  }},
-  "governance": {{
-    "issues_found": [
+    ],
+    "disabled_with_users": [
       {{
-        "issue_type": "disabled_with_users | empty_audience | unused_destination",
-        "affected_resources": ["specific names"],
-        "user_count": 12345,
-        "business_impact": "Why this matters (qualitative)",
-        "recommended_action": "Specific fix",
-        "urgency": "high | medium | low"
+        "name": "audience_name",
+        "user_count": 5000,
+        "recommendation": "re-enable or archive"
       }}
     ]
   }},
-  "activation_strategy": {{
-    "activation_rate": "X out of Y audiences activated",
-    "observations": [
+  "destination_coverage": {{
+    "connected_categories": ["email", "analytics", "ads"],
+    "gaps": [
       {{
-        "finding": "Specific pattern in destination usage",
-        "evidence": "Data that supports this",
-        "gap_identified": "What's missing",
-        "recommendation": "What to consider"
+        "category": "missing category",
+        "rationale": "why this gap matters based on data",
+        "recommendation": "suggested destination type"
       }}
-    ]
+    ],
+    "activation_coverage_assessment": "Brief summary of how well audiences are activated"
   }},
-  "prioritized_actions": [
+  "key_risks": [
     {{
-      "priority": 1,
-      "action": "Specific task with resource names",
-      "category": "data_collection | audience_architecture | governance | activation",
-      "effort": "low | medium | high",
-      "impact": "high | medium | low",
-      "evidence": "Why this is prioritized",
-      "prerequisites": ["What needs to be true or done first"]
+      "risk": "Specific risk identified",
+      "severity": "high | medium | low",
+      "evidence": "What indicates this risk",
+      "mitigation": "How to address"
     }}
   ],
-  "summary": {{
-    "overall_health": "Brief diagnostic summary",
-    "highest_priority_area": "Which area needs most attention",
-    "data_completeness": "Assessment of how complete the audit data is"
-  }}
+  "top_opportunities": [
+    {{
+      "opportunity": "Specific opportunity",
+      "evidence": "Data that supports this",
+      "impact": "Why this matters",
+      "next_step": "Concrete action"
+    }}
+  ]
 }}
 ```
 
-### Tone Guidelines
+**Output Guidelines:**
+- Write as if presenting audit findings to the customer
+- Be diagnostic and specific
+- Use actual resource names and numbers
+- Honest about assumptions
+- Focus on actionable insights
 
-Write as a technical consultant reviewing workspace configuration:
-- Analytical and diagnostic
-- Specific with names and numbers
-- Clear about what's observable vs. inferred
-- Actionable with clear next steps
-
-DO NOT:
-- Make claims about "best practices" without evidence
-- Compare to industry benchmarks you don't have
-- Assume team structures or business processes
-- Use vague language ("consider optimizing...")
-
-DO:
-- Reference specific resource names
-- Use actual counts from data
-- Describe patterns you observe
-- Be clear when something needs customer confirmation
-
-Generate the assessment now."""
+Generate the workspace audit now."""
 
     @staticmethod
     def goal_growth_usecases(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
@@ -444,10 +443,11 @@ Example phrases to AVOID:
 Generate recommendations now."""
 
     @staticmethod
-    def goal_expansion_opportunities(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
+    def goal_activation_expansion(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
         """
-        GOAL: Identify Expansion Opportunities
-        Focus: Unused destinations, upsell opportunities, activation gaps
+        GOAL 3: Activation & Expansion Opportunities
+        Identify underutilization and areas where customer is leaving value on the table
+        Focus: unused audiences, unused destinations, missing activation flows, Segment product opportunities
         """
         workspace = structured_data.get('workspace_summary', {})
         destinations = structured_data.get('destination_summary', {})
@@ -455,28 +455,41 @@ Generate recommendations now."""
 
         unactivated_users = sum(a.get('size', 0) for a in audiences if a.get('signal') == 'activation_opportunity')
 
-        return f"""## Expansion Opportunity Analysis
+        return f"""## Activation & Expansion Opportunities
 
-You are identifying **revenue expansion and upsell opportunities** in this workspace.
+You are a Segment Solutions Architect identifying where the customer is underutilizing Segment capabilities.
 
 {business_context}
 
-{"### Customer Notes: " + user_notes if user_notes else ""}
+{"### Customer Context: " + user_notes if user_notes else ""}
 
 ### Workspace Snapshot
 - Total audiences: {workspace.get('total_audiences', 0)}
-- Activated audiences: {len([a for a in audiences if a.get('destination_count', 0) > 0])}
-- Unactivated users: {unactivated_users:,}
-- Current destination categories: {', '.join(destinations.get('by_category', {}).keys())}
+- Audiences with destinations: {len([a for a in audiences if a.get('destination_count', 0) > 0])}
+- Unactivated users in built audiences: {unactivated_users:,}
+- Current destination categories: {', '.join(destinations.get('by_category', {}).keys()) if destinations.get('by_category') else 'None'}
 
-### Task: Identify Expansion Opportunities
+### Goal: Identify Underutilization & Expansion Areas
 
-Focus on:
+Focus on where value is being left on the table:
 
-1. **Activation Gaps** - Built audiences not being used
-2. **Missing Destination Categories** - Categories common in this industry but not connected
-3. **Underutilized Data** - Collected data not activated
-4. **Upsell Opportunities** - Segment products/features that would add value
+1. **Unused Audiences** - Built but not activated to any destination
+2. **Unused Destinations** - Connected but not receiving audiences
+3. **Missing Activation Flows** - Data collected but not activated
+4. **Segment Product Opportunities** - Engage, Profiles, rETL, new destinations
+
+### Critical Instructions
+
+**DATA GROUNDING:**
+- Only identify gaps visible in the workspace data
+- Do NOT fabricate revenue estimates or ROI
+- Do NOT assume business priorities
+- Be specific about what's unused vs. what's missing
+
+**FORBIDDEN:**
+- Revenue projections ("$X opportunity")
+- Growth claims ("will increase revenue by X%")
+- Assumptions about customer goals
 
 ### Data Available
 ```json
@@ -485,51 +498,63 @@ Focus on:
 
 ### Output Format
 
-Return JSON:
+Return JSON with this EXACT structure:
 ```json
 {{
-  "activation_expansion": {{
-    "untapped_reach": "{unactivated_users:,} users in unactivated audiences",
-    "revenue_opportunity": "estimated value of activating",
-    "top_opportunities": [
-      {{
-        "audience": "name (size)",
-        "current_state": "not connected",
-        "expansion_play": "Connect to [destination] for [use case]",
-        "estimated_value": "quantified impact"
-      }}
-    ]
-  }},
-  "missing_destinations": [
+  "unused_audiences": [
     {{
-      "category": "email | analytics | ads | warehouse | cdp",
-      "rationale": "why this matters for their business",
-      "recommended_tools": ["tool 1", "tool 2"],
-      "use_cases": ["use case 1", "use case 2"],
-      "expected_impact": "business value"
+      "audience_name": "exact name",
+      "user_count": 12345,
+      "status": "enabled | disabled",
+      "opportunity": "what could be done with this",
+      "blocking_factor": "why not activated (if observable)",
+      "suggested_action": "specific next step"
+    }}
+  ],
+  "unused_destinations": [
+    {{
+      "destination_name": "exact name",
+      "category": "email | analytics | ads | other",
+      "connected_but_unused": true,
+      "opportunity": "how this could be utilized",
+      "suggested_audiences": ["audience names that fit"]
+    }}
+  ],
+  "missing_activation_flows": [
+    {{
+      "data_source": "source collecting data",
+      "data_type": "events | traits | pages",
+      "not_used_in": "audiences | destinations",
+      "opportunity": "what could be built",
+      "impact_level": "high | medium | low",
+      "reasoning": "why this matters based on data"
     }}
   ],
   "segment_product_opportunities": [
     {{
-      "product": "Personas | Protocols | Engage | Connections",
-      "use_case": "specific problem it solves",
-      "evidence": "what in their workspace indicates this need",
-      "expected_value": "business outcome"
+      "product": "Engage | Profiles API | Reverse ETL | Connections",
+      "evidence": "what in workspace suggests this",
+      "use_case": "specific problem it would solve",
+      "impact": "qualitative benefit",
+      "confidence": "high | medium | low"
     }}
   ],
-  "prioritized_expansion_plan": [
-    {{
-      "priority": 1,
-      "opportunity": "specific expansion",
-      "rationale": "why this first",
-      "estimated_impact": "revenue/efficiency gain",
-      "effort": "low | medium | high"
-    }}
-  ]
+  "expansion_summary": {{
+    "total_untapped_users": 50000,
+    "highest_impact_opportunity": "name of top opportunity",
+    "quick_wins": ["list of easy activation opportunities"],
+    "strategic_opportunities": ["list of longer-term expansion plays"]
+  }}
 }}
 ```
 
-Think like a CSM/Sales - what would drive more value and deeper product adoption?"""
+**Output Guidelines:**
+- Be consultative, not sales-y
+- Specific with names and numbers
+- Honest about what would require customer input
+- Focus on observable underutilization
+
+Generate the analysis now."""
 
     @staticmethod
     def format_executive_summary(analysis_result: Dict[str, Any]) -> Dict[str, Any]:

@@ -2302,14 +2302,12 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         print(f"📝 Generating {goal} prompt...")
         prompts = GoalDrivenPrompts()
 
-        if goal == 'quick_wins':
-            prompt = prompts.goal_quick_wins(structured_data, business_context, user_notes)
-        elif goal == 'data_strategy':
-            prompt = prompts.goal_data_strategy(structured_data, business_context, user_notes)
+        if goal == 'workspace_audit':
+            prompt = prompts.goal_workspace_audit(structured_data, business_context, user_notes)
         elif goal == 'growth_usecases':
             prompt = prompts.goal_growth_usecases(structured_data, business_context, user_notes)
-        elif goal == 'expansion':
-            prompt = prompts.goal_expansion_opportunities(structured_data, business_context, user_notes)
+        elif goal == 'activation_expansion':
+            prompt = prompts.goal_activation_expansion(structured_data, business_context, user_notes)
         else:
             return jsonify({
                 'success': False,
