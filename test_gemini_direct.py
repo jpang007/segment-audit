@@ -9,7 +9,10 @@ import json
 import re
 
 # Set API key
-os.environ['GEMINI_API_KEY'] = os.environ.get('GEMINI_API_KEY', 'AIzaSyDvVcIeKWD3c0qzEteaVbvmKXWg1AAlNKU')
+if 'GEMINI_API_KEY' not in os.environ:
+    print("Error: GEMINI_API_KEY environment variable not set")
+    print("Usage: export GEMINI_API_KEY='your-key-here' && python3 test_gemini_direct.py")
+    exit(1)
 
 print("="*70)
 print("TESTING GOAL-DRIVEN GEMINI FLOW")

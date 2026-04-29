@@ -60,7 +60,11 @@ class GeminiRESTClient:
 if __name__ == '__main__':
     import os
 
-    api_key = os.environ.get('GEMINI_API_KEY', 'AIzaSyDvVcIeKWD3c0qzEteaVbvmKXWg1AAlNKU')
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        print("Error: GEMINI_API_KEY environment variable not set")
+        print("Usage: export GEMINI_API_KEY='your-key-here' && python3 gemini_rest_client.py")
+        exit(1)
 
     client = GeminiRESTClient(api_key)
 
