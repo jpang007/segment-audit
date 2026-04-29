@@ -12,12 +12,12 @@ Privacy-first: Only aggregated patterns, no customer PII
 """
 
 import json
-import sqlite3
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
 import hashlib
+from database_adapter import DatabaseAdapter
 
 
 class CollectiveLearningDB:
@@ -27,14 +27,13 @@ class CollectiveLearningDB:
     """
 
     def __init__(self, db_path: str = './audit_data/collective_learning.db'):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(exist_ok=True)
-        self._init_database()
+        self.db = DatabaseAdapter(db_path)
+        self.db.create_tables()
 
-    def _init_database(self):
-        """Initialize database schema"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+    def _init_database_old(self):
+        """OLD: Initialize database schema"""
+        # This method is replaced by DatabaseAdapter.create_tables()
+        pass
 
         # Workspace patterns table (anonymized)
         cursor.execute("""

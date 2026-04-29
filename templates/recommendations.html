@@ -263,24 +263,82 @@
 
         <!-- Generate Recommendations Section -->
         <div class="recommendations-header">
-            <h2 style="margin-top: 0;">Generate Workspace Analysis</h2>
-            <p style="opacity: 0.9; margin-bottom: 20px;">
-                Analyze your workspace for optimization opportunities and best practice recommendations.
+            <h2 style="margin-top: 0;">🎯 Goal-Driven Workspace Analysis</h2>
+            <p style="opacity: 0.9; margin-bottom: 24px;">
+                Tell us what you're trying to accomplish, and we'll generate targeted recommendations
             </p>
 
-            <div style="display: flex; gap: 12px; align-items: center;">
-                <button id="generateBasicBtn" onclick="generateRecommendations(false)" class="generate-btn">
-                    🔍 Generate Analysis
-                </button>
-                <button id="generateAIBtn" onclick="generateRecommendations(true)" class="generate-btn" style="background: linear-gradient(135deg, #a78bfa 0%, #c084fc 100%);">
-                    ✨ Generate with AI Summary
-                </button>
+            <!-- Goal Selection -->
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                    What's your goal? <span style="color: #fee2e2;">*</span>
+                </label>
+                <select id="goalSelect" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.95); color: #1f2937; font-size: 1rem; cursor: pointer;">
+                    <option value="">Select a goal...</option>
+                    <option value="quick_wins">⚡ Find Quick Wins - Low-effort, high-impact opportunities</option>
+                    <option value="data_strategy">📊 Improve Data Strategy - Identity, events, audiences, governance</option>
+                    <option value="growth_usecases">🚀 Generate Growth Use Cases - Lifecycle campaigns, behavioral targeting</option>
+                    <option value="expansion">💼 Identify Expansion Opportunities - Unused destinations, upsell, activation gaps</option>
+                </select>
             </div>
 
-            <p style="font-size: 0.875rem; margin-top: 16px; opacity: 0.8;">
-                <strong>Basic Analysis:</strong> Fast, rule-based findings (free)<br>
-                <strong>AI Summary:</strong> Includes Gemini-powered executive summary and prioritized recommendations (requires API key)
-            </p>
+            <!-- Output Type Selection -->
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Output format <span style="color: #fee2e2;">*</span>
+                </label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <label style="background: rgba(255,255,255,0.95); padding: 16px; border-radius: 8px; cursor: pointer; border: 2px solid rgba(255,255,255,0.3); transition: all 0.2s;"
+                           onmouseover="this.style.borderColor='rgba(255,255,255,0.8)'"
+                           onmouseout="if(!document.getElementById('outputExecutive').checked) this.style.borderColor='rgba(255,255,255,0.3)'"
+                           onclick="this.style.borderColor='#10b981'; document.querySelectorAll('label[for^=output]').forEach(l => l.style.borderColor='rgba(255,255,255,0.3)'); this.style.borderColor='#10b981';">
+                        <input type="radio" id="outputExecutive" name="outputType" value="executive_summary" style="margin-right: 8px;">
+                        <div style="display: inline-block;">
+                            <div style="font-weight: 600; color: #1f2937;">📄 Executive Summary</div>
+                            <div style="font-size: 0.875rem; color: #6b7280; margin-top: 4px;">Customer-facing, concise</div>
+                        </div>
+                    </label>
+                    <label style="background: rgba(255,255,255,0.95); padding: 16px; border-radius: 8px; cursor: pointer; border: 2px solid rgba(255,255,255,0.3); transition: all 0.2s;"
+                           onmouseover="this.style.borderColor='rgba(255,255,255,0.8)'"
+                           onmouseout="if(!document.getElementById('outputAction').checked) this.style.borderColor='rgba(255,255,255,0.3)'"
+                           onclick="this.style.borderColor='#10b981'; document.querySelectorAll('label[for^=output]').forEach(l => l.style.borderColor='rgba(255,255,255,0.3)'); this.style.borderColor='#10b981';">
+                        <input type="radio" id="outputAction" name="outputType" value="action_plan" style="margin-right: 8px;">
+                        <div style="display: inline-block;">
+                            <div style="font-weight: 600; color: #1f2937;">📋 Action Plan</div>
+                            <div style="font-size: 0.875rem; color: #6b7280; margin-top: 4px;">Internal SA use, detailed</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Customer Context Override (Optional) -->
+            <details style="background: rgba(255,255,255,0.1); padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                <summary style="cursor: pointer; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ⚙️ Customer Context Override (Optional)
+                </summary>
+                <div style="margin-top: 16px; display: grid; gap: 12px;">
+                    <div>
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 4px; opacity: 0.9;">Industry</label>
+                        <input type="text" id="industryOverride" placeholder="Auto-detected from data..."
+                               style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.95); color: #1f2937;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 4px; opacity: 0.9;">Business Model</label>
+                        <input type="text" id="businessModelOverride" placeholder="Auto-detected from data..."
+                               style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.95); color: #1f2937;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.875rem; margin-bottom: 4px; opacity: 0.9;">Additional Notes</label>
+                        <textarea id="userNotes" rows="3" placeholder="Any specific context or priorities..."
+                                  style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.95); color: #1f2937; resize: vertical;"></textarea>
+                    </div>
+                </div>
+            </details>
+
+            <!-- Generate Button -->
+            <button id="generateBtn" onclick="generateGoalDrivenRecommendations()" class="generate-btn" style="width: 100%; font-size: 1.1rem; padding: 16px;">
+                ✨ Generate Recommendations
+            </button>
 
             <div id="rateLimitStatus" style="font-size: 0.75rem; margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 8px; display: none;">
                 <div style="display: flex; gap: 20px;">
@@ -315,34 +373,12 @@
         <!-- Export Options -->
         <div id="exportOptions" style="display: none; margin-bottom: 30px;">
             <div style="background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                <h3 style="margin-top: 0; color: #1f2937;">📥 Export Options</h3>
-                <p style="color: #6b7280; margin-bottom: 20px;">Download audit data and recommendations for reporting and analysis</p>
+                <h3 style="margin-top: 0; color: #1f2937;">📥 Export Recommendations</h3>
+                <p style="color: #6b7280; margin-bottom: 20px;">Download your generated recommendations as JSON</p>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
-                    <button onclick="exportRecommendations()" class="btn btn-secondary" style="width: 100%;">
-                        📋 Recommendations CSV
-                    </button>
-                    <button onclick="exportSourcesDestinations()" class="btn btn-secondary" style="width: 100%;">
-                        🔌 Sources & Destinations
-                    </button>
-                    <button onclick="exportAudiencesDestinations()" class="btn btn-secondary" style="width: 100%;">
-                        👥 Audiences & Destinations
-                    </button>
-                    <button onclick="exportAllData()" class="btn btn-primary" style="width: 100%;">
-                        📦 Download All (ZIP)
-                    </button>
-                </div>
-
-                <div style="margin-top: 16px; padding: 12px; background: #f0fdf4; border-radius: 8px; border-left: 3px solid #10b981;">
-                    <strong style="color: #065f46;">ZIP includes:</strong>
-                    <ul style="margin: 8px 0 0 20px; color: #065f46; font-size: 0.875rem;">
-                        <li>Recommendations with use cases</li>
-                        <li>Sources with destinations and volumes</li>
-                        <li>Audiences with activation status</li>
-                        <li>Top events analysis</li>
-                        <li>Summary README</li>
-                    </ul>
-                </div>
+                <button onclick="exportRecommendationsJSON()" class="btn btn-primary" style="width: 100%;">
+                    📄 Download Recommendations (JSON)
+                </button>
             </div>
         </div>
 
@@ -392,7 +428,26 @@
         // Load on page load
         document.addEventListener('DOMContentLoaded', loadRateLimitStatus);
 
-        async function generateRecommendations(useAI) {
+        async function generateGoalDrivenRecommendations() {
+            // Validate inputs
+            const goal = document.getElementById('goalSelect').value;
+            const outputType = document.querySelector('input[name="outputType"]:checked')?.value;
+
+            if (!goal) {
+                alert('⚠️ Please select a goal');
+                return;
+            }
+
+            if (!outputType) {
+                alert('⚠️ Please select an output format');
+                return;
+            }
+
+            // Get optional overrides
+            const industryOverride = document.getElementById('industryOverride').value.trim();
+            const businessModelOverride = document.getElementById('businessModelOverride').value.trim();
+            const userNotes = document.getElementById('userNotes').value.trim();
+
             // Show loading
             document.getElementById('loading').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
@@ -400,9 +455,8 @@
             document.getElementById('aiSummarySection').style.display = 'none';
             document.getElementById('findingsList').innerHTML = '';
 
-            // Disable buttons
-            document.getElementById('generateBasicBtn').disabled = true;
-            document.getElementById('generateAIBtn').disabled = true;
+            // Disable button
+            document.getElementById('generateBtn').disabled = true;
 
             try {
                 const response = await fetch('/api/generate-recommendations', {
@@ -410,14 +464,20 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ use_ai: useAI })
+                    body: JSON.stringify({
+                        goal: goal,
+                        output_type: outputType,
+                        industry_override: industryOverride || null,
+                        business_model_override: businessModelOverride || null,
+                        user_notes: userNotes || null
+                    })
                 });
 
                 const data = await response.json();
 
                 if (!data.success) {
                     if (data.rate_limited) {
-                        throw new Error(`⏱️ ${data.error}\n\nYour recommendations have been cached. Try again in a minute or use "Generate Analysis" (no AI) instead.`);
+                        throw new Error(`⏱️ ${data.error}\n\nYour recommendations have been cached. Try again in a minute.`);
                     }
                     throw new Error(data.error || 'Failed to generate recommendations');
                 }
@@ -425,17 +485,8 @@
                 // Hide loading
                 document.getElementById('loading').style.display = 'none';
 
-                // Display results
-                displayFindings(data.findings);
-
-                // Display business context if available
-                if (data.business_context) {
-                    displayBusinessContext(data.business_context);
-                }
-
-                if (data.ai_enabled && data.summary) {
-                    displayAISummary(data.summary, data.cached);
-                }
+                // Display goal-driven results
+                displayGoalDrivenResults(data, goal, outputType);
 
                 // Show cache indicator if cached
                 if (data.cached) {
@@ -463,9 +514,162 @@
                 `;
                 document.getElementById('emptyState').style.display = 'block';
             } finally {
-                // Re-enable buttons
-                document.getElementById('generateBasicBtn').disabled = false;
-                document.getElementById('generateAIBtn').disabled = false;
+                // Re-enable button
+                document.getElementById('generateBtn').disabled = false;
+            }
+        }
+
+        function displayGoalDrivenResults(data, goal, outputType) {
+            // Save for export
+            lastGeneratedResult = {
+                goal: goal,
+                output_type: outputType,
+                timestamp: new Date().toISOString(),
+                ...data
+            };
+
+            const goalIcons = {
+                'quick_wins': '⚡',
+                'data_strategy': '📊',
+                'growth_usecases': '🚀',
+                'expansion': '💼'
+            };
+
+            const goalNames = {
+                'quick_wins': 'Quick Wins',
+                'data_strategy': 'Data Strategy',
+                'growth_usecases': 'Growth Use Cases',
+                'expansion': 'Expansion Opportunities'
+            };
+
+            const result = data.result || {};
+            const layer0 = data.layer0 || {};
+
+            let html = `
+                <div class="ai-summary-section">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">${goalIcons[goal]} ${goalNames[goal]} Analysis</h2>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span style="background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                ${outputType === 'executive_summary' ? '📄 Executive' : '📋 Action Plan'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Business Context -->
+                    ${layer0.industry ? `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); margin-bottom: 20px;">
+                        <h3 style="margin-top: 0; color: #3730a3;">🎯 Business Context</h3>
+                        <div style="background: white; padding: 16px; border-radius: 8px;">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase;">Industry</div>
+                                    <div style="font-weight: 600; color: #1f2937; font-size: 1.1rem;">${layer0.industry.primary}</div>
+                                </div>
+                                ${layer0.business_model ? `
+                                <div>
+                                    <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase;">Business Model</div>
+                                    <div style="font-weight: 600; color: #1f2937; font-size: 1.1rem;">${layer0.business_model.primary}</div>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Goal-Specific Results -->
+                    ${formatGoalResults(result, goal)}
+                </div>
+            `;
+
+            document.getElementById('aiSummarySection').innerHTML = html;
+            document.getElementById('aiSummarySection').style.display = 'block';
+        }
+
+        function formatGoalResults(result, goal) {
+            // Format based on goal type
+            if (goal === 'growth_usecases' && result.use_cases) {
+                return `
+                    <div class="ai-summary-card" style="background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 100%);">
+                        <h3 style="margin-top: 0; color: #065f46;">Marketing & Growth Use Cases</h3>
+                        <div style="display: grid; gap: 16px;">
+                            ${result.use_cases.map((uc, idx) => `
+                                <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #10b981;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                        <h4 style="margin: 0; color: #065f46;">${idx + 1}. ${uc.name}</h4>
+                                        <span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
+                                            ${uc.category || 'Campaign'}
+                                        </span>
+                                    </div>
+                                    <div style="color: #374151; font-size: 0.95rem; line-height: 1.6;">
+                                        <div style="margin-bottom: 10px;"><strong>Target:</strong> ${uc.target_audience}</div>
+                                        <div style="margin-bottom: 10px;"><strong>Trigger:</strong> ${uc.trigger}</div>
+                                        <div style="margin-bottom: 10px;"><strong>Channel:</strong> ${uc.channel}</div>
+                                        <div style="margin-bottom: 10px;">${uc.campaign_description || uc.campaign}</div>
+                                        ${uc.messaging_guidance && uc.messaging_guidance.length > 0 ? `
+                                            <div style="background: #f0fdf4; padding: 12px; border-radius: 6px; margin-top: 12px;">
+                                                <strong style="color: #065f46;">Messaging Guidance:</strong>
+                                                <ul style="margin: 8px 0 0 20px; color: #047857;">
+                                                    ${uc.messaging_guidance.map(msg => `<li>${msg}</li>`).join('')}
+                                                </ul>
+                                            </div>
+                                        ` : ''}
+                                        <div style="background: #fef3c7; padding: 10px; border-radius: 6px; margin-top: 10px;">
+                                            <strong style="color: #92400e;">Expected Impact:</strong> ${uc.expected_impact}
+                                        </div>
+                                        ${uc.implementation_complexity ? `
+                                            <div style="margin-top: 8px; font-size: 0.875rem; color: #6b7280;">
+                                                <strong>Complexity:</strong> ${uc.implementation_complexity} |
+                                                <strong>Setup Time:</strong> ${uc.estimated_setup_time || 'N/A'}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${result.campaign_priorities && result.campaign_priorities.length > 0 ? `
+                            <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 16px;">
+                                <h4 style="margin-top: 0; color: #065f46;">Campaign Priorities</h4>
+                                ${result.campaign_priorities.map(priority => `
+                                    <div style="padding: 12px; background: #f0fdf4; border-radius: 6px; margin-bottom: 8px;">
+                                        <div style="font-weight: 600; color: #047857;">${priority.use_case}</div>
+                                        <div style="font-size: 0.875rem; color: #065f46; margin-top: 4px;">${priority.rationale}</div>
+                                        <div style="font-size: 0.875rem; color: #92400e; margin-top: 4px;"><strong>Expected ROI:</strong> ${priority.expected_roi}</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            } else if (goal === 'quick_wins' && result.quick_wins) {
+                return `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0; color: #1f2937;">⚡ Quick Wins</h3>
+                        ${result.quick_wins.map((win, idx) => `
+                            <div style="background: #fef3c7; padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 3px solid #f59e0b;">
+                                <div style="font-weight: 600; color: #92400e; margin-bottom: 8px;">${idx + 1}. ${win.opportunity}</div>
+                                <div style="font-size: 0.875rem; color: #78350f; margin-bottom: 6px;"><strong>Why Quick:</strong> ${win.why_quick}</div>
+                                <div style="font-size: 0.875rem; color: #78350f; margin-bottom: 6px;"><strong>Impact:</strong> ${win.impact}</div>
+                                <div style="background: white; padding: 10px; border-radius: 6px; margin-top: 8px;">
+                                    <strong style="color: #92400e;">Implementation:</strong>
+                                    <ol style="margin: 6px 0 0 20px; color: #78350f;">
+                                        ${win.implementation.map(step => `<li>${step}</li>`).join('')}
+                                    </ol>
+                                </div>
+                                <div style="font-size: 0.875rem; margin-top: 8px; color: #059669;"><strong>⏱️ Time to Value:</strong> ${win.time_to_value}</div>
+                            </div>
+                        `).join('')}
+                        ${result.summary ? `<div style="margin-top: 16px; padding: 12px; background: #e0e7ff; border-radius: 6px; color: #3730a3; font-weight: 500;">${result.summary}</div>` : ''}
+                    </div>
+                `;
+            } else {
+                // Fallback: show raw JSON
+                return `
+                    <div class="ai-summary-card">
+                        <h3 style="margin-top: 0;">Analysis Results</h3>
+                        <pre style="white-space: pre-wrap; line-height: 1.6; color: #374151; background: #f9fafb; padding: 16px; border-radius: 6px; overflow-x: auto;">${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
             }
         }
 
@@ -979,21 +1183,23 @@
             }
         }
 
-        // Export functions
-        function exportRecommendations() {
-            window.location.href = '/api/export-recommendations-csv';
-        }
+        // Export function
+        let lastGeneratedResult = null;
 
-        function exportSourcesDestinations() {
-            window.location.href = '/api/export-sources-destinations-csv';
-        }
+        function exportRecommendationsJSON() {
+            if (!lastGeneratedResult) {
+                alert('No recommendations to export. Please generate recommendations first.');
+                return;
+            }
 
-        function exportAudiencesDestinations() {
-            window.location.href = '/api/export-audiences-destinations-csv';
-        }
-
-        function exportAllData() {
-            window.location.href = '/api/export-all-audit-data';
+            const dataStr = JSON.stringify(lastGeneratedResult, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `recommendations_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
         }
     </script>
 </body>

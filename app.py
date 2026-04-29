@@ -2172,93 +2172,195 @@ def recommendations_page():
 
 @app.route('/api/generate-recommendations', methods=['POST'])
 def generate_recommendations_api():
-    """Generate workspace recommendations using rule-based analysis + Gemini AI"""
+    """Generate goal-driven workspace recommendations using targeted AI analysis"""
     try:
-        from recommendations_engine import generate_recommendations
-        from gemini_summarizer import generate_ai_summary
         from recommendations_cache import RecommendationsCache
+        from data_structurer import DataStructurer
+        from business_inference_prompts import BusinessInferencePrompts
+        from goal_driven_prompts import GoalDrivenPrompts
+        from mcp_collective_intelligence import MCPCollectiveIntelligence
+        import google.generativeai as genai
 
         # Initialize cache
         cache = RecommendationsCache(str(DATA_DIR))
 
-        # Check if Gemini API should be used
-        use_gemini = request.json.get('use_ai', False) if request.json else False
-
         # Get workspace slug from session
         workspace_slug = session.get('workspace_slug', 'unknown')
 
-        # Check cache first
-        cached = cache.get_cached_recommendations(workspace_slug, use_gemini)
+        # Get request parameters (goal-driven approach)
+        req_data = request.json or {}
+        goal = req_data.get('goal')
+        output_type = req_data.get('output_type')
+        industry_override = req_data.get('industry_override')
+        business_model_override = req_data.get('business_model_override')
+        user_notes = req_data.get('user_notes', '')
+
+        if not goal or not output_type:
+            return jsonify({
+                'success': False,
+                'error': 'Both goal and output_type are required'
+            }), 400
+
+        # Check cache first (cache key includes goal + output_type)
+        cache_key = f"{goal}_{output_type}"
+        cached = cache.get_cached_recommendations(workspace_slug, cache_key)
         if cached:
             return jsonify({
                 'success': True,
-                'findings': cached.get('findings'),
-                'summary': cached.get('summary'),
-                'ai_enabled': use_gemini,
+                'result': cached.get('result'),
+                'layer0': cached.get('layer0'),
                 'cached': True
             })
 
-        # Generate rule-based findings
-        print("🔍 Generating rule-based analysis...")
+        # Check rate limits before calling Gemini
+        allowed, reason = cache.check_rate_limit()
+        if not allowed:
+            return jsonify({
+                'success': False,
+                'error': reason,
+                'rate_limited': True
+            }), 429
+
+        # Record API call
+        cache.record_api_call()
+
+        print(f"🎯 Goal-driven analysis: {goal} -> {output_type}")
+
+        # Step 1: Generate findings (needed for data structuring)
+        print("🔍 Generating rule-based findings...")
+        from recommendations_engine import generate_recommendations
         findings = generate_recommendations(str(DATA_DIR))
 
-        # Analyze business context
-        print("🔎 Analyzing business context from workspace data...")
-        from business_context_analyzer import BusinessContextAnalyzer
-        analyzer = BusinessContextAnalyzer(str(DATA_DIR))
-        business_context = analyzer.analyze_business_context()
+        # Step 2: Structure data for AI
+        print("📊 Structuring workspace data...")
+        structurer = DataStructurer(str(DATA_DIR))
+        structured_data = structurer.structure_for_gemini(findings)
 
-        result = {
+        # Step 3: Run Layer 0 business inference (unless overridden)
+        print("🔍 Inferring business context...")
+
+        # Get Gemini API key
+        gemini_api_key = os.environ.get('GEMINI_API_KEY')
+        if not gemini_api_key:
+            return jsonify({
+                'success': False,
+                'error': 'GEMINI_API_KEY environment variable not set'
+            }), 500
+
+        genai.configure(api_key=gemini_api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+        if industry_override and business_model_override:
+            print(f"   Using overrides: {industry_override} / {business_model_override}")
+            layer0_result = {
+                'industry': {'primary': industry_override, 'primary_confidence': 'high'},
+                'business_model': {'primary': business_model_override, 'primary_confidence': 'high'}
+            }
+        else:
+            layer0_prompt = BusinessInferencePrompts.get_business_inference_prompt(structured_data)
+            layer0_response = model.generate_content(layer0_prompt)
+            layer0_result = json.loads(layer0_response.text)
+
+        # Step 4: Query MCP for collective intelligence
+        print("🌐 Querying collective intelligence...")
+        mcp = MCPCollectiveIntelligence()
+        collective_insights = mcp.get_contextual_insights(layer0_result)
+
+        # Step 5: Build business context string
+        business_context = f"""
+Industry: {layer0_result.get('industry', {}).get('primary', 'Unknown')}
+Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown')}
+
+{collective_insights.get('collective_context', '')}
+"""
+
+        # Step 6: Select goal-specific prompt
+        print(f"📝 Generating {goal} prompt...")
+        prompts = GoalDrivenPrompts()
+
+        if goal == 'quick_wins':
+            prompt = prompts.goal_quick_wins(structured_data, business_context, user_notes)
+        elif goal == 'data_strategy':
+            prompt = prompts.goal_data_strategy(structured_data, business_context, user_notes)
+        elif goal == 'growth_usecases':
+            prompt = prompts.goal_growth_usecases(structured_data, business_context, user_notes)
+        elif goal == 'expansion':
+            prompt = prompts.goal_expansion_opportunities(structured_data, business_context, user_notes)
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Unknown goal: {goal}'
+            }), 400
+
+        # Step 7: Call Gemini with goal-specific prompt
+        print(f"✨ Calling Gemini for {goal} analysis...")
+        print(f"   Prompt length: {len(prompt)} characters")
+        response = model.generate_content(prompt)
+
+        # Extract JSON from response (handle markdown code blocks)
+        response_text = response.text.strip()
+        print(f"   Response length: {len(response_text)} characters")
+        print(f"   Response preview: {response_text[:200]}")
+
+        # Try direct JSON parse first
+        try:
+            result = json.loads(response_text)
+            print(f"   ✓ Direct JSON parse successful, keys: {list(result.keys())}")
+        except json.JSONDecodeError as e:
+            print(f"   ⚠️ Direct JSON parse failed: {e}")
+            # Try extracting from markdown code block
+            import re
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                print(f"   Found JSON in markdown block: {len(json_str)} chars")
+                try:
+                    result = json.loads(json_str)
+                    print(f"   ✓ Markdown JSON parse successful, keys: {list(result.keys())}")
+                except json.JSONDecodeError as e2:
+                    print(f"   ✗ Markdown JSON parse failed: {e2}")
+                    return jsonify({
+                        'success': False,
+                        'error': f'Could not parse JSON from markdown: {str(e2)}',
+                        'response_preview': response_text[:500]
+                    }), 500
+            else:
+                # If still no JSON, return error with response preview
+                print(f"⚠️ No JSON found in response. First 500 chars: {response_text[:500]}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Gemini returned non-JSON response',
+                    'response_preview': response_text[:500]
+                }), 500
+
+        # Step 8: Contribute to MCP for future learning
+        try:
+            analysis_result = {
+                'layer0_business_inference': layer0_result,
+                'structured_data': structured_data,
+                'goal': goal,
+                'output_type': output_type
+            }
+            mcp.contribute_analysis(analysis_result, workspace_slug)
+        except Exception as e:
+            print(f"⚠️  Could not contribute to MCP: {e}")
+
+        # Prepare response
+        response_data = {
             'success': True,
-            'findings': findings,
-            'business_context': business_context,
-            'ai_enabled': False,
+            'result': result,
+            'layer0': layer0_result,
+            'collective_insights': collective_insights,
             'cached': False
         }
 
-        if use_gemini:
-            # Check rate limits before calling Gemini
-            allowed, reason = cache.check_rate_limit()
-            if not allowed:
-                return jsonify({
-                    'success': False,
-                    'error': reason,
-                    'rate_limited': True
-                }), 429
-
-            # Record that we're about to make an API call
-            cache.record_api_call()
-
-            # Get customer context (if available)
-            try:
-                from customer_context import CustomerContextLibrary
-                customer_context = CustomerContextLibrary.get_context(workspace_slug)
-                print(f"📋 Using context for {workspace_slug}: {customer_context.industry.value if customer_context else 'generic'}")
-            except Exception as e:
-                print(f"⚠️  Could not load customer context: {e}")
-                customer_context = None
-
-            # Try to generate AI summary with V2 multi-layer approach
-            print("✨ Generating AI summary with multi-layer analysis...")
-            try:
-                from gemini_summarizer_v2 import generate_ai_summary_v2
-                # Use multi-layer analysis for best quality
-                summary = generate_ai_summary_v2(findings, multi_layer=True)
-            except Exception as e:
-                print(f"⚠️  V2 summarizer failed, falling back to V1: {e}")
-                # Fallback to original summarizer
-                summary = generate_ai_summary(findings, customer_context=customer_context)
-
-            result['summary'] = summary
-            result['ai_enabled'] = True
-
         # Cache the result
-        cache.cache_recommendations(workspace_slug, result, use_gemini)
+        cache.cache_recommendations(workspace_slug, response_data, cache_key)
 
-        return jsonify(result)
+        return jsonify(response_data)
 
     except Exception as e:
-        print(f"Error generating recommendations: {e}")
+        print(f"Error generating goal-driven recommendations: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({
