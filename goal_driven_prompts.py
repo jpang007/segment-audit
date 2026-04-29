@@ -51,7 +51,7 @@ Critical rules:
     def goal_quick_wins(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
         """
         GOAL: Find Quick Wins
-        Focus: Low-effort, high-impact opportunities that can be implemented quickly
+        Focus: Low-effort, high-impact opportunities based on observable data gaps
         """
         workspace = structured_data.get('workspace_summary', {})
         audiences = structured_data.get('audience_insights', [])
@@ -60,68 +60,114 @@ Critical rules:
         # Find obvious quick wins in data
         large_unactivated = [a for a in audiences if a.get('signal') == 'activation_opportunity' and a.get('size', 0) > 10000]
 
-        return f"""## Quick Wins Analysis
+        return f"""## Evidence-Based Quick Wins Analysis
 
-You are conducting a workspace audit focused on identifying **immediate, low-effort opportunities**.
+You are a Segment Solutions Architect identifying low-effort, high-value improvements.
 
 {business_context}
 
-{"### Customer Notes: " + user_notes if user_notes else ""}
+{"### Customer Context: " + user_notes if user_notes else ""}
 
 ### Workspace Overview
 - Total audiences: {workspace.get('total_audiences', 0)}
 - Enabled audiences: {workspace.get('enabled_audiences', 0)}
-- Total users: {workspace.get('total_users_in_audiences', 0):,}
-- Large unactivated audiences: {len(large_unactivated)}
+- Audiences with users not activated: {len(large_unactivated)}
+- Total addressable users: {workspace.get('total_users_in_audiences', 0):,}
 
-### Task: Identify Top 5 Quick Wins
+### Critical Instructions
 
-A "Quick Win" is:
+**DATA GROUNDING REQUIREMENTS:**
+1. ONLY recommend actions based on observable gaps or unused resources
+2. DO NOT claim specific performance improvements (e.g., "15% lift")
+3. DO NOT invent thresholds or engagement metrics
+4. Base recommendations ONLY on: audience state, destination connections, data collection gaps
+
+**What makes a "Quick Win":**
+- Uses resources that already exist (audiences built, destinations connected)
+- Requires configuration, not development
+- Addresses clear data gap or unused capability
 - Implementable in <1 week
-- Low technical complexity
-- High business impact
-- Requires minimal resources
-
-For each quick win, provide:
-
-1. **Opportunity** - What specific action (use actual audience/source names)
-2. **Why It's Quick** - What makes this low-effort (e.g., "audience already built", "destination already connected")
-3. **Impact** - Quantified expected outcome
-4. **Implementation** - 2-3 bullet steps to execute
-5. **Time to Value** - Days/weeks to see results
 
 ### Data Available
 ```json
 {json.dumps(structured_data, indent=2)}
 ```
 
+### Task: Identify 3-5 Quick Wins
+
+Find opportunities where:
+1. An audience exists with users but is not activated
+2. A destination is connected but underutilized
+3. A source is collecting events but not being used in audiences
+4. Configuration issues (disabled audiences with users)
+
 ### Output Format
 
-Return JSON:
+Return JSON with this EXACT structure:
 ```json
 {{
   "quick_wins": [
     {{
-      "opportunity": "Connect audience_va_subs (144K users) to Braze",
-      "why_quick": "Audience already built, Braze already connected to workspace, just needs destination mapping",
-      "impact": "Enable 144K geo-targeted sends, expected 15-20% engagement lift",
-      "implementation": [
-        "Navigate to audience settings",
-        "Add Braze destination",
-        "Map to existing connection"
-      ],
-      "time_to_value": "1-2 days"
+      "opportunity": "Descriptive title using actual audience/destination names",
+      "evidence": {{
+        "data_signal": "What you observed (e.g., 'audience_va_subs has 144K users but 0 destinations')",
+        "current_state": "Specific current configuration",
+        "resources_available": ["What already exists that makes this quick"]
+      }},
+      "why_quick": {{
+        "reason": "Explain why this is low-effort (be specific about what's already built)",
+        "prerequisites_met": ["List what's already in place"],
+        "complexity": "low"
+      }},
+      "impact": {{
+        "reach": "Number of users affected (from data)",
+        "impact_level": "high | medium | low",
+        "reasoning": "Why this matters (based on size or strategic importance)",
+        "assumptions": ["What we're assuming that isn't directly observable"]
+      }},
+      "implementation": {{
+        "steps": [
+          "Step 1: Specific action",
+          "Step 2: Specific action",
+          "Step 3: Specific action"
+        ],
+        "time_to_value": "Realistic estimate (e.g., '1-2 days', '3-5 days')",
+        "owner": "Who would need to do this (e.g., 'Marketing Ops', 'Data team')"
+      }},
+      "confidence": "high | medium | low",
+      "data_quality": "How confident are we in the data that supports this?"
     }}
   ],
-  "summary": "One-sentence summary of quick win potential"
+  "summary": {{
+    "total_quick_wins": 3,
+    "aggregate_reach": "Total users across all quick wins",
+    "highest_confidence": "Name of most data-grounded quick win",
+    "implementation_priority": "Which to do first and why"
+  }}
 }}
 ```
 
-CRITICAL:
-- Use actual names from the data
-- Be specific about implementation
-- Provide realistic time estimates
-- Focus on opportunities that exist NOW (don't suggest building new things)"""
+### Tone Guidelines
+
+Write as a Solutions Architect in a workspace review:
+- Diagnostic: "I notice that..."
+- Data-specific: Use exact names and numbers
+- Actionable: Clear next steps
+- Honest: Call out when you're making assumptions
+
+DO NOT:
+- Claim performance improvements (no "X% lift")
+- Use marketing language ("unlock growth", "maximize ROI")
+- Invent engagement metrics
+- Speculate about business outcomes
+
+DO:
+- Reference specific audiences, destinations, and sources by name
+- Use actual user counts from data
+- Describe impact qualitatively (high/medium/low)
+- Be clear about what's an assumption vs. observation
+
+Generate quick wins now."""
 
     @staticmethod
     def goal_data_strategy(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
@@ -133,86 +179,147 @@ CRITICAL:
         audiences = structured_data.get('audience_insights', [])
         sources = structured_data.get('source_insights', [])
 
-        return f"""## Data & Audience Strategy Analysis
+        return f"""## Evidence-Based Data Strategy Audit
 
-You are conducting a technical audit focused on **data quality, governance, and audience architecture**.
+You are a Segment Solutions Architect conducting a technical workspace audit.
 
 {business_context}
 
-{"### Customer Notes: " + user_notes if user_notes else ""}
+{"### Customer Context: " + user_notes if user_notes else ""}
 
 ### Workspace Overview
-```json
-{json.dumps(workspace, indent=2)}
-```
+- Total sources: {workspace.get('total_sources', 0)}
+- Total audiences: {workspace.get('total_audiences', 0)}
+- Enabled audiences: {workspace.get('enabled_audiences', 0)}
+- Total users in audiences: {workspace.get('total_users_in_audiences', 0):,}
 
-### Task: Comprehensive Data Strategy Assessment
+### Critical Instructions
 
-Analyze these areas:
+**DATA GROUNDING REQUIREMENTS:**
+1. Base all observations on workspace configuration data
+2. DO NOT assume business processes or team structures
+3. DO NOT claim performance benchmarks without data
+4. ONLY identify patterns observable in the workspace
 
-1. **Data Collection**
-   - Source health and coverage
-   - Event instrumentation quality
-   - Missing data signals
-
-2. **Audience Architecture**
-   - Audience organization and naming
-   - Redundant or overlapping audiences
-   - Missing high-value audiences
-   - Audience-to-destination strategy
-
-3. **Governance & Hygiene**
-   - Stale or empty audiences
-   - Disabled resources consuming quota
-   - Workspace organization
-
-4. **Activation Strategy**
-   - Destination coverage by category
-   - Audience activation rate
-   - Gaps in activation strategy
+**FORBIDDEN:**
+- Industry benchmark comparisons without clear basis
+- Assumptions about "best practices" not grounded in this workspace
+- Claims about what "should" exist without evidence
+- Speculation about business impact
 
 ### Data Available
 ```json
 {json.dumps(structured_data, indent=2)}
 ```
 
+### Task: Technical Workspace Assessment
+
+Analyze workspace configuration and identify:
+1. **Data Collection Gaps**: Sources, events, or schemas that appear incomplete
+2. **Audience Architecture Issues**: Redundancies, naming inconsistencies, unused audiences
+3. **Governance Issues**: Disabled resources with users, empty audiences, quota waste
+4. **Activation Gaps**: Audiences with users but no destinations
+
 ### Output Format
 
-Return JSON:
+Return JSON with this EXACT structure:
 ```json
 {{
-  "data_collection_assessment": {{
-    "overall_health": "good | fair | poor",
-    "strengths": ["strength 1", "strength 2"],
-    "gaps": ["gap 1", "gap 2"],
-    "recommendations": ["rec 1", "rec 2"]
+  "data_collection": {{
+    "sources_analyzed": 16,
+    "observations": [
+      {{
+        "finding": "Specific observation from data",
+        "evidence": "What in the data shows this",
+        "impact_level": "high | medium | low",
+        "recommendation": "Specific, actionable next step"
+      }}
+    ],
+    "data_quality_assessment": "Brief summary of data completeness"
   }},
   "audience_architecture": {{
-    "organization_score": "1-10",
-    "redundancies": [
-      {{"audiences": ["aud1", "aud2"], "issue": "description", "recommendation": "action"}}
+    "total_audiences": 242,
+    "enabled_audiences": 166,
+    "observations": [
+      {{
+        "pattern": "What pattern you observed (e.g., naming convention inconsistency)",
+        "examples": ["aud_name_1", "aud_name_2"],
+        "impact": "Why this matters",
+        "recommendation": "What to do about it",
+        "confidence": "high | medium | low"
+      }}
     ],
-    "missing_audiences": [
-      {{"suggested_name": "name", "definition": "logic", "use_case": "business value"}}
-    ],
-    "naming_improvements": ["suggestion 1", "suggestion 2"]
+    "potential_redundancies": [
+      {{
+        "audience_group": ["list", "of", "similar", "audiences"],
+        "similarity_basis": "What makes them appear similar",
+        "requires_verification": "What you'd need to confirm this"
+      }}
+    ]
   }},
-  "governance_issues": [
-    {{"category": "hygiene | performance | cost", "issue": "description", "impact": "business impact", "fix": "action"}}
-  ],
+  "governance": {{
+    "issues_found": [
+      {{
+        "issue_type": "disabled_with_users | empty_audience | unused_destination",
+        "affected_resources": ["specific names"],
+        "user_count": 12345,
+        "business_impact": "Why this matters (qualitative)",
+        "recommended_action": "Specific fix",
+        "urgency": "high | medium | low"
+      }}
+    ]
+  }},
   "activation_strategy": {{
-    "current_rate": "percentage",
-    "industry_benchmark": "percentage",
-    "gaps": ["gap 1", "gap 2"],
-    "recommendations": ["rec 1", "rec 2"]
+    "activation_rate": "X out of Y audiences activated",
+    "observations": [
+      {{
+        "finding": "Specific pattern in destination usage",
+        "evidence": "Data that supports this",
+        "gap_identified": "What's missing",
+        "recommendation": "What to consider"
+      }}
+    ]
   }},
   "prioritized_actions": [
-    {{"priority": 1, "action": "specific task", "category": "data | audiences | governance | activation", "effort": "low | medium | high"}}
-  ]
+    {{
+      "priority": 1,
+      "action": "Specific task with resource names",
+      "category": "data_collection | audience_architecture | governance | activation",
+      "effort": "low | medium | high",
+      "impact": "high | medium | low",
+      "evidence": "Why this is prioritized",
+      "prerequisites": ["What needs to be true or done first"]
+    }}
+  ],
+  "summary": {{
+    "overall_health": "Brief diagnostic summary",
+    "highest_priority_area": "Which area needs most attention",
+    "data_completeness": "Assessment of how complete the audit data is"
+  }}
 }}
 ```
 
-Be thorough and technical - this is for internal SA/data team use."""
+### Tone Guidelines
+
+Write as a technical consultant reviewing workspace configuration:
+- Analytical and diagnostic
+- Specific with names and numbers
+- Clear about what's observable vs. inferred
+- Actionable with clear next steps
+
+DO NOT:
+- Make claims about "best practices" without evidence
+- Compare to industry benchmarks you don't have
+- Assume team structures or business processes
+- Use vague language ("consider optimizing...")
+
+DO:
+- Reference specific resource names
+- Use actual counts from data
+- Describe patterns you observe
+- Be clear when something needs customer confirmation
+
+Generate the assessment now."""
 
     @staticmethod
     def goal_growth_usecases(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
@@ -224,67 +331,117 @@ Be thorough and technical - this is for internal SA/data team use."""
         audiences = structured_data.get('audience_insights', [])
         destinations = structured_data.get('destination_summary', {})
 
-        return f"""## Growth & Marketing Use Case Generation
+        return f"""## Evidence-Based Growth Use Case Analysis
 
-You are a growth strategist generating **implementable marketing use cases**.
+You are a Segment Solutions Architect conducting a workspace audit to identify growth opportunities.
 
 {business_context}
 
-{"### Customer Notes: " + user_notes if user_notes else ""}
+{"### Customer Context: " + user_notes if user_notes else ""}
 
-### Workspace Context
+### Workspace Overview
+- Total audiences: {workspace.get('total_audiences', 0)}
+- Audiences with users: {len([a for a in audiences if a.get('size', 0) > 0])}
 - Total addressable users: {workspace.get('total_users_in_audiences', 0):,}
-- Available destinations: {', '.join(destinations.get('all_destinations', [])[:5])}
-- Destination categories: {', '.join(destinations.get('by_category', {}).keys())}
+- Connected destinations: {', '.join(destinations.get('all_destinations', [])[:5])}
 
-### Task: Generate 3-5 Implementable Marketing Use Cases
+### Critical Instructions - READ CAREFULLY
 
-IMPORTANT: Keep responses concise. Each use case MUST:
-- Be tied to actual audiences in the workspace
-- Use available destinations only
-- Include specific trigger conditions
-- Provide campaign messaging guidance
-- Estimate business impact
+**DATA GROUNDING REQUIREMENTS:**
+1. ONLY reference audiences, events, and destinations that exist in the data
+2. DO NOT invent metrics, thresholds, or performance claims
+3. DO NOT assume engagement rates, conversion rates, or ROI
+4. Base ALL recommendations on observable data signals
+
+**FORBIDDEN - Do NOT include:**
+- Percentage lift estimates (e.g., "15-20% lift")
+- ROI projections or revenue impact claims
+- Fabricated behavioral triggers (e.g., "3+ opens in 48 hours")
+- Engagement thresholds not present in data (e.g., "60% open rate")
+- Marketing copy or promotional language
+
+**REQUIRED - Every use case must have:**
+- Evidence: What data signal supports this?
+- Impact qualifier: high/medium/low (NOT percentages)
+- Assumptions: What are you inferring?
+- Data gaps: What would strengthen this recommendation?
 
 ### Data Available
 ```json
 {json.dumps(structured_data, indent=2)}
 ```
 
+### Task: Generate 3-5 Evidence-Based Growth Opportunities
+
+Analyze the workspace data and identify opportunities where:
+1. An audience exists but is not activated to relevant destinations
+2. Event data suggests user behavior that could drive campaigns
+3. Audience definitions indicate untapped segments
+
 ### Output Format
 
-Return JSON:
+Return JSON with this EXACT structure:
 ```json
 {{
   "use_cases": [
     {{
-      "name": "Virginia Subscriber Local News Campaign",
-      "category": "retention | acquisition | monetization | engagement",
-      "target_audience": "audience_va_subs (144,765 users)",
-      "trigger": "Daily at 6am ET OR user opens previous newsletter",
-      "channel": "Braze (needs connection)",
-      "campaign_description": "Send VA-specific news digest highlighting Richmond/NoVA stories with 'Your Local Headlines' subject line",
-      "messaging_guidance": [
-        "Lead with most-clicked local story from previous day",
-        "Include 3 regional headlines",
-        "Personalize send time by user's typical open time"
-      ],
-      "expected_impact": "15-20% lift in open rates vs generic sends, 10-15% churn reduction",
-      "implementation_complexity": "low | medium | high",
-      "estimated_setup_time": "1-2 weeks"
+      "name": "Descriptive name based on audience/behavior",
+      "category": "retention | acquisition | engagement | monetization",
+      "evidence": {{
+        "audience": "Exact audience name from data",
+        "size": 12345,
+        "current_state": "not activated | disabled | only sent to X",
+        "data_signals": ["List specific signals from the data that support this"]
+      }},
+      "opportunity": {{
+        "description": "What could be done with this audience (consultative tone)",
+        "trigger_logic": "Describe based on audience definition or general behavior pattern - NO fabricated thresholds",
+        "destination_recommendation": "Specific destination from available list OR category if none connected",
+        "implementation_notes": "What needs to be done to activate this"
+      }},
+      "impact_assessment": {{
+        "potential_reach": "Number from audience size",
+        "impact_level": "high | medium | low",
+        "reasoning": "Why this matters, based on audience size or business context",
+        "assumptions": ["What are we inferring that isn't directly in the data?"],
+        "confidence": "high | medium | low",
+        "data_gaps": ["What additional data would strengthen this recommendation?"]
+      }},
+      "implementation": {{
+        "complexity": "low | medium | high",
+        "estimated_time": "Realistic timeframe",
+        "prerequisites": ["What needs to exist or be done first"]
+      }}
     }}
   ],
-  "campaign_priorities": [
-    {{"use_case": "name", "rationale": "why prioritize this", "expected_roi": "quantified"}}
-  ]
+  "summary": {{
+    "total_opportunities_identified": 3,
+    "highest_confidence_use_case": "Name of most data-grounded recommendation",
+    "data_quality_notes": "Brief assessment of how complete the data is for recommendations"
+  }}
 }}
 ```
 
-CRITICAL:
-- Use actual audience names from data
-- Only suggest destinations that are available or commonly used in this industry
-- Provide specific campaign messaging (not "personalized content")
-- Estimate realistic impact based on industry benchmarks"""
+### Tone Guidelines
+
+Write as a Solutions Architect would in a customer conversation:
+- Consultative and diagnostic (NOT marketing copy)
+- Data-driven and analytical (NOT speculative)
+- Actionable and realistic (NOT aspirational)
+- Honest about assumptions and data gaps
+
+Example phrases to USE:
+- "Based on the {audience_name} audience definition..."
+- "The data shows {X users} are currently not activated..."
+- "This could enable campaigns, though exact engagement metrics would need to be measured..."
+
+Example phrases to AVOID:
+- "This will increase conversion by X%..."
+- "Expected ROI of $X..."
+- "Users who engage 3+ times..."
+- "Drive significant revenue growth..."
+
+Generate recommendations now."""
 
     @staticmethod
     def goal_expansion_opportunities(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:

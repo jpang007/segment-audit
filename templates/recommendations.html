@@ -469,7 +469,8 @@
                         output_type: outputType,
                         industry_override: industryOverride || null,
                         business_model_override: businessModelOverride || null,
-                        user_notes: userNotes || null
+                        user_notes: userNotes || null,
+                        force_refresh: true  // Always generate fresh recommendations
                     })
                 });
 
@@ -591,52 +592,94 @@
             if (goal === 'growth_usecases' && result.use_cases) {
                 return `
                     <div class="ai-summary-card" style="background: linear-gradient(135deg, #f0fdf4 0%, #d1fae5 100%);">
-                        <h3 style="margin-top: 0; color: #065f46;">Marketing & Growth Use Cases</h3>
+                        <h3 style="margin-top: 0; color: #065f46;">📊 Evidence-Based Growth Opportunities</h3>
                         <div style="display: grid; gap: 16px;">
                             ${result.use_cases.map((uc, idx) => `
-                                <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #10b981;">
+                                <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid ${uc.impact_assessment?.confidence === 'high' ? '#10b981' : uc.impact_assessment?.confidence === 'medium' ? '#f59e0b' : '#94a3b8'};">
                                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
                                         <h4 style="margin: 0; color: #065f46;">${idx + 1}. ${uc.name}</h4>
-                                        <span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">
-                                            ${uc.category || 'Campaign'}
-                                        </span>
-                                    </div>
-                                    <div style="color: #374151; font-size: 0.95rem; line-height: 1.6;">
-                                        <div style="margin-bottom: 10px;"><strong>Target:</strong> ${uc.target_audience}</div>
-                                        <div style="margin-bottom: 10px;"><strong>Trigger:</strong> ${uc.trigger}</div>
-                                        <div style="margin-bottom: 10px;"><strong>Channel:</strong> ${uc.channel}</div>
-                                        <div style="margin-bottom: 10px;">${uc.campaign_description || uc.campaign}</div>
-                                        ${uc.messaging_guidance && uc.messaging_guidance.length > 0 ? `
-                                            <div style="background: #f0fdf4; padding: 12px; border-radius: 6px; margin-top: 12px;">
-                                                <strong style="color: #065f46;">Messaging Guidance:</strong>
-                                                <ul style="margin: 8px 0 0 20px; color: #047857;">
-                                                    ${uc.messaging_guidance.map(msg => `<li>${msg}</li>`).join('')}
-                                                </ul>
-                                            </div>
-                                        ` : ''}
-                                        <div style="background: #fef3c7; padding: 10px; border-radius: 6px; margin-top: 10px;">
-                                            <strong style="color: #92400e;">Expected Impact:</strong> ${uc.expected_impact}
+                                        <div style="display: flex; gap: 8px;">
+                                            <span style="background: ${uc.impact_assessment?.confidence === 'high' ? '#d1fae5' : uc.impact_assessment?.confidence === 'medium' ? '#fef3c7' : '#f1f5f9'}; color: ${uc.impact_assessment?.confidence === 'high' ? '#065f46' : uc.impact_assessment?.confidence === 'medium' ? '#92400e' : '#475569'}; padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                                ${uc.impact_assessment?.confidence || 'medium'} confidence
+                                            </span>
+                                            <span style="background: #e0e7ff; color: #3730a3; padding: 4px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                                                ${uc.category || 'opportunity'}
+                                            </span>
                                         </div>
-                                        ${uc.implementation_complexity ? `
-                                            <div style="margin-top: 8px; font-size: 0.875rem; color: #6b7280;">
-                                                <strong>Complexity:</strong> ${uc.implementation_complexity} |
-                                                <strong>Setup Time:</strong> ${uc.estimated_setup_time || 'N/A'}
-                                            </div>
-                                        ` : ''}
                                     </div>
+
+                                    <!-- Evidence Section -->
+                                    ${uc.evidence ? `
+                                        <div style="background: #f0fdf4; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                                            <div style="font-weight: 600; color: #065f46; margin-bottom: 6px;">📋 Evidence</div>
+                                            <div style="font-size: 0.875rem; color: #047857;">
+                                                <div><strong>Audience:</strong> ${uc.evidence.audience} (${uc.evidence.size?.toLocaleString()} users)</div>
+                                                <div><strong>Current State:</strong> ${uc.evidence.current_state}</div>
+                                                ${uc.evidence.data_signals ? `
+                                                    <div style="margin-top: 6px;"><strong>Data Signals:</strong></div>
+                                                    <ul style="margin: 4px 0 0 20px;">
+                                                        ${uc.evidence.data_signals.map(signal => `<li>${signal}</li>`).join('')}
+                                                    </ul>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    <!-- Opportunity Section -->
+                                    ${uc.opportunity ? `
+                                        <div style="color: #374151; font-size: 0.95rem; line-height: 1.6; margin-bottom: 12px;">
+                                            <div style="margin-bottom: 8px;">${uc.opportunity.description}</div>
+                                            <div style="margin-bottom: 6px;"><strong>Trigger Logic:</strong> ${uc.opportunity.trigger_logic}</div>
+                                            <div style="margin-bottom: 6px;"><strong>Destination:</strong> ${uc.opportunity.destination_recommendation}</div>
+                                            <div style="font-size: 0.875rem; color: #6b7280;"><strong>Implementation:</strong> ${uc.opportunity.implementation_notes}</div>
+                                        </div>
+                                    ` : ''}
+
+                                    <!-- Impact Assessment -->
+                                    ${uc.impact_assessment ? `
+                                        <div style="background: #fef3c7; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+                                            <div style="font-weight: 600; color: #92400e; margin-bottom: 6px;">💡 Impact Assessment</div>
+                                            <div style="font-size: 0.875rem; color: #78350f;">
+                                                <div><strong>Reach:</strong> ${uc.impact_assessment.potential_reach}</div>
+                                                <div><strong>Impact Level:</strong> ${uc.impact_assessment.impact_level}</div>
+                                                <div><strong>Reasoning:</strong> ${uc.impact_assessment.reasoning}</div>
+                                                ${uc.impact_assessment.assumptions && uc.impact_assessment.assumptions.length > 0 ? `
+                                                    <div style="margin-top: 6px;"><strong>Assumptions:</strong></div>
+                                                    <ul style="margin: 4px 0 0 20px;">
+                                                        ${uc.impact_assessment.assumptions.map(a => `<li>${a}</li>`).join('')}
+                                                    </ul>
+                                                ` : ''}
+                                                ${uc.impact_assessment.data_gaps && uc.impact_assessment.data_gaps.length > 0 ? `
+                                                    <div style="margin-top: 6px;"><strong>Data Gaps:</strong></div>
+                                                    <ul style="margin: 4px 0 0 20px;">
+                                                        ${uc.impact_assessment.data_gaps.map(gap => `<li>${gap}</li>`).join('')}
+                                                    </ul>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    <!-- Implementation -->
+                                    ${uc.implementation ? `
+                                        <div style="font-size: 0.875rem; color: #6b7280;">
+                                            <strong>Complexity:</strong> ${uc.implementation.complexity} |
+                                            <strong>Time:</strong> ${uc.implementation.estimated_time}
+                                            ${uc.implementation.prerequisites && uc.implementation.prerequisites.length > 0 ? `
+                                                <div style="margin-top: 6px;"><strong>Prerequisites:</strong> ${uc.implementation.prerequisites.join(', ')}</div>
+                                            ` : ''}
+                                        </div>
+                                    ` : ''}
                                 </div>
                             `).join('')}
                         </div>
-                        ${result.campaign_priorities && result.campaign_priorities.length > 0 ? `
+                        ${result.summary ? `
                             <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 16px;">
-                                <h4 style="margin-top: 0; color: #065f46;">Campaign Priorities</h4>
-                                ${result.campaign_priorities.map(priority => `
-                                    <div style="padding: 12px; background: #f0fdf4; border-radius: 6px; margin-bottom: 8px;">
-                                        <div style="font-weight: 600; color: #047857;">${priority.use_case}</div>
-                                        <div style="font-size: 0.875rem; color: #065f46; margin-top: 4px;">${priority.rationale}</div>
-                                        <div style="font-size: 0.875rem; color: #92400e; margin-top: 4px;"><strong>Expected ROI:</strong> ${priority.expected_roi}</div>
-                                    </div>
-                                `).join('')}
+                                <h4 style="margin-top: 0; color: #065f46;">Summary</h4>
+                                <div style="font-size: 0.875rem; color: #374151;">
+                                    <div><strong>Total Opportunities:</strong> ${result.summary.total_opportunities_identified}</div>
+                                    <div><strong>Highest Confidence:</strong> ${result.summary.highest_confidence_use_case}</div>
+                                    ${result.summary.data_quality_notes ? `<div style="margin-top: 6px;"><strong>Data Quality:</strong> ${result.summary.data_quality_notes}</div>` : ''}
+                                </div>
                             </div>
                         ` : ''}
                     </div>

@@ -2195,6 +2195,7 @@ def generate_recommendations_api():
         industry_override = req_data.get('industry_override')
         business_model_override = req_data.get('business_model_override')
         user_notes = req_data.get('user_notes', '')
+        force_refresh = req_data.get('force_refresh', False)  # Allow bypassing cache
 
         if not goal or not output_type:
             return jsonify({
@@ -2202,16 +2203,25 @@ def generate_recommendations_api():
                 'error': 'Both goal and output_type are required'
             }), 400
 
-        # Check cache first (cache key includes goal + output_type)
-        cache_key = f"{goal}_{output_type}"
-        cached = cache.get_cached_recommendations(workspace_slug, cache_key)
-        if cached:
-            return jsonify({
-                'success': True,
-                'result': cached.get('result'),
-                'layer0': cached.get('layer0'),
-                'cached': True
-            })
+        # Check cache first (cache key includes all parameters that affect output)
+        # Include industry, business model, and user notes in cache key so it regenerates when these change
+        import hashlib
+        context_hash = hashlib.md5(f"{industry_override}_{business_model_override}_{user_notes}".encode()).hexdigest()[:8]
+        cache_key = f"{goal}_{output_type}_{context_hash}"
+
+        # Only use cache if not forcing refresh
+        if not force_refresh:
+            cached = cache.get_cached_recommendations(workspace_slug, cache_key)
+            if cached:
+                print("✓ Using cached result")
+                return jsonify({
+                    'success': True,
+                    'result': cached.get('result'),
+                    'layer0': cached.get('layer0'),
+                    'cached': True
+                })
+        else:
+            print("🔄 Force refresh - bypassing cache")
 
         # Check rate limits before calling Gemini
         allowed, reason = cache.check_rate_limit()
@@ -2309,7 +2319,8 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         # Step 7: Call Gemini with goal-specific prompt
         print(f"✨ Calling Gemini for {goal} analysis...")
         print(f"   Prompt length: {len(prompt)} characters")
-        response_text = gemini_client.generate_content(prompt, model='gemini-2.5-flash').strip()
+        # Using gemini-3-flash-preview (you have 17 requests left on this model)
+        response_text = gemini_client.generate_content(prompt, model='gemini-3-flash-preview').strip()
         print(f"   Response length: {len(response_text)} characters")
         print(f"   Response preview: {response_text[:200]}")
 
