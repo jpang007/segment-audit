@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Destinations</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-page">
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Destinations</h1>
+                <p class="subtitle" id="reportDate">Data from Gateway API • <span style="color: #667eea;">With Usage & Data Flows</span></p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>📍 Destinations</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/destinations" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">📍 Destinations</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Loading destinations data...</p>
+        </div>
+
+        <div id="noData" class="loading" style="display: none;">
+            <div style="text-align: center; padding: 60px 20px;">
+                <div style="font-size: 4rem; margin-bottom: 20px;">📍</div>
+                <h2 style="color: #2d3748; margin-bottom: 10px;">No Audit Data Yet</h2>
+                <p style="color: #718096; margin-bottom: 25px;">Run an audit first to see your destinations data</p>
+                <button onclick="window.location.href='/reset'" class="btn btn-primary">
+                    🚀 Start New Audit
+                </button>
+            </div>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="label">Total Destinations</div>
+                    <div class="value" id="totalDestinations">-</div>
+                    <div class="subtext" id="destinationsBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Active MTUs</div>
+                    <div class="value" id="totalMTUs">-</div>
+                    <div class="subtext" id="mtuBreakdown">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Plan</div>
+                    <div class="value" style="font-size: 1.2rem;" id="planName">-</div>
+                    <div class="subtext" id="planDetails">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Integrations</div>
+                    <div class="value" id="totalIntegrations">-</div>
+                    <div class="subtext">Destinations</div>
+                </div>
+            </div>
+
+            <!-- Destinations Table -->
+            <!-- Destinations Table -->
+            <div class="chart-section">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">📍 All Destinations</h2>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="loadHealthBtn" onclick="loadHealthMetrics()" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 6px;">
+                            <span id="healthBtnIcon">📊</span>
+                            <span id="healthBtnText">Load Health Metrics</span>
+                        </button>
+                        <input
+                            type="text"
+                            id="searchInput"
+                            placeholder="Search destinations..."
+                            style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem; width: 250px;"
+                            onkeyup="filterDestinations()"
+                        >
+                        <select id="typeFilter" onchange="filterDestinations()" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem;">
+                            <option value="all">All Types</option>
+                            <option value="Integration">Integrations</option>
+                            <option value="Warehouse">Warehouses</option>
+                        </select>
+                        <select id="statusFilter" onchange="filterDestinations()" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem;">
+                            <option value="all">All Status</option>
+                            <option value="enabled">Enabled</option>
+                            <option value="disabled">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 100px; text-align: center;">Status</th>
+                                <th>Name</th>
+                                <th style="width: 120px;">Type</th>
+                                <th id="healthHeader" style="width: 120px; text-align: center; display: none;">Health</th>
+                                <th style="width: 200px;">Connected Sources</th>
+                                <th style="width: 200px;">Categories</th>
+                                <th style="width: 150px;">Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="destinationsTableBody">
+                            <!-- Rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="pagination" style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px;">
+                    <!-- Pagination will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allDestinations = [];
+        let filteredDestinations = [];
+        let usageData = null;
+        let dataFlows = null;
+        let healthMetrics = null;
+        let healthMetricsLoading = false;
+        let currentPage = 1;
+        const pageSize = 20;
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.nav-dropdown');
+            const menu = document.getElementById('navDropdownMenu');
+            if (!dropdown.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+
+        async function loadData() {
+            try {
+                // Load destinations
+                console.log('Fetching destinations data...');
+                const destResponse = await fetch('/audit_data/gateway_destinations.json');
+                console.log('Destinations response status:', destResponse.status);
+
+                if (!destResponse.ok) {
+                    throw new Error('No destinations data available (HTTP ' + destResponse.status + ')');
+                }
+
+                const destData = await destResponse.json();
+                console.log('Destinations data loaded:', destData);
+                allDestinations = destData.destinations || [];
+                console.log('Total destinations:', allDestinations.length);
+
+                // Load usage data
+                try {
+                    const usageResponse = await fetch('/audit_data/gateway_usage_data.json');
+                    if (usageResponse.ok) {
+                        usageData = await usageResponse.json();
+                        console.log('Usage data loaded');
+                    }
+                } catch (e) {
+                    console.log('Usage data not available:', e);
+                }
+
+                // Load data flows
+                try {
+                    const flowsResponse = await fetch('/audit_data/gateway_data_flows.json');
+                    if (flowsResponse.ok) {
+                        dataFlows = await flowsResponse.json();
+                        console.log('Data flows loaded');
+                    }
+                } catch (e) {
+                    console.log('Data flows not available:', e);
+                }
+
+                document.getElementById('loading').style.display = 'none';
+                if (allDestinations.length === 0) {
+                    console.log('No destinations found, showing noData');
+                    document.getElementById('noData').style.display = 'block';
+                } else {
+                    console.log('Rendering destinations page');
+                    document.getElementById('content').style.display = 'block';
+                    filteredDestinations = [...allDestinations];
+                    updateStats();
+                    renderUsageCharts();
+                    renderUseCases();
+                    renderTable();
+                }
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('Error loading destinations: ' + error.message);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('noData').style.display = 'block';
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('totalDestinations').textContent = allDestinations.length;
+
+            const enabled = allDestinations.filter(d => d.enabled).length;
+            const disabled = allDestinations.length - enabled;
+            document.getElementById('destinationsBreakdown').textContent = `${enabled} enabled, ${disabled} disabled`;
+
+            // MTU stats
+            if (usageData && usageData.billing && usageData.billing.usage) {
+                const mtus = usageData.billing.usage.mtus || {};
+                const totalMTUs = (mtus.users || 0) + (mtus.anonymous || 0);
+                document.getElementById('totalMTUs').textContent = totalMTUs.toLocaleString();
+                document.getElementById('mtuBreakdown').textContent = `${mtus.users || 0} users + ${mtus.anonymous || 0} anon`;
+            } else {
+                document.getElementById('totalMTUs').textContent = 'N/A';
+                document.getElementById('mtuBreakdown').textContent = 'No billing data';
+            }
+
+            // Plan info
+            if (usageData && usageData.billing) {
+                const billing = usageData.billing;
+                document.getElementById('planName').textContent = billing.planName || 'Unknown';
+
+                let planType = [];
+                if (billing.isOnMtuPlan) planType.push('MTU');
+                if (billing.isOnWarehousesPlan) planType.push('Warehouses');
+                document.getElementById('planDetails').textContent = planType.join(' + ') || 'Standard';
+            }
+
+            // Count integrations
+            const integrations = allDestinations.filter(d => d.__typename === 'Integration').length;
+            const warehouses = allDestinations.filter(d => d.__typename === 'Warehouse').length;
+            document.getElementById('totalIntegrations').textContent = integrations;
+        }
+
+        function renderUsageCharts() {
+            // Charts removed - MTU data is already in stats cards
+        }
+
+        function renderUseCases() {
+            // Use cases removed
+        }
+
+        function filterDestinations() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const typeFilter = document.getElementById('typeFilter').value;
+            const statusFilter = document.getElementById('statusFilter').value;
+
+            filteredDestinations = allDestinations.filter(dest => {
+                const name = (dest.name || '').toLowerCase();
+                const type = dest.__typename;
+                const enabled = dest.enabled;
+
+                const matchesSearch = name.includes(search);
+                const matchesType = typeFilter === 'all' || type === typeFilter;
+                const matchesStatus = statusFilter === 'all' ||
+                    (statusFilter === 'enabled' && enabled) ||
+                    (statusFilter === 'disabled' && !enabled);
+
+                return matchesSearch && matchesType && matchesStatus;
+            });
+
+            currentPage = 1;
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('destinationsTableBody');
+            tbody.innerHTML = '';
+
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageData = filteredDestinations.slice(start, end);
+
+            pageData.forEach(dest => {
+                const row = document.createElement('tr');
+
+                const enabled = dest.enabled;
+                const statusBadge = enabled
+                    ? '<span style="background: #48bb78; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">ENABLED</span>'
+                    : '<span style="background: #a0aec0; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">DISABLED</span>';
+
+                const type = dest.__typename;
+                const typeBadge = type === 'Integration'
+                    ? '<span style="background: #667eea; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Integration</span>'
+                    : '<span style="background: #764ba2; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Warehouse</span>';
+
+                // Health badge (if metrics loaded)
+                let healthBadge = '';
+                if (healthMetrics && healthMetrics[dest.id]) {
+                    const metrics = healthMetrics[dest.id];
+                    const status = metrics.health_status;
+                    const successCount = metrics.success_count;
+                    const lastDelivery = metrics.last_delivery ? new Date(metrics.last_delivery).toLocaleDateString() : 'Never';
+
+                    if (status === 'healthy') {
+                        healthBadge = `<span style="background: #48bb78; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;" title="${successCount.toLocaleString()} events (Last: ${lastDelivery})">✓ Healthy</span>`;
+                    } else if (status === 'warning') {
+                        healthBadge = `<span style="background: #f6ad55; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;" title="${successCount.toLocaleString()} events, some retries">⚠ Warning</span>`;
+                    } else {
+                        healthBadge = `<span style="background: #a0aec0; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">No Data</span>`;
+                    }
+                }
+
+                // Connected sources
+                let sourceName = 'None';
+                if (type === 'Integration' && dest.source) {
+                    sourceName = dest.source.name || 'Unknown';
+                }
+
+                // Categories
+                const categories = dest.metadata?.categories || [];
+                const categoriesDisplay = categories.length > 0
+                    ? categories.slice(0, 3).join(', ') + (categories.length > 3 ? '...' : '')
+                    : '<span style="color: #a0aec0;">None</span>';
+                const categoriesTitle = categories.join(', ');
+
+                const createdAt = dest.createdAt ? new Date(dest.createdAt).toLocaleDateString() : 'N/A';
+
+                row.innerHTML = `
+                    <td style="text-align: center;">${statusBadge}</td>
+                    <td><strong>${dest.name || 'Unknown'}</strong></td>
+                    <td>${typeBadge}</td>
+                    ${healthMetrics ? `<td style="text-align: center;">${healthBadge}</td>` : ''}
+                    <td><span style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${sourceName}</span></td>
+                    <td style="font-size: 0.85rem; color: #718096; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${categoriesTitle}">${categoriesDisplay}</td>
+                    <td style="font-size: 0.85rem; color: #718096;">${createdAt}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+
+            renderPagination();
+        }
+
+        async function loadHealthMetrics() {
+            if (healthMetricsLoading) return;
+
+            const btn = document.getElementById('loadHealthBtn');
+            const btnText = document.getElementById('healthBtnText');
+            const btnIcon = document.getElementById('healthBtnIcon');
+
+            healthMetricsLoading = true;
+            btn.disabled = true;
+            btnText.textContent = 'Loading...';
+            btnIcon.textContent = '⏳';
+
+            try {
+                // Get all destination IDs
+                const destinationIds = allDestinations.map(d => d.id);
+
+                const response = await fetch('/api/destination-health-metrics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        destination_ids: destinationIds,
+                        days_back: 7
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch health metrics');
+                }
+
+                const data = await response.json();
+                healthMetrics = data.metrics;
+
+                // Show health column
+                document.getElementById('healthHeader').style.display = 'table-cell';
+
+                // Update button
+                btnText.textContent = 'Refresh Metrics';
+                btnIcon.textContent = '🔄';
+                btn.disabled = false;
+                healthMetricsLoading = false;
+
+                // Re-render table with health data
+                renderTable();
+
+            } catch (error) {
+                console.error('Error loading health metrics:', error);
+                const errorMsg = error.message || 'Unknown error';
+                alert('Failed to load health metrics: ' + errorMsg + '\n\nCheck browser console for details.');
+                btnText.textContent = 'Load Health Metrics';
+                btnIcon.textContent = '📊';
+                btn.disabled = false;
+                healthMetricsLoading = false;
+            }
+        }
+
+        // Debugging helper
+        window.debugDestinations = function() {
+            console.log('=== DEBUG INFO ===');
+            console.log('allDestinations:', allDestinations);
+            console.log('filteredDestinations:', filteredDestinations);
+            console.log('usageData:', usageData);
+            console.log('healthMetrics:', healthMetrics);
+        };
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredDestinations.length / pageSize);
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '← Previous';
+            prevBtn.className = 'btn btn-secondary btn-sm';
+            prevBtn.disabled = currentPage === 1;
+            prevBtn.onclick = () => { currentPage--; renderTable(); };
+            pagination.appendChild(prevBtn);
+
+            const pageInfo = document.createElement('span');
+            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+            pageInfo.style.cssText = 'color: #2d3748; font-weight: 500;';
+            pagination.appendChild(pageInfo);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = 'Next →';
+            nextBtn.className = 'btn btn-secondary btn-sm';
+            nextBtn.disabled = currentPage === totalPages;
+            nextBtn.onclick = () => { currentPage++; renderTable(); };
+            pagination.appendChild(nextBtn);
+        }
+
+        // Load data on page load
+        loadData();
+    </script>
+</body>
+</html>

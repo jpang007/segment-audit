@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Workspace Recommendations</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/audit_visual_renderer.js') }}"></script>
     <style>
         .recommendations-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -249,6 +250,7 @@
                     <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
                         <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🏠 Dashboard</a>
                         <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/destinations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📍 Destinations</a>
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👤 Profile Insights</a>
@@ -281,35 +283,6 @@
                 </select>
             </div>
 
-            <!-- Output Type Selection -->
-            <div style="margin-bottom: 20px;">
-                <label style="display: block; font-weight: 600; margin-bottom: 8px; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
-                    Output format <span style="color: #fee2e2;">*</span>
-                </label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <label style="background: rgba(255,255,255,0.95); padding: 16px; border-radius: 8px; cursor: pointer; border: 2px solid rgba(255,255,255,0.3); transition: all 0.2s;"
-                           onmouseover="this.style.borderColor='rgba(255,255,255,0.8)'"
-                           onmouseout="if(!document.getElementById('outputExecutive').checked) this.style.borderColor='rgba(255,255,255,0.3)'"
-                           onclick="this.style.borderColor='#10b981'; document.querySelectorAll('label[for^=output]').forEach(l => l.style.borderColor='rgba(255,255,255,0.3)'); this.style.borderColor='#10b981';">
-                        <input type="radio" id="outputExecutive" name="outputType" value="executive_summary" style="margin-right: 8px;">
-                        <div style="display: inline-block;">
-                            <div style="font-weight: 600; color: #1f2937;">📄 Executive Summary</div>
-                            <div style="font-size: 0.875rem; color: #6b7280; margin-top: 4px;">Customer-facing, concise</div>
-                        </div>
-                    </label>
-                    <label style="background: rgba(255,255,255,0.95); padding: 16px; border-radius: 8px; cursor: pointer; border: 2px solid rgba(255,255,255,0.3); transition: all 0.2s;"
-                           onmouseover="this.style.borderColor='rgba(255,255,255,0.8)'"
-                           onmouseout="if(!document.getElementById('outputAction').checked) this.style.borderColor='rgba(255,255,255,0.3)'"
-                           onclick="this.style.borderColor='#10b981'; document.querySelectorAll('label[for^=output]').forEach(l => l.style.borderColor='rgba(255,255,255,0.3)'); this.style.borderColor='#10b981';">
-                        <input type="radio" id="outputAction" name="outputType" value="action_plan" style="margin-right: 8px;">
-                        <div style="display: inline-block;">
-                            <div style="font-weight: 600; color: #1f2937;">📋 Action Plan</div>
-                            <div style="font-size: 0.875rem; color: #6b7280; margin-top: 4px;">Internal SA use, detailed</div>
-                        </div>
-                    </label>
-                </div>
-            </div>
-
             <!-- Customer Context Override (Optional) -->
             <details style="background: rgba(255,255,255,0.1); padding: 16px; border-radius: 8px; margin-bottom: 20px;">
                 <summary style="cursor: pointer; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -336,7 +309,7 @@
 
             <!-- Generate Button -->
             <button id="generateBtn" onclick="generateGoalDrivenRecommendations()" class="generate-btn" style="width: 100%; font-size: 1.1rem; padding: 16px;">
-                ✨ Generate Recommendations
+                ✨ Generate Insights
             </button>
 
             <div id="rateLimitStatus" style="font-size: 0.75rem; margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 8px; display: none;">
@@ -373,11 +346,16 @@
         <div id="exportOptions" style="display: none; margin-bottom: 30px;">
             <div style="background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                 <h3 style="margin-top: 0; color: #1f2937;">📥 Export Recommendations</h3>
-                <p style="color: #6b7280; margin-bottom: 20px;">Download your generated recommendations as JSON</p>
+                <p style="color: #6b7280; margin-bottom: 20px;">Download your generated recommendations</p>
 
-                <button onclick="exportRecommendationsJSON()" class="btn btn-primary" style="width: 100%;">
-                    📄 Download Recommendations (JSON)
-                </button>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <button id="exportNarrativeBtn" onclick="exportNarrative()" class="btn btn-primary" style="display: none;">
+                        📄 Download Summary (.txt)
+                    </button>
+                    <button id="exportJSONBtn" onclick="exportRecommendationsJSON()" class="btn btn-primary" style="display: none;">
+                        📋 Download JSON (.json)
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -430,15 +408,9 @@
         async function generateGoalDrivenRecommendations() {
             // Validate inputs
             const goal = document.getElementById('goalSelect').value;
-            const outputType = document.querySelector('input[name="outputType"]:checked')?.value;
 
             if (!goal) {
                 alert('⚠️ Please select a goal');
-                return;
-            }
-
-            if (!outputType) {
-                alert('⚠️ Please select an output format');
                 return;
             }
 
@@ -465,11 +437,10 @@
                     },
                     body: JSON.stringify({
                         goal: goal,
-                        output_type: outputType,
                         industry_override: industryOverride || null,
                         business_model_override: businessModelOverride || null,
                         user_notes: userNotes || null,
-                        force_refresh: true  // Always generate fresh recommendations
+                        force_refresh: true
                     })
                 });
 
@@ -485,10 +456,10 @@
                 // Hide loading
                 document.getElementById('loading').style.display = 'none';
 
-                // Display goal-driven results
-                displayGoalDrivenResults(data, goal, outputType);
+                // Display goal-driven results (always visual now)
+                displayGoalDrivenResults(data, goal);
 
-                // Show cache indicator if cached
+                // Show cache indicator
                 if (data.cached) {
                     document.getElementById('cacheStatus').textContent = 'Hit ✓';
                     document.getElementById('cacheStatus').style.color = '#10b981';
@@ -498,6 +469,7 @@
 
                 // Show export options
                 document.getElementById('exportOptions').style.display = 'block';
+                document.getElementById('exportJSONBtn').style.display = 'block';
 
                 // Refresh rate limit status
                 loadRateLimitStatus();
@@ -519,11 +491,10 @@
             }
         }
 
-        function displayGoalDrivenResults(data, goal, outputType) {
+        function displayGoalDrivenResults(data, goal) {
             // Save for export
             lastGeneratedResult = {
                 goal: goal,
-                output_type: outputType,
                 timestamp: new Date().toISOString(),
                 ...data
             };
@@ -549,7 +520,7 @@
                         <h2 style="margin: 0;">${goalIcons[goal]} ${goalNames[goal]} Analysis</h2>
                         <div style="display: flex; gap: 8px; align-items: center;">
                             <span style="background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
-                                ${outputType === 'executive_summary' ? '📄 Executive' : '📋 Action Plan'}
+                                📋 Visual Report
                             </span>
                         </div>
                     </div>
@@ -585,6 +556,20 @@
         }
 
         function formatGoalResults(result, goal) {
+            // Check if this is enhanced v2 audit format (account_brief + sa_action_plan)
+            if (goal === 'workspace_audit' && (result.account_brief || result.sa_action_plan)) {
+                // Use new visual renderer
+                const renderer = new AuditVisualRenderer('findingsList');
+                renderer.render(result);
+                return ''; // Renderer handles DOM directly
+            }
+
+            // Check if this is a narrative (string) result
+            if (typeof result === 'string') {
+                return formatNarrative(result);
+            }
+
+            // Recommended Actions - structured JSON format
             // Format based on goal type
             if (goal === 'growth_usecases' && result.use_cases) {
                 return `
@@ -711,6 +696,71 @@
                     </div>
                 `;
             }
+        }
+
+        function formatNarrative(text) {
+            // Convert markdown-style narrative to HTML
+            // Remove markdown code blocks if Gemini wrapped the response
+            text = text.replace(/```markdown\n?/g, '').replace(/```\n?$/g, '');
+
+            // Convert sections with headers
+            let html = '<div class="ai-summary-card" style="max-width: 900px; margin: 0 auto;">';
+
+            // Split by sections (## headers)
+            const sections = text.split(/^## /gm).filter(s => s.trim());
+
+            sections.forEach(section => {
+                const lines = section.split('\n');
+                const title = lines[0].trim();
+                const content = lines.slice(1).join('\n').trim();
+
+                if (title && content) {
+                    html += `
+                        <div style="margin-bottom: 32px;">
+                            <h3 style="color: #1f2937; font-size: 1.25rem; margin-bottom: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">
+                                ${escapeHtml(title)}
+                            </h3>
+                            <div style="color: #374151; line-height: 1.8; font-size: 1rem;">
+                                ${formatMarkdownContent(content)}
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            html += '</div>';
+            return html;
+        }
+
+        function formatMarkdownContent(text) {
+            // Convert basic markdown to HTML
+            let html = text;
+
+            // Bold text
+            html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+            // Bullet lists
+            html = html.replace(/^- (.+)$/gm, '<li style="margin-bottom: 8px;">$1</li>');
+            html = html.replace(/(<li.*<\/li>)/s, '<ul style="margin: 12px 0; padding-left: 24px;">$1</ul>');
+
+            // Numbered lists
+            html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom: 8px;">$1</li>');
+
+            // Paragraphs
+            html = html.split('\n\n').map(para => {
+                if (para.trim() && !para.includes('<li>') && !para.includes('<ul>')) {
+                    return `<p style="margin-bottom: 16px;">${para.trim()}</p>`;
+                }
+                return para;
+            }).join('');
+
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function displayFindings(findings) {
@@ -1223,7 +1273,7 @@
             }
         }
 
-        // Export function
+        // Export functions
         let lastGeneratedResult = null;
 
         function exportRecommendationsJSON() {
@@ -1238,6 +1288,44 @@
             const link = document.createElement('a');
             link.href = url;
             link.download = `recommendations_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function exportNarrative() {
+            if (!lastGeneratedResult) {
+                alert('No summary to export. Please generate a summary first.');
+                return;
+            }
+
+            const result = lastGeneratedResult.result;
+            let narrativeText = '';
+
+            // If result is a string, use it directly
+            if (typeof result === 'string') {
+                narrativeText = result;
+            } else {
+                // Fallback: stringify the JSON
+                narrativeText = JSON.stringify(result, null, 2);
+            }
+
+            // Add header
+            const goalNames = {
+                'workspace_audit': 'Workspace Audit',
+                'growth_usecases': 'Growth Use Cases',
+                'activation_expansion': 'Activation & Expansion'
+            };
+            const header = `${goalNames[lastGeneratedResult.goal] || lastGeneratedResult.goal} - Workspace Summary\n` +
+                          `Generated: ${new Date(lastGeneratedResult.timestamp).toLocaleString()}\n` +
+                          `\n${'='.repeat(80)}\n\n`;
+
+            const fullText = header + narrativeText;
+
+            const dataBlob = new Blob([fullText], {type: 'text/plain'});
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `workspace_summary_${new Date().toISOString().split('T')[0]}.txt`;
             link.click();
             URL.revokeObjectURL(url);
         }

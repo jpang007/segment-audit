@@ -51,6 +51,66 @@ Critical rules:
 - Clear about assumptions vs. observations"""
 
     @staticmethod
+    def format_output_instructions(output_type: str) -> str:
+        """Get format-specific instructions based on output type"""
+        if output_type == "workspace_summary":
+            return """
+### Output Format: Workspace Summary (Narrative)
+
+**CRITICAL**: Generate a readable NARRATIVE document, NOT JSON.
+
+Structure as a clean, readable document with these sections:
+
+---
+
+## Workspace Overview
+[2-3 sentences: workspace size, maturity, key characteristics]
+
+## Key Findings
+[3-5 bullet points of most important discoveries]
+
+## Risks & Concerns
+[List specific risks observed in the data with brief explanations]
+
+## Opportunities
+[List actionable opportunities with context]
+
+## Recommended Next Steps
+[Prioritized list of 3-5 concrete actions]
+
+## Questions to Validate
+[2-3 questions for the customer to confirm or clarify]
+
+---
+
+**Tone**: Consultative, concise, customer-friendly
+**Length**: Readable in 2-3 minutes
+**Style**: Clear narrative prose, not technical data dump
+**Avoid**: Raw JSON, overly technical jargon, data tables
+
+This should feel like a polished workspace health report you'd share with a customer.
+"""
+        else:  # recommended_actions
+            return """
+### Output Format: Recommended Actions (Structured JSON)
+
+**CRITICAL**: Return structured JSON for internal SA/CSM use.
+
+This is for execution and traceability - preserve all analysis and evidence.
+
+Include:
+- Prioritized action list with evidence
+- Risk assessment with severity
+- Audience opportunities with reach
+- Source issues with impact
+- All data that supports recommendations
+
+**Tone**: Detailed, precise, data-backed
+**Purpose**: Internal execution and system integration
+**Style**: Structured, traceable, comprehensive
+"""
+
+    @staticmethod
     def goal_quick_wins(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
         """
         GOAL: Find Quick Wins
@@ -173,7 +233,7 @@ DO:
 Generate quick wins now."""
 
     @staticmethod
-    def goal_workspace_audit(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
+    def goal_workspace_audit(structured_data: Dict[str, Any], business_context: str, user_notes: str = "", output_type: str = "recommended_actions") -> str:
         """
         GOAL 1: Workspace Audit
         Technical + strategic analysis of workspace health and architecture
@@ -318,10 +378,12 @@ Return JSON with this EXACT structure:
 - Honest about assumptions
 - Focus on actionable insights
 
+{GoalDrivenPrompts.format_output_instructions(output_type)}
+
 Generate the workspace audit now."""
 
     @staticmethod
-    def goal_growth_usecases(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
+    def goal_growth_usecases(structured_data: Dict[str, Any], business_context: str, user_notes: str = "", output_type: str = "recommended_actions") -> str:
         """
         GOAL: Generate Growth / Marketing Use Cases
         Focus: Lifecycle campaigns, behavioral targeting, activation ideas
@@ -430,8 +492,8 @@ Write as a Solutions Architect would in a customer conversation:
 - Honest about assumptions and data gaps
 
 Example phrases to USE:
-- "Based on the {audience_name} audience definition..."
-- "The data shows {X users} are currently not activated..."
+- "Based on the [audience_name] audience definition..."
+- "The data shows [X users] are currently not activated..."
 - "This could enable campaigns, though exact engagement metrics would need to be measured..."
 
 Example phrases to AVOID:
@@ -440,10 +502,12 @@ Example phrases to AVOID:
 - "Users who engage 3+ times..."
 - "Drive significant revenue growth..."
 
+{GoalDrivenPrompts.format_output_instructions(output_type)}
+
 Generate recommendations now."""
 
     @staticmethod
-    def goal_activation_expansion(structured_data: Dict[str, Any], business_context: str, user_notes: str = "") -> str:
+    def goal_activation_expansion(structured_data: Dict[str, Any], business_context: str, user_notes: str = "", output_type: str = "recommended_actions") -> str:
         """
         GOAL 3: Activation & Expansion Opportunities
         Identify underutilization and areas where customer is leaving value on the table
@@ -553,6 +617,8 @@ Return JSON with this EXACT structure:
 - Specific with names and numbers
 - Honest about what would require customer input
 - Focus on observable underutilization
+
+{GoalDrivenPrompts.format_output_instructions(output_type)}
 
 Generate the analysis now."""
 

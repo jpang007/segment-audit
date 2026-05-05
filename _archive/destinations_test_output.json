@@ -1,0 +1,1347 @@
+{
+  "destinations": [
+    {
+      "id": "6706a3c1f95971f48bdfbf5b",
+      "__typename": "Integration",
+      "name": "[DEV] Sailthru V2 rETL",
+      "integrationStatus": "DISABLED",
+      "createdAt": "2024-10-09T15:39:45+00:00",
+      "source": {
+        "id": "szwsJDTWRDrJB3JFE7HhvE",
+        "name": "HTTP API for Sailthru V2",
+        "slug": "http_api_for_sailthru_v2",
+        "metadata": {
+          "id": "iUM16Md8P2",
+          "name": "HTTP API",
+          "category": "server",
+          "categories": [
+            "Server"
+          ],
+          "logos": {
+            "mark": null,
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/http-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5ee1302124d817af4c8341a2",
+        "name": "Sailthru v2",
+        "slug": "sailthru-v2",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/2eb63829-fe1e-4e47-b921-1fcf0916b5ba.svg",
+          "default": "https://cdn-devcenter.segment.com/6e3a2032-6567-4f83-ac9a-8ba61da2fe59.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Email Marketing",
+          "Marketing Automation",
+          "Personalization",
+          "SMS & Push Notifications"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": false
+    },
+    {
+      "id": "6707be852dc8cc4c6e735793",
+      "__typename": "Integration",
+      "name": "[PROD] Sailthru V2 rETL",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2024-10-10T11:46:13+00:00",
+      "source": {
+        "id": "szwsJDTWRDrJB3JFE7HhvE",
+        "name": "HTTP API for Sailthru V2",
+        "slug": "http_api_for_sailthru_v2",
+        "metadata": {
+          "id": "iUM16Md8P2",
+          "name": "HTTP API",
+          "category": "server",
+          "categories": [
+            "Server"
+          ],
+          "logos": {
+            "mark": null,
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/http-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5ee1302124d817af4c8341a2",
+        "name": "Sailthru v2",
+        "slug": "sailthru-v2",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/2eb63829-fe1e-4e47-b921-1fcf0916b5ba.svg",
+          "default": "https://cdn-devcenter.segment.com/6e3a2032-6567-4f83-ac9a-8ba61da2fe59.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Email Marketing",
+          "Marketing Automation",
+          "Personalization",
+          "SMS & Push Notifications"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "652e78e1831e8f5227b3efa6",
+      "__typename": "Integration",
+      "name": "DEV - Strip Null Columns - Local Users Webhook",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2023-10-17T12:06:57+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "614a3c7d791c91c41bae7599",
+        "name": "Webhooks (Actions)",
+        "slug": "actions-webhook",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/ea9c9ae7-1fbc-4f0e-aeee-6a3af4822ab4.svg",
+          "default": "https://cdn-devcenter.segment.com/a60911e1-d682-41cf-866f-605dc1df7835.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "638fbdc1910747421633b3e3",
+      "__typename": "Integration",
+      "name": "GA4_Segment_Test",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-12-06T22:10:09+00:00",
+      "source": {
+        "id": "8ZhBbzWn9M6wTUMNvYwDVP",
+        "name": "axios_web_DEV_GA4_POC",
+        "slug": "ga4_poc_axios_web_dev",
+        "metadata": {
+          "id": "IqDTy1TpoU",
+          "name": "Javascript",
+          "category": "website",
+          "categories": [
+            "Website"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/e8c017f0-3e8d-41f6-8659-e6c6cf8c6e7b.svg",
+            "default": "https://cdn-devcenter.segment.com/d5b36502-f86f-4caf-b295-29044dbb3e94.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "60ad61f9ff47a16b8fb7b5d9",
+        "name": "Google Analytics 4 Cloud",
+        "slug": "actions-google-analytics-4",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/70e44c54-1efe-4bb0-8e61-2d2ac4b2daab.svg",
+          "default": "https://cdn-devcenter.segment.com/25835a27-497b-43a0-abf3-3eb31682fad3.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": "63e5548b01483f31d1092303",
+      "__typename": "Integration",
+      "name": "Google Ads Conversions",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2023-02-09T20:16:11+00:00",
+      "source": {
+        "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+        "name": "Personas Media Strict Prod",
+        "slug": "personas_media-strict-prod",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "60ae8b97dcb6cc52d5d0d5ab",
+        "name": "Google Ads Conversions",
+        "slug": "actions-google-enhanced-conversions",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/b424677b-824a-492e-a1bb-c2f64435b56c.svg",
+          "default": "https://cdn-devcenter.segment.com/3ddd859c-a938-4a3d-aeb1-23773592a5a7.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising",
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "622fd61266963436c561cca2",
+      "__typename": "Integration",
+      "name": "Google AdWords Remarketing Lists (Customer Match)",
+      "integrationStatus": "DISABLED",
+      "createdAt": "2022-03-14T23:56:02+00:00",
+      "source": {
+        "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+        "name": "Personas Media Strict Prod",
+        "slug": "personas_media-strict-prod",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5a6b50f1c900fa00011858fd",
+        "name": "Google Ads Remarketing Lists",
+        "slug": "adwords-remarketing-lists",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/1af13e6c-9feb-43d3-af93-4d436272b3d3.svg",
+          "default": "https://cdn-devcenter.segment.com/3479cf3d-7339-4f6e-bda4-ee63c145a859.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": false
+    },
+    {
+      "id": "639bc561b636ae91d492ac34",
+      "__typename": "Integration",
+      "name": "GTM: WhyAxis Segment to GTM to GA4 Test",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-12-16T01:09:53+00:00",
+      "source": {
+        "id": "8ZhBbzWn9M6wTUMNvYwDVP",
+        "name": "axios_web_DEV_GA4_POC",
+        "slug": "ga4_poc_axios_web_dev",
+        "metadata": {
+          "id": "IqDTy1TpoU",
+          "name": "Javascript",
+          "category": "website",
+          "categories": [
+            "Website"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/e8c017f0-3e8d-41f6-8659-e6c6cf8c6e7b.svg",
+            "default": "https://cdn-devcenter.segment.com/d5b36502-f86f-4caf-b295-29044dbb3e94.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "54521fd625e721e32a72eeb9",
+        "name": "Google Tag Manager",
+        "slug": "google-tag-manager",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/7af6caa6-d937-455a-b93c-7de7c510343f.svg",
+          "default": "https://cdn-devcenter.segment.com/c14ec14f-db6c-4c6e-9916-49ae5e8e7723.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Tag Managers"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "63374a98c81b1267b10cfb0e",
+      "__typename": "Integration",
+      "name": "HubSpot",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-09-30T19:59:20+00:00",
+      "source": {
+        "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+        "name": "Personas Media Strict Prod",
+        "slug": "personas_media-strict-prod",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "54521fd725e721e32a72eec1",
+        "name": "HubSpot",
+        "slug": "hubspot",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/83cb0399-f4ac-426f-b85f-b5bd70be2db7.svg",
+          "default": "https://cdn-devcenter.segment.com/6482bf3c-6d05-478c-9ea6-dc9a75d5fc7b.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Analytics",
+          "CRM",
+          "Email Marketing"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "62fded4f0aae8114e8f63f76",
+      "__typename": "Integration",
+      "name": "HubSpot",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-08-18T07:42:07+00:00",
+      "source": {
+        "id": "kJ9ZejCm9cs3Em6s4sQLdq",
+        "name": "Personas (2)",
+        "slug": "personas_media_strict_dev2",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "54521fd725e721e32a72eec1",
+        "name": "HubSpot",
+        "slug": "hubspot",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/83cb0399-f4ac-426f-b85f-b5bd70be2db7.svg",
+          "default": "https://cdn-devcenter.segment.com/6482bf3c-6d05-478c-9ea6-dc9a75d5fc7b.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Analytics",
+          "CRM",
+          "Email Marketing"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "65de4077e9c29425b0a21914",
+      "__typename": "Integration",
+      "name": "LinkedIn Audiences",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2024-02-27T20:05:11+00:00",
+      "source": {
+        "id": "8QRpJhabprvNEzDzVjfvVD",
+        "name": "Personas (3)",
+        "slug": "personas_media_strict_prod3",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "62f435d1d311567bd5bf0e8d",
+        "name": "LinkedIn Audiences",
+        "slug": "actions-linkedin-audiences",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/4c025412-d528-4c2f-ad5f-65801f9da5f9.svg",
+          "default": "https://cdn-devcenter.segment.com/52bbe0e8-db47-46dd-9736-ba1191d074cd.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "65006683ccfc387dfaefd470",
+      "__typename": "Integration",
+      "name": "Media Strict Dev - Segment Profiles",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2023-09-12T13:24:19+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "639c2dbb1309fdcad13951b6",
+        "name": "Segment Profiles",
+        "slug": "actions-segment-profiles",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/c7434343-b4b8-4887-b1a9-9d0b3e125535.svg",
+          "default": "https://cdn-devcenter.segment.com/66c934b7-6aa5-422c-8e6b-878e1091a28d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data",
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "670694c9a393979935d0c575",
+      "__typename": "Integration",
+      "name": "Media Strict Prod - Sailthru Newsletter Engagement",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2024-10-09T14:35:53+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "6371eee1ae5e324869aa8b1b",
+        "name": "Segment Connections",
+        "slug": "actions-segment",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/5c0cba3b-7a9d-4615-a05c-3786579d130c.svg",
+          "default": "https://cdn-devcenter.segment.com/2b6b665b-8dab-4757-a722-6017d0949c3d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "6936cebed56ccebf5bdbb5fa",
+      "__typename": "Integration",
+      "name": "Media Strict Prod - Sailthru Newsletter Engagement - Snowflake",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2025-12-08T13:12:30+00:00",
+      "source": {
+        "id": "r4WmNpDMZku3tWGmTWR3Hm",
+        "name": "snowflake_retl_prod",
+        "slug": "snowflake_retl_prod",
+        "metadata": {
+          "id": "BQp3zGUgjV",
+          "name": "Snowflake",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/ad7e8b99-be10-40dc-8fab-48f1a377ce89.svg",
+            "default": "https://cdn-devcenter.segment.com/59158149-9da3-497e-9300-05d178833671.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "6371eee1ae5e324869aa8b1b",
+        "name": "Segment Connections",
+        "slug": "actions-segment",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/5c0cba3b-7a9d-4615-a05c-3786579d130c.svg",
+          "default": "https://cdn-devcenter.segment.com/2b6b665b-8dab-4757-a722-6017d0949c3d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": "6530bdfa9aa7c405f948e0b9",
+      "__typename": "Integration",
+      "name": "Media Strict Prod - Segment Profiles",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2023-10-19T05:26:18+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "639c2dbb1309fdcad13951b6",
+        "name": "Segment Profiles",
+        "slug": "actions-segment-profiles",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/c7434343-b4b8-4887-b1a9-9d0b3e125535.svg",
+          "default": "https://cdn-devcenter.segment.com/66c934b7-6aa5-422c-8e6b-878e1091a28d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data",
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": "62e14e4a7b5cfcc480024103",
+      "__typename": "Integration",
+      "name": "Personas Display & Video 360",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-07-27T14:40:10+00:00",
+      "source": {
+        "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+        "name": "Personas Media Strict Prod",
+        "slug": "personas_media-strict-prod",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5d4dd5b989eda01a09b5cdb1",
+        "name": "Personas Display & Video 360",
+        "slug": "personas-display-video-360",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/ce0c1aed-3c5e-4e25-9ed7-8f8ecae41f2e.svg",
+          "default": "https://cdn-devcenter.segment.com/cc81d1a6-fea1-482a-acb0-5f1fa1f46e47.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "62977a5992c6f0d0f55591fa",
+      "__typename": "Integration",
+      "name": "Personas Facebook Custom Audiences - Pro",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-06-01T14:40:25+00:00",
+      "source": {
+        "id": "tzYhy2gtUsAd1SUfqxf577",
+        "name": "Personas (2)",
+        "slug": "personas_media_strict_prod2",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5a4d24dcc5836400017188f6",
+        "name": "Personas Facebook Custom Audiences",
+        "slug": "personas-facebook-ads",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/66dccb1d-6fbe-4d91-8fd0-a35f3e0f79e7.svg",
+          "default": "https://cdn-devcenter.segment.com/4771bb6a-925c-4a91-be66-8b406759a818.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "63750766a4c22a59c79bee70",
+      "__typename": "Integration",
+      "name": "Personas Facebook Custom Audiences Growth Account",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-11-16T15:53:10+00:00",
+      "source": {
+        "id": "8QRpJhabprvNEzDzVjfvVD",
+        "name": "Personas (3)",
+        "slug": "personas_media_strict_prod3",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5a4d24dcc5836400017188f6",
+        "name": "Personas Facebook Custom Audiences",
+        "slug": "personas-facebook-ads",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/66dccb1d-6fbe-4d91-8fd0-a35f3e0f79e7.svg",
+          "default": "https://cdn-devcenter.segment.com/4771bb6a-925c-4a91-be66-8b406759a818.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Advertising"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "652fa85495b297a5d9bfd0f8",
+      "__typename": "Integration",
+      "name": "PROD - Strip Null Columns - Local Users Webhook",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2023-10-18T09:41:40+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "614a3c7d791c91c41bae7599",
+        "name": "Webhooks (Actions)",
+        "slug": "actions-webhook",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/ea9c9ae7-1fbc-4f0e-aeee-6a3af4822ab4.svg",
+          "default": "https://cdn-devcenter.segment.com/a60911e1-d682-41cf-866f-605dc1df7835.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "693812f6dc49b99d1278cb00",
+      "__typename": "Integration",
+      "name": "PROD - Strip Null Columns - Snowflake Local Users Webhook",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2025-12-09T12:15:50+00:00",
+      "source": {
+        "id": "r4WmNpDMZku3tWGmTWR3Hm",
+        "name": "snowflake_retl_prod",
+        "slug": "snowflake_retl_prod",
+        "metadata": {
+          "id": "BQp3zGUgjV",
+          "name": "Snowflake",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/ad7e8b99-be10-40dc-8fab-48f1a377ce89.svg",
+            "default": "https://cdn-devcenter.segment.com/59158149-9da3-497e-9300-05d178833671.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "614a3c7d791c91c41bae7599",
+        "name": "Webhooks (Actions)",
+        "slug": "actions-webhook",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/ea9c9ae7-1fbc-4f0e-aeee-6a3af4822ab4.svg",
+          "default": "https://cdn-devcenter.segment.com/a60911e1-d682-41cf-866f-605dc1df7835.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": "sTEvN5KaPFZxcYjYoG4gBZ",
+      "__typename": "Warehouse",
+      "name": "Redshift Instance",
+      "warehouseStatus": "ENABLED",
+      "createdAt": "2025-03-26T18:16:22+00:00",
+      "projectOverrides": {
+        "UXH8mSGBETcctjAZeBzwY": {
+          "disabled": true
+        },
+        "2D882cfi2ViWMZXy8dtkHV": {
+          "disabled": true
+        },
+        "2VPgnxMATCHXvjyhnYVYAt": {
+          "disabled": true
+        },
+        "4SDhXSrWJ6QyeDqRHxwS1i": {
+          "disabled": true
+        },
+        "5ykRdvB3KVxGRxMb1hVXgC": {
+          "disabled": true
+        },
+        "8QRpJhabprvNEzDzVjfvVD": {
+          "disabled": true
+        },
+        "8ZhBbzWn9M6wTUMNvYwDVP": {
+          "disabled": true
+        },
+        "b6NfV5K9wUNLTXjZuovP7R": {
+          "disabled": true
+        },
+        "bKDUbgassawBumAahHizRJ": {
+          "disabled": true
+        },
+        "bmxLhLw25iVs3yMUDezFpE": {
+          "disabled": true
+        },
+        "cAr8Cr2YTkDsVsvSJ6WAQ2": {
+          "disabled": true
+        },
+        "cnFSUEh9theun9ej9hEdE8": {
+          "disabled": true
+        },
+        "dK7mhn5NAZXusGnWVLVk8N": {
+          "disabled": true
+        },
+        "e6rDj8N69wbxwx5wGsFiJe": {
+          "disabled": true
+        },
+        "fJK94DYUYqTqM9eft2tcSB": {
+          "disabled": true
+        },
+        "ffY8JKCxNKhKePSLYECb7k": {
+          "disabled": true
+        },
+        "gcBi6JkVuhby4Jhqnja43b": {
+          "disabled": true
+        },
+        "kJ9ZejCm9cs3Em6s4sQLdq": {
+          "disabled": true
+        },
+        "m61r81XugMREVuGpdC5z9J": {
+          "disabled": true
+        },
+        "mx1txjHEHs5rhFWHrfy2U7": {
+          "disabled": true
+        },
+        "q3BmFRRvTBqEsw12M9Cb8b": {
+          "disabled": true
+        },
+        "sHwLvjwqFe56AaF2k5HZZm": {
+          "disabled": true
+        },
+        "szwsJDTWRDrJB3JFE7HhvE": {
+          "disabled": true
+        },
+        "tzYhy2gtUsAd1SUfqxf577": {
+          "disabled": true
+        },
+        "uZghLE2LCXBWkvQK7TLBXp": {
+          "disabled": true
+        },
+        "vtBycWY4moYVLFfc7L87GA": {
+          "disabled": true
+        },
+        "w51iBhcNZDkdMJoKddPDn4": {
+          "disabled": true
+        },
+        "wUHgSbfYHtMVPSeTQkUDsF": {
+          "disabled": false
+        },
+        "xdhA8GUSpAnjAGaZrUdJWz": {
+          "disabled": true
+        },
+        "xmMjnTvYn3eUp8LXbhSrA9": {
+          "disabled": true
+        }
+      },
+      "metadata": {
+        "id": "aea3c55dsz",
+        "name": "Redshift",
+        "slug": "redshift",
+        "logos": {
+          "mark": "",
+          "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+          "__typename": "MetadataLogos"
+        },
+        "__typename": "WarehouseMetadata"
+      },
+      "rawSettings": {
+        "database": "prod",
+        "host": "data-vpc-pulsar-prod.axios.com",
+        "hostname": "data-vpc-pulsar-prod.axios.com",
+        "name": "Redshift Instance",
+        "port": "5439",
+        "username": "segment"
+      },
+      "enabled": true
+    },
+    {
+      "id": "66f5063d19eee4a067e5e14c",
+      "__typename": "Integration",
+      "name": "Sailthru rETL test dev",
+      "integrationStatus": "DISABLED",
+      "createdAt": "2024-09-26T06:59:09+00:00",
+      "source": {
+        "id": "xmMjnTvYn3eUp8LXbhSrA9",
+        "name": "HTTP API5",
+        "slug": "http_api5",
+        "metadata": {
+          "id": "iUM16Md8P2",
+          "name": "HTTP API",
+          "category": "server",
+          "categories": [
+            "Server"
+          ],
+          "logos": {
+            "mark": null,
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/http-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5ee1302124d817af4c8341a2",
+        "name": "Sailthru v2",
+        "slug": "sailthru-v2",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/2eb63829-fe1e-4e47-b921-1fcf0916b5ba.svg",
+          "default": "https://cdn-devcenter.segment.com/6e3a2032-6567-4f83-ac9a-8ba61da2fe59.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Email Marketing",
+          "Marketing Automation",
+          "Personalization",
+          "SMS & Push Notifications"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": false
+    },
+    {
+      "id": "6202669d9241d4165e63f55b",
+      "__typename": "Integration",
+      "name": "Sailthru v2",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-02-08T12:48:29+00:00",
+      "source": {
+        "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+        "name": "Personas Media Strict Prod",
+        "slug": "personas_media-strict-prod",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5ee1302124d817af4c8341a2",
+        "name": "Sailthru v2",
+        "slug": "sailthru-v2",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/2eb63829-fe1e-4e47-b921-1fcf0916b5ba.svg",
+          "default": "https://cdn-devcenter.segment.com/6e3a2032-6567-4f83-ac9a-8ba61da2fe59.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Email Marketing",
+          "Marketing Automation",
+          "Personalization",
+          "SMS & Push Notifications"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "62023381876f5eb580d1bd77",
+      "__typename": "Integration",
+      "name": "Sailthru v2",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-02-08T09:10:25+00:00",
+      "source": {
+        "id": "xdhA8GUSpAnjAGaZrUdJWz",
+        "name": "Personas Media Strict Dev",
+        "slug": "personas_media-strict-dev",
+        "metadata": {
+          "id": "dBg7wLNWBb",
+          "name": "Personas",
+          "category": "",
+          "categories": [],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/a7d991c3-c2e3-4813-9539-09dd6f4e144d.svg",
+            "default": "https://cdn-devcenter.segment.com/fabbbeec-da0f-4e3c-bfb0-98ea5777dce5.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "5ee1302124d817af4c8341a2",
+        "name": "Sailthru v2",
+        "slug": "sailthru-v2",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/2eb63829-fe1e-4e47-b921-1fcf0916b5ba.svg",
+          "default": "https://cdn-devcenter.segment.com/6e3a2032-6567-4f83-ac9a-8ba61da2fe59.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Email Marketing",
+          "Marketing Automation",
+          "Personalization",
+          "SMS & Push Notifications"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "639a8c4f9801c6369f0af775",
+      "__typename": "Integration",
+      "name": "Segment GA4 S3 Sync",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2022-12-15T02:54:07+00:00",
+      "source": {
+        "id": "8ZhBbzWn9M6wTUMNvYwDVP",
+        "name": "axios_web_DEV_GA4_POC",
+        "slug": "ga4_poc_axios_web_dev",
+        "metadata": {
+          "id": "IqDTy1TpoU",
+          "name": "Javascript",
+          "category": "website",
+          "categories": [
+            "Website"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/e8c017f0-3e8d-41f6-8659-e6c6cf8c6e7b.svg",
+            "default": "https://cdn-devcenter.segment.com/d5b36502-f86f-4caf-b295-29044dbb3e94.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "60be92c8dabdd561bf6c9130",
+        "name": "AWS S3",
+        "slug": "aws-s3",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/23ff6b20-e0ec-490d-af33-dfba520938c8.svg",
+          "default": "https://d3hotuclm6if1r.cloudfront.net/logos/amazon-s3-default.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Analytics",
+          "Raw Data"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    },
+    {
+      "id": "6915855160092a0b9a0c29e2",
+      "__typename": "Integration",
+      "name": "Snowflake RETL Segment Profiles Destination",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2025-11-13T07:14:25+00:00",
+      "source": {
+        "id": "r4WmNpDMZku3tWGmTWR3Hm",
+        "name": "snowflake_retl_prod",
+        "slug": "snowflake_retl_prod",
+        "metadata": {
+          "id": "BQp3zGUgjV",
+          "name": "Snowflake",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/ad7e8b99-be10-40dc-8fab-48f1a377ce89.svg",
+            "default": "https://cdn-devcenter.segment.com/59158149-9da3-497e-9300-05d178833671.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "639c2dbb1309fdcad13951b6",
+        "name": "Segment Profiles",
+        "slug": "actions-segment-profiles",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/c7434343-b4b8-4887-b1a9-9d0b3e125535.svg",
+          "default": "https://cdn-devcenter.segment.com/66c934b7-6aa5-422c-8e6b-878e1091a28d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data",
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": false,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        },
+        {
+          "enabled": true,
+          "__typename": "DestinationSubscription"
+        }
+      ],
+      "enabled": true
+    },
+    {
+      "id": "670f6501c397a6ac0bcab5c0",
+      "__typename": "Integration",
+      "name": "TEST_user_identity_destination",
+      "integrationStatus": "ENABLED",
+      "createdAt": "2024-10-16T07:02:25+00:00",
+      "source": {
+        "id": "UXH8mSGBETcctjAZeBzwY",
+        "name": "pulsar_retl_prod",
+        "slug": "pulsar_retl_prod_test",
+        "metadata": {
+          "id": "0yMe8VfuDc",
+          "name": "Redshift",
+          "category": "warehouse",
+          "categories": [
+            "Warehouse"
+          ],
+          "logos": {
+            "mark": "https://cdn-devcenter.segment.com/48e9aa42-25f3-4e99-9316-e88f8952731d.svg",
+            "default": "https://d3hotuclm6if1r.cloudfront.net/logos/redshift-default.svg",
+            "__typename": "MetadataLogos"
+          },
+          "__typename": "SourceMetadata"
+        },
+        "__typename": "Source"
+      },
+      "metadata": {
+        "id": "639c2dbb1309fdcad13951b6",
+        "name": "Segment Profiles",
+        "slug": "actions-segment-profiles",
+        "logos": {
+          "mark": "https://cdn-devcenter.segment.com/c7434343-b4b8-4887-b1a9-9d0b3e125535.svg",
+          "default": "https://cdn-devcenter.segment.com/66c934b7-6aa5-422c-8e6b-878e1091a28d.svg",
+          "__typename": "MetadataLogos"
+        },
+        "categories": [
+          "Raw Data",
+          "Analytics"
+        ],
+        "__typename": "IntegrationMetadata"
+      },
+      "subscriptions": [],
+      "enabled": true
+    }
+  ],
+  "spaces": [
+    {
+      "id": "spa_qK81KrhEiw6ipmdQHst8hT",
+      "name": "Media Strict Dev",
+      "sources": [
+        {
+          "id": "2VPgnxMATCHXvjyhnYVYAt",
+          "slug": "transform_null_columns_local_uers_2_wpfxob_kr_mwu_gt5t_kth_xa_me",
+          "__typename": "Source"
+        },
+        {
+          "id": "kJ9ZejCm9cs3Em6s4sQLdq",
+          "slug": "personas_media_strict_dev2",
+          "__typename": "Source"
+        },
+        {
+          "id": "mx1txjHEHs5rhFWHrfy2U7",
+          "slug": "axios_web_dev",
+          "__typename": "Source"
+        },
+        {
+          "id": "uZghLE2LCXBWkvQK7TLBXp",
+          "slug": "http_api_retl_preprod",
+          "__typename": "Source"
+        },
+        {
+          "id": "xdhA8GUSpAnjAGaZrUdJWz",
+          "slug": "personas_media-strict-dev",
+          "__typename": "Source"
+        }
+      ],
+      "__typename": "Space"
+    },
+    {
+      "id": "spa_ggPtggNWzPVdyUN5qFVSaE",
+      "name": "Media Strict Prod",
+      "sources": [
+        {
+          "id": "4SDhXSrWJ6QyeDqRHxwS1i",
+          "slug": "personas_media-strict-prod",
+          "__typename": "Source"
+        },
+        {
+          "id": "8QRpJhabprvNEzDzVjfvVD",
+          "slug": "personas_media_strict_prod3",
+          "__typename": "Source"
+        },
+        {
+          "id": "e6rDj8N69wbxwx5wGsFiJe",
+          "slug": "prod_strip_null_columns_local_users_2_wvf73_y5n_kc_94ur_j4ec_a_c",
+          "__typename": "Source"
+        },
+        {
+          "id": "gcBi6JkVuhby4Jhqnja43b",
+          "slug": "userid_http_ap",
+          "__typename": "Source"
+        },
+        {
+          "id": "q3BmFRRvTBqEsw12M9Cb8b",
+          "slug": "ethyca_integration",
+          "__typename": "Source"
+        },
+        {
+          "id": "tzYhy2gtUsAd1SUfqxf577",
+          "slug": "personas_media_strict_prod2",
+          "__typename": "Source"
+        }
+      ],
+      "__typename": "Space"
+    }
+  ]
+}

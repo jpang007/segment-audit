@@ -926,6 +926,446 @@ class GatewayAPIClient:
         space_data = data.get('workspace', {}).get('space', {})
         return space_data.get('sources', [])
 
+    def get_all_destinations(self):
+        """Get all destinations (integrations and warehouses) with detailed information"""
+        query = """
+        query AllDestinations($workspaceSlug: Slug!, $cursor: DestinationsCursorInput!, $filter: DestinationsFilter, $search: DestinationsSearch, $sort: DestinationsSort) {
+          workspace(slug: $workspaceSlug) {
+            id
+            destinations: destinationsV2(
+              search: $search
+              filter: $filter
+              sort: $sort
+              cursor: $cursor
+            ) {
+              data {
+                id
+                __typename
+                ... on Integration {
+                  name
+                  integrationStatus: status
+                  createdAt
+                  source {
+                    id
+                    name
+                    slug
+                    metadata {
+                      id
+                      name
+                      category
+                      categories
+                      logos {
+                        mark
+                        default
+                        __typename
+                      }
+                      __typename
+                    }
+                    __typename
+                  }
+                  metadata {
+                    id
+                    name
+                    slug
+                    logos {
+                      mark
+                      default
+                      __typename
+                    }
+                    categories
+                    __typename
+                  }
+                  subscriptions {
+                    enabled
+                    __typename
+                  }
+                  enabled
+                  __typename
+                }
+                ... on Warehouse {
+                  name
+                  warehouseStatus: status
+                  createdAt
+                  projectOverrides
+                  metadata {
+                    id
+                    name
+                    slug
+                    logos {
+                      mark
+                      default
+                      __typename
+                    }
+                    __typename
+                  }
+                  rawSettings
+                  enabled
+                  __typename
+                }
+              }
+              cursor {
+                next
+                previous
+                __typename
+              }
+              __typename
+            }
+            spaces {
+              id
+              name
+              sources {
+                id
+                slug
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        all_destinations = []
+        cursor = ""
+
+        while True:
+            variables = {
+                "workspaceSlug": self.workspace_slug,
+                "cursor": {
+                    "next": cursor,
+                    "limit": 100
+                },
+                "filter": {
+                    "category": "ALL"
+                }
+            }
+
+            data = self._execute_query(query, variables)
+            workspace = data.get('workspace', {})
+            destinations_response = workspace.get('destinations', {})
+            destinations_data = destinations_response.get('data', [])
+
+            all_destinations.extend(destinations_data)
+
+            # Check if there's more data
+            next_cursor = destinations_response.get('cursor', {}).get('next', '')
+            if not next_cursor:
+                break
+            cursor = next_cursor
+
+        return {
+            'destinations': all_destinations,
+            'spaces': workspace.get('spaces', [])
+        }
+
+    def get_usage_period_data(self):
+        """Get workspace billing, usage, and entitlements data"""
+        query = """
+        query app__getUsagePeriodData($workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            billing {
+              canUpgrade
+              planName
+              start: subscriptionStart
+              end: subscriptionEnd
+              hasThroughput
+              isOnApiPlan
+              isOnCalendarMonth
+              isOnMtuPlan
+              isOnWarehousesPlan
+              isOnTwilioDeveloperPlan
+              isOnInvoicedPlan
+              mtuStrategy
+              personasPlan
+              profilesPlan
+              isAutomaticallyChargedForOverages
+              personasComputeCredits
+              personasComputeHistory
+              personasSyncFrequency
+              personasProfileApi
+              quota
+              usage {
+                mtus {
+                  anonymous
+                  users
+                  __typename
+                }
+                __typename
+              }
+              overages {
+                costPerUnit
+                value
+                low
+                high
+                __typename
+              }
+              startupProgramPromotion {
+                grantAmount
+                balanceRemaining
+                createdAt
+                expiresAt
+                __typename
+              }
+              __typename
+            }
+            historicalBilling {
+              planName
+              start: subscriptionStart
+              end: subscriptionEnd
+              hasThroughput
+              isOnApiPlan
+              isOnCalendarMonth
+              isOnInvoicedPlan
+              isOnMtuPlan
+              isOnWarehousesPlan
+              isAutomaticallyChargedForOverages
+              mtuStrategy
+              usage {
+                mtus {
+                  anonymous
+                  users
+                  __typename
+                }
+                __typename
+              }
+              overages {
+                costPerUnit
+                value
+                low
+                high
+                __typename
+              }
+              quota {
+                calls
+                rows
+                throughput
+                trackedObjects
+                __typename
+              }
+              __typename
+            }
+            entitlements {
+              features {
+                personas
+                functionsExecute
+                unifyPlus
+                twilioEngage
+                profiles
+                reverseEtl
+                linkedAudiences
+                __typename
+              }
+              quotas {
+                global {
+                  mtu
+                  throughput
+                  api {
+                    inbound
+                    outbound
+                    __typename
+                  }
+                  __typename
+                }
+                personas {
+                  computeCredits
+                  sqlTraits
+                  computeHistory
+                  syncFrequency
+                  profileApi
+                  spaces
+                  journeys
+                  journeyNodes
+                  maxJourneys
+                  activationEvents
+                  __typename
+                }
+                warehouses {
+                  rows
+                  __typename
+                }
+                functions {
+                  hoursUntilOverage
+                  hoursUntilLockout
+                  __typename
+                }
+                connections {
+                  reverseEtlRows
+                  linkedEventsRows
+                  linkedEventsEntities
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            isFunctionsTermsAccepted
+            inFunctionsBeta
+            __typename
+          }
+        }
+        """
+
+        variables = {"workspaceSlug": self.workspace_slug}
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
+    def get_data_flows(self, pagination_count=10):
+        """Get workspace onboarding use cases and data flows"""
+        query = """
+        fragment DataFlowOutput on DataFlow {
+          id
+          resources {
+            id
+            resourceType
+            resourceId
+            autoAdded
+            __typename
+          }
+          actions {
+            id
+            action
+            __typename
+          }
+          __typename
+        }
+
+        query getWorkspaceOnboardingUseCaseDataFlows($workspaceSlug: Slug!, $pagination: PaginationInput) {
+          workspace(slug: $workspaceSlug) {
+            id
+            spaces {
+              id
+              slug
+              __typename
+            }
+            entitlements {
+              features {
+                protocols
+                profiles
+                personas
+                __typename
+              }
+              __typename
+            }
+            onboardingUseCases(pagination: $pagination) {
+              data {
+                id
+                businessGoal
+                businessGoalDesiredOutcome
+                businessGoalIcon
+                useCase
+                useCaseObjective
+                useCaseIcon
+                definition {
+                  sourceCategories
+                  destinationCategories
+                  events {
+                    name
+                    description
+                    properties
+                    __typename
+                  }
+                  __typename
+                }
+                devDataFlow {
+                  ...DataFlowOutput
+                  __typename
+                }
+                prodDataFlow {
+                  ...DataFlowOutput
+                  __typename
+                }
+                __typename
+              }
+              pagination {
+                current
+                next
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "pagination": {
+                "count": pagination_count
+            }
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
+    def get_destination_delivery_metrics(self, destination_id, start_time, end_time, workspace_id):
+        """Get delivery metrics for a specific destination (success, failures, retries)"""
+        query = """
+        query getSuccessfullyDelivered($integrationID: String!, $workspaceID: String!, $destinationConfigId: String!, $groupBy: [String!]!, $startTime: Date!, $endTime: Date!, $granularity: Granularity!, $pagination: PaginationInput, $subscriptionId: String, $filterBy: String) {
+          integration(id: $integrationID) {
+            id
+            name
+            deliveryOverview {
+              successfulDelivery(
+                workspaceId: $workspaceID
+                startTime: $startTime
+                endTime: $endTime
+                granularity: $granularity
+                destinationConfigId: $destinationConfigId
+                groupBy: $groupBy
+                pagination: $pagination
+                subscriptionId: $subscriptionId
+                filterBy: $filterBy
+              ) {
+                dataset {
+                  total
+                  totalRetryCount
+                  eventType
+                  eventName
+                  appVersion
+                  action
+                  series {
+                    time
+                    count
+                    retryCount
+                    __typename
+                  }
+                  __typename
+                }
+                pagination {
+                  current
+                  next
+                  totalEntries
+                  previous
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "integrationID": destination_id,
+            "workspaceID": workspace_id,
+            "destinationConfigId": destination_id,
+            "groupBy": [],
+            "startTime": start_time,
+            "endTime": end_time,
+            "granularity": "day"
+        }
+
+        try:
+            data = self._execute_query(query, variables)
+            return data.get('integration', {})
+        except Exception as e:
+            print(f"Error fetching delivery metrics for {destination_id}: {e}")
+            return None
+
 
 # ============================================================================
 # ROUTES
@@ -1080,9 +1520,38 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                 print(f"  -> ERROR: {e}")
                 print(f"     (This may be normal if workspace doesn't have Engage feature)")
 
+        # Get destinations with usage and data flow context
+        audit_status['message'] = 'Collecting destinations...'
+        audit_status['progress'] = 82
+        print(f"\n=== FETCHING DESTINATIONS ===")
+        destinations_data = {}
+        usage_data = {}
+        data_flows = {}
+        try:
+            destinations_data = client.get_all_destinations()
+            print(f"  -> Found {len(destinations_data.get('destinations', []))} destinations")
+        except Exception as e:
+            print(f"  -> ERROR fetching destinations: {e}")
+
+        try:
+            usage_data = client.get_usage_period_data()
+            billing = usage_data.get('billing', {})
+            print(f"  -> Billing plan: {billing.get('planName', 'Unknown')}")
+            mtus = billing.get('usage', {}).get('mtus', {})
+            print(f"  -> MTUs: {mtus.get('users', 0)} users + {mtus.get('anonymous', 0)} anonymous")
+        except Exception as e:
+            print(f"  -> ERROR fetching usage data: {e}")
+
+        try:
+            data_flows = client.get_data_flows()
+            use_cases = data_flows.get('onboardingUseCases', {}).get('data', [])
+            print(f"  -> Found {len(use_cases)} use cases")
+        except Exception as e:
+            print(f"  -> ERROR fetching data flows: {e}")
+
         # Get profile insights data
         audit_status['message'] = 'Collecting profile insights...'
-        audit_status['progress'] = 85
+        audit_status['progress'] = 88
         print(f"\n=== FETCHING PROFILE INSIGHTS ===")
 
         # Get workspace-level personas data
@@ -1407,12 +1876,26 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         with open(DATA_DIR / 'gateway_personas_entitlements.json', 'w') as f:
             json.dump(personas_data, f, indent=2)
 
+        # Save destinations data
+        with open(DATA_DIR / 'gateway_destinations.json', 'w') as f:
+            json.dump(destinations_data, f, indent=2)
+
+        with open(DATA_DIR / 'gateway_usage_data.json', 'w') as f:
+            json.dump(usage_data, f, indent=2)
+
+        with open(DATA_DIR / 'gateway_data_flows.json', 'w') as f:
+            json.dump(data_flows, f, indent=2)
+
+        print(f"Saved destinations, usage, and data flow data")
+
         # Save summary
+        destinations_list = destinations_data.get('destinations', [])
         summary = {
             'audit_date': datetime.now().isoformat(),
             'customer_name': customer_name,
             'workspace_slug': workspace_slug,
             'sources_count': len(sources),
+            'destinations_count': len(destinations_list),
             'audiences_count': len(all_audiences),
             'journeys_count': len([j for j in all_journeys if j.get('__typename') == 'Journey']),
             'campaigns_count': len([j for j in all_journeys if j.get('__typename') == 'Campaign']),
@@ -1460,6 +1943,108 @@ def audiences():
     """Audiences view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_audiences.html', customer_name=customer_name)
+
+@app.route('/destinations')
+def destinations():
+    """Destinations view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('gateway_destinations.html', customer_name=customer_name)
+
+@app.route('/api/destination-health-metrics', methods=['POST'])
+def get_destination_health_metrics():
+    """Fetch delivery health metrics for destinations on-demand"""
+    try:
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
+
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Not authenticated'}), 401
+
+        data = request.json
+        destination_ids = data.get('destination_ids', [])
+        days_back = data.get('days_back', 7)
+
+        # Load destinations to get workspace ID
+        destinations_file = DATA_DIR / 'gateway_destinations.json'
+        if not destinations_file.exists():
+            return jsonify({'error': 'No destinations data available'}), 404
+
+        with open(destinations_file, 'r') as f:
+            destinations_data = json.load(f)
+
+        # Get workspace ID from summary or destinations data
+        summary_file = DATA_DIR / 'gateway_summary.json'
+        workspace_id = None
+        if summary_file.exists():
+            with open(summary_file, 'r') as f:
+                summary = json.load(f)
+                # Workspace ID might be in destinations data or we need to fetch it
+
+        # Calculate time range
+        from datetime import datetime, timedelta
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=days_back)
+
+        start_iso = start_time.isoformat() + 'Z'
+        end_iso = end_time.isoformat() + 'Z'
+
+        client = GatewayAPIClient(gateway_token, workspace_slug)
+
+        # We need workspace ID - get it from workspace query
+        workspace_data = client.get_workspace_connections()
+        workspace_id = workspace_data.get('id')
+
+        if not workspace_id:
+            return jsonify({'error': 'Could not determine workspace ID'}), 400
+
+        # Fetch metrics for each destination
+        metrics_results = {}
+        for dest_id in destination_ids:
+            metrics = client.get_destination_delivery_metrics(
+                dest_id,
+                start_iso,
+                end_iso,
+                workspace_id
+            )
+
+            if metrics and metrics.get('deliveryOverview'):
+                delivery = metrics['deliveryOverview']
+                success_data = delivery.get('successfulDelivery', {})
+                dataset = success_data.get('dataset', [])
+
+                total_success = sum(d.get('total', 0) for d in dataset)
+                total_retries = sum(d.get('totalRetryCount', 0) for d in dataset)
+
+                # Find last delivery time
+                last_delivery = None
+                for ds in dataset:
+                    series = ds.get('series', [])
+                    if series:
+                        last_time = max((s.get('time') for s in series if s.get('count', 0) > 0), default=None)
+                        if last_time:
+                            last_delivery = last_time
+
+                metrics_results[dest_id] = {
+                    'success_count': total_success,
+                    'retry_count': total_retries,
+                    'last_delivery': last_delivery,
+                    'health_status': 'healthy' if total_retries < total_success * 0.05 else 'warning' if total_success > 0 else 'no_data'
+                }
+            else:
+                metrics_results[dest_id] = {
+                    'success_count': 0,
+                    'retry_count': 0,
+                    'last_delivery': None,
+                    'health_status': 'no_data'
+                }
+
+        return jsonify({'metrics': metrics_results})
+
+    except Exception as e:
+        print(f"Error fetching health metrics: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/journeys')
 def journeys():
@@ -2178,6 +2763,7 @@ def generate_recommendations_api():
         from data_structurer import DataStructurer
         from business_inference_prompts import BusinessInferencePrompts
         from goal_driven_prompts import GoalDrivenPrompts
+        from enhanced_audit_prompts import EnhancedAuditPrompts  # New enhanced system
         # from mcp_collective_intelligence import MCPCollectiveIntelligence  # Disabled - no database
         from gemini_client import GeminiClient
         import re
@@ -2191,23 +2777,22 @@ def generate_recommendations_api():
         # Get request parameters (goal-driven approach)
         req_data = request.json or {}
         goal = req_data.get('goal')
-        output_type = req_data.get('output_type')
+        output_type = req_data.get('output_type', 'recommended_actions')  # Default to full JSON
         industry_override = req_data.get('industry_override')
         business_model_override = req_data.get('business_model_override')
         user_notes = req_data.get('user_notes', '')
-        force_refresh = req_data.get('force_refresh', False)  # Allow bypassing cache
+        force_refresh = req_data.get('force_refresh', False)
 
-        if not goal or not output_type:
+        if not goal:
             return jsonify({
                 'success': False,
-                'error': 'Both goal and output_type are required'
+                'error': 'Goal is required'
             }), 400
 
-        # Check cache first (cache key includes all parameters that affect output)
-        # Include industry, business model, and user notes in cache key so it regenerates when these change
+        # Simplified: output_type no longer required (always return full JSON)
         import hashlib
         context_hash = hashlib.md5(f"{industry_override}_{business_model_override}_{user_notes}".encode()).hexdigest()[:8]
-        cache_key = f"{goal}_{output_type}_{context_hash}"
+        cache_key = f"{goal}_{context_hash}"
 
         # Only use cache if not forcing refresh
         if not force_refresh:
@@ -2299,20 +2884,30 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
 """
 
         # Step 6: Select goal-specific prompt
-        print(f"📝 Generating {goal} prompt...")
-        prompts = GoalDrivenPrompts()
+        print(f"📝 Generating {goal} prompt for {output_type}...")
 
+        # Use enhanced prompts for workspace_audit, fallback to original for others
         if goal == 'workspace_audit':
-            prompt = prompts.goal_workspace_audit(structured_data, business_context, user_notes)
-        elif goal == 'growth_usecases':
-            prompt = prompts.goal_growth_usecases(structured_data, business_context, user_notes)
-        elif goal == 'activation_expansion':
-            prompt = prompts.goal_activation_expansion(structured_data, business_context, user_notes)
+            print(f"   ✨ Using ENHANCED prompt system with confidence levels ✨")
+            enhanced_prompts = EnhancedAuditPrompts()
+            prompt = enhanced_prompts.workspace_audit_with_confidence_levels(
+                structured_data,
+                business_context,
+                user_notes
+            )
         else:
-            return jsonify({
-                'success': False,
-                'error': f'Unknown goal: {goal}'
-            }), 400
+            # Fallback to original system for growth_usecases and activation_expansion
+            print(f"   Using original prompt system")
+            prompts = GoalDrivenPrompts()
+            if goal == 'growth_usecases':
+                prompt = prompts.goal_growth_usecases(structured_data, business_context, user_notes, 'recommended_actions')
+            elif goal == 'activation_expansion':
+                prompt = prompts.goal_activation_expansion(structured_data, business_context, user_notes, 'recommended_actions')
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'Unknown goal: {goal}'
+                }), 400
 
         # Step 7: Call Gemini with goal-specific prompt
         print(f"✨ Calling Gemini for {goal} analysis...")
@@ -2322,6 +2917,7 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         print(f"   Response length: {len(response_text)} characters")
         print(f"   Response preview: {response_text[:200]}")
 
+        # Always expect JSON structure (simplified)
         # Try direct JSON parse first
         try:
             result = json.loads(response_text)
