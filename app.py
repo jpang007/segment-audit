@@ -305,7 +305,7 @@ class GatewayAPIClient:
         return sources_result.get('data', [])
 
     def get_audiences_with_folders(self, space_id):
-        """Get audiences with destinations via AudiencesAndFolders query with folder recursion"""
+        """Get audiences with destinations via AudiencesAndFolders query with folder recursion and pagination"""
         query = """
         query AudiencesAndFolders($workspaceSlug: Slug!, $spaceId: String!, $cursor: RecordCursorInput!, $folderId: String) {
           workspace(slug: $workspaceSlug) {
@@ -350,89 +350,118 @@ class GatewayAPIClient:
         audience_map = {}
         folders_to_process = []
 
-        # Step 1: Get top-level items
-        variables = {
-            "workspaceSlug": self.workspace_slug,
-            "spaceId": space_id,
-            "cursor": {"limit": 200}
-        }
+        # Step 1: Get top-level items (with pagination)
+        cursor_token = None
+        has_more = True
+        page_num = 1
 
-        data = self._execute_query(query, variables)
-        print(f"    DEBUG: Raw response keys: {data.keys() if data else 'None'}")
-        workspace = data.get('workspace', {})
-        print(f"    DEBUG: Workspace keys: {workspace.keys() if workspace else 'None'}")
-        space = workspace.get('space', {})
-        print(f"    DEBUG: Space keys: {space.keys() if space else 'None'}")
-        audiences_and_folders = space.get('audiencesAndFolders', {})
-        print(f"    DEBUG: audiencesAndFolders keys: {audiences_and_folders.keys() if audiences_and_folders else 'None'}")
-        items = audiences_and_folders.get('data', [])
-        print(f"    DEBUG: Found {len(items)} items (audiences + folders)")
-
-        for item in items:
-            typename = item.get('__typename', '')
-
-            if typename == 'Folder':
-                folder_id = item.get('folderId')
-                folder_name = item.get('displayName', '')
-                folder_count = item.get('audienceCount', 0)
-                if folder_id and folder_count > 0:
-                    folders_to_process.append({
-                        'id': folder_id,
-                        'name': folder_name,
-                        'count': folder_count
-                    })
-            elif typename in ['Audience', 'RealtimeAudience']:
-                audience_id = item.get('audienceId')
-                if audience_id:
-                    destinations = item.get('destinations', []) or []
-                    audience_map[audience_id] = {
-                        'id': audience_id,
-                        'name': item.get('name', ''),
-                        'key': item.get('key', ''),
-                        'enabled': item.get('enabled', False),
-                        'size': item.get('size', 0),
-                        'collection': item.get('collection', ''),
-                        'status': item.get('status', ''),
-                        'destinations': [d.get('name', '') for d in destinations if d.get('name')],
-                        'destination_count': len(destinations)
-                    }
-
-        # Step 2: Query each folder
-        for folder in folders_to_process:
+        while has_more:
             variables = {
                 "workspaceSlug": self.workspace_slug,
                 "spaceId": space_id,
-                "folderId": folder['id'],
                 "cursor": {"limit": 200}
             }
+            if cursor_token:
+                variables["cursor"]["next"] = cursor_token
 
-            try:
-                data = self._execute_query(query, variables)
-                workspace = data.get('workspace', {})
-                space = workspace.get('space', {})
-                audiences_and_folders = space.get('audiencesAndFolders', {})
-                items = audiences_and_folders.get('data', [])
+            data = self._execute_query(query, variables)
+            workspace = data.get('workspace', {})
+            space = workspace.get('space', {})
+            audiences_and_folders = space.get('audiencesAndFolders', {})
+            items = audiences_and_folders.get('data', [])
+            cursor_info = audiences_and_folders.get('cursor', {})
 
-                for item in items:
-                    if item.get('__typename') in ['Audience', 'RealtimeAudience']:
-                        audience_id = item.get('audienceId')
-                        if audience_id:
-                            destinations = item.get('destinations', []) or []
-                            audience_map[audience_id] = {
-                                'id': audience_id,
-                                'name': item.get('name', ''),
-                                'key': item.get('key', ''),
-                                'enabled': item.get('enabled', False),
-                                'size': item.get('size', 0),
-                                'collection': item.get('collection', ''),
-                                'status': item.get('status', ''),
-                                'destinations': [d.get('name', '') for d in destinations if d.get('name')],
-                                'destination_count': len(destinations),
-                                'folder': folder['name']
-                            }
-            except Exception as e:
-                print(f"Error fetching folder {folder['name']}: {e}")
+            print(f"    Page {page_num}: Found {len(items)} items at top level")
 
+            for item in items:
+                typename = item.get('__typename', '')
+
+                if typename == 'Folder':
+                    folder_id = item.get('folderId')
+                    folder_name = item.get('displayName', '')
+                    folder_count = item.get('audienceCount', 0)
+                    if folder_id and folder_count > 0:
+                        folders_to_process.append({
+                            'id': folder_id,
+                            'name': folder_name,
+                            'count': folder_count
+                        })
+                elif typename in ['Audience', 'RealtimeAudience']:
+                    audience_id = item.get('audienceId')
+                    if audience_id:
+                        destinations = item.get('destinations', []) or []
+                        audience_map[audience_id] = {
+                            'id': audience_id,
+                            'name': item.get('name', ''),
+                            'key': item.get('key', ''),
+                            'enabled': item.get('enabled', False),
+                            'size': item.get('size', 0),
+                            'collection': item.get('collection', ''),
+                            'status': item.get('status', ''),
+                            'destinations': [d.get('name', '') for d in destinations if d.get('name')],
+                            'destination_count': len(destinations)
+                        }
+
+            # Check for more pages
+            has_more = cursor_info.get('hasMore', False)
+            cursor_token = cursor_info.get('next') if has_more else None
+            page_num += 1
+
+        # Step 2: Query each folder (with pagination)
+        for folder in folders_to_process:
+            print(f"    Processing folder: {folder['name']} ({folder['count']} audiences)")
+            folder_cursor = None
+            folder_has_more = True
+            folder_page = 1
+
+            while folder_has_more:
+                variables = {
+                    "workspaceSlug": self.workspace_slug,
+                    "spaceId": space_id,
+                    "folderId": folder['id'],
+                    "cursor": {"limit": 200}
+                }
+                if folder_cursor:
+                    variables["cursor"]["next"] = folder_cursor
+
+                try:
+                    data = self._execute_query(query, variables)
+                    workspace = data.get('workspace', {})
+                    space = workspace.get('space', {})
+                    audiences_and_folders = space.get('audiencesAndFolders', {})
+                    items = audiences_and_folders.get('data', [])
+                    cursor_info = audiences_and_folders.get('cursor', {})
+
+                    print(f"      Folder page {folder_page}: {len(items)} items")
+
+                    for item in items:
+                        if item.get('__typename') in ['Audience', 'RealtimeAudience']:
+                            audience_id = item.get('audienceId')
+                            if audience_id:
+                                destinations = item.get('destinations', []) or []
+                                audience_map[audience_id] = {
+                                    'id': audience_id,
+                                    'name': item.get('name', ''),
+                                    'key': item.get('key', ''),
+                                    'enabled': item.get('enabled', False),
+                                    'size': item.get('size', 0),
+                                    'collection': item.get('collection', ''),
+                                    'status': item.get('status', ''),
+                                    'destinations': [d.get('name', '') for d in destinations if d.get('name')],
+                                    'destination_count': len(destinations),
+                                    'folder': folder['name']
+                                }
+
+                    # Check for more pages in folder
+                    folder_has_more = cursor_info.get('hasMore', False)
+                    folder_cursor = cursor_info.get('next') if folder_has_more else None
+                    folder_page += 1
+
+                except Exception as e:
+                    print(f"      Error fetching folder {folder['name']} page {folder_page}: {e}")
+                    break
+
+        print(f"    Total unique audiences collected: {len(audience_map)}")
         return list(audience_map.values())
 
     def get_spaces(self):
