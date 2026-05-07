@@ -29,13 +29,20 @@ class DataStructurer:
         audiences = self._load_audiences()
         sources = self._load_sources()
         summary = self._load_summary()
+        destinations = self._load_destinations()
+        profile_insights = self._load_profile_insights()
+        space_sources = self._load_space_sources()
+        journeys = self._load_journeys()
 
         structured = {
             "workspace_summary": self._build_workspace_summary(summary, sources, audiences),
             "source_insights": self._build_source_insights(sources),
+            "schema_health": self._build_schema_health(sources),
             "audience_insights": self._build_audience_insights(audiences, findings),
             "event_insights": self._build_event_insights(audiences),
-            "destination_summary": self._build_destination_summary(sources, audiences),
+            "destination_summary": self._build_destination_summary(sources, audiences, destinations),
+            "profile_insights": self._build_profile_insights_summary(profile_insights, space_sources),
+            "journey_insights": self._build_journey_insights(journeys, audiences),
             "findings_summary": self._build_findings_summary(findings),
             "opportunities": self._identify_opportunities(audiences, sources, findings)
         }
@@ -75,6 +82,53 @@ class DataStructurer:
             for row in reader:
                 audiences.append(row)
         return audiences
+
+    def _load_destinations(self) -> Dict:
+        """Load destinations from Gateway API"""
+        destinations_file = self.data_dir / 'gateway_destinations.json'
+        if destinations_file.exists():
+            with open(destinations_file) as f:
+                return json.load(f)
+        return {'destinations': []}
+
+    def _load_profile_insights(self) -> List[Dict]:
+        """Load identity resolution configs (profile insights)"""
+        insights_file = self.data_dir / 'gateway_profile_insights.csv'
+        if not insights_file.exists():
+            return []
+
+        insights = []
+        with open(insights_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                insights.append(row)
+        return insights
+
+    def _load_space_sources(self) -> List[Dict]:
+        """Load space-to-source connections (critical for understanding data flow)"""
+        space_sources_file = self.data_dir / 'gateway_space_sources.csv'
+        if not space_sources_file.exists():
+            return []
+
+        space_sources = []
+        with open(space_sources_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                space_sources.append(row)
+        return space_sources
+
+    def _load_journeys(self) -> List[Dict]:
+        """Load journeys and campaigns from Gateway API"""
+        journeys_file = self.data_dir / 'gateway_journeys.csv'
+        if not journeys_file.exists():
+            return []
+
+        journeys = []
+        with open(journeys_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                journeys.append(row)
+        return journeys
 
     def _build_workspace_summary(self, summary: Dict, sources: List[Dict], audiences: List[Dict]) -> Dict:
         """High-level workspace metrics"""
@@ -138,6 +192,54 @@ class DataStructurer:
         insights.sort(key=lambda x: {'underutilized': 0, 'stale': 1, 'disabled': 2, 'healthy': 3}[x['signal']])
 
         return insights[:20]  # Top 20 most relevant
+
+    def _build_schema_health(self, sources: List[Dict]) -> Dict:
+        """
+        Analyze source schema health - detect event explosion and tracking plan issues
+        CRITICAL: Event explosion (>1000 events) indicates dynamic event names, poor hygiene
+        """
+        schema_issues = []
+        event_counts = []
+
+        for src in sources:
+            event_count_str = src.get('Event Count', '0')
+            try:
+                event_count = int(event_count_str) if event_count_str else 0
+            except (ValueError, AttributeError):
+                event_count = 0
+
+            if event_count > 0:
+                event_counts.append({
+                    'name': src.get('Name', ''),
+                    'event_count': event_count,
+                    'status': src.get('Status', '')
+                })
+
+                # Flag event explosion (>1000 events is abnormal)
+                if event_count > 1000:
+                    schema_issues.append({
+                        'source_name': src.get('Name', ''),
+                        'source_slug': src.get('Slug', ''),
+                        'source_id': src.get('ID', ''),
+                        'event_count': event_count,
+                        'status': src.get('Status', ''),
+                        'severity': 'critical' if event_count > 3000 else 'high',
+                        'issue_type': 'event_explosion',
+                        'likely_cause': 'Dynamic event names (e.g., including IDs, timestamps, or UUIDs in event names)',
+                        'impact': 'High MTU costs, slow UI performance, difficult to analyze data, tracking plan bloat'
+                    })
+
+        # Sort by event count
+        event_counts.sort(key=lambda x: x['event_count'], reverse=True)
+
+        return {
+            'has_schema_issues': len(schema_issues) > 0,
+            'total_issues': len(schema_issues),
+            'issues': schema_issues,
+            'top_sources_by_event_count': event_counts[:10],
+            'max_event_count': max([e['event_count'] for e in event_counts]) if event_counts else 0,
+            'sources_with_explosion': len([i for i in schema_issues if i['event_count'] > 1000])
+        }
 
     def _build_audience_insights(self, audiences: List[Dict], findings: Dict) -> List[Dict]:
         """Extract actionable audience insights"""
@@ -224,8 +326,108 @@ class DataStructurer:
         # For now, return placeholder - can be enhanced when we parse definitions
         return []
 
-    def _build_destination_summary(self, sources: List[Dict], audiences: List[Dict]) -> Dict:
-        """Summarize destination landscape"""
+    def _build_journey_insights(self, journeys: List[Dict], audiences: List[Dict]) -> Dict:
+        """
+        Analyze Journeys/Campaigns - critical for understanding activation strategy
+        Shows which destinations are being used for orchestration vs batch sync
+        """
+        if not journeys:
+            return {
+                "has_journeys": False,
+                "message": "No Journeys or Campaigns found (Engage may not be enabled)"
+            }
+
+        # Separate journeys from campaigns
+        journey_items = [j for j in journeys if j.get('Type') == 'Journey']
+        campaign_items = [j for j in journeys if j.get('Type') == 'Campaign']
+
+        # Analyze journey states
+        active_journeys = [j for j in journey_items if j.get('Status', '').lower() in ['running', 'active']]
+        draft_journeys = [j for j in journey_items if j.get('State', '').lower() == 'draft']
+        published_journeys = [j for j in journey_items if j.get('State', '').lower() == 'published']
+
+        # Analyze campaigns
+        active_campaigns = [c for c in campaign_items if c.get('Status', '').lower() in ['running', 'active']]
+        draft_campaigns = [c for c in campaign_items if c.get('State', '').lower() == 'draft']
+
+        # Extract destination usage patterns
+        journey_destinations = {}
+        for journey in journey_items:
+            dests = journey.get('Destinations', '')
+            if dests:
+                for dest in dests.split(','):
+                    dest = dest.strip()
+                    if dest:
+                        journey_destinations[dest] = journey_destinations.get(dest, 0) + 1
+
+        campaign_destinations = {}
+        for campaign in campaign_items:
+            dests = campaign.get('Destinations', '')
+            if dests:
+                for dest in dests.split(','):
+                    dest = dest.strip()
+                    if dest:
+                        campaign_destinations[dest] = campaign_destinations.get(dest, 0) + 1
+
+        # Identify top destinations used in orchestration
+        all_journey_dests = {**journey_destinations, **campaign_destinations}
+        top_journey_destinations = sorted(all_journey_dests.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        # Assess maturity
+        total_items = len(journeys)
+        active_items = len(active_journeys) + len(active_campaigns)
+        draft_items = len(draft_journeys) + len(draft_campaigns)
+
+        maturity_level = "none"
+        if active_items > 5:
+            maturity_level = "advanced"
+        elif active_items > 0:
+            maturity_level = "emerging"
+        elif draft_items > 0:
+            maturity_level = "exploring"
+
+        # Group by space
+        journeys_by_space = {}
+        for journey in journeys:
+            space = journey.get('Space', 'Unknown')
+            if space not in journeys_by_space:
+                journeys_by_space[space] = []
+            journeys_by_space[space].append({
+                'name': journey.get('Name', ''),
+                'type': journey.get('Type', ''),
+                'state': journey.get('State', ''),
+                'status': journey.get('Status', '')
+            })
+
+        return {
+            "has_journeys": True,
+            "total_items": total_items,
+            "journeys": {
+                "total": len(journey_items),
+                "active": len(active_journeys),
+                "draft": len(draft_journeys),
+                "published": len(published_journeys)
+            },
+            "campaigns": {
+                "total": len(campaign_items),
+                "active": len(active_campaigns),
+                "draft": len(draft_campaigns)
+            },
+            "destination_usage": {
+                "journey_destinations": dict(sorted(journey_destinations.items(), key=lambda x: x[1], reverse=True)[:10]),
+                "campaign_destinations": dict(sorted(campaign_destinations.items(), key=lambda x: x[1], reverse=True)[:10]),
+                "top_orchestration_destinations": [{"name": name, "usage_count": count} for name, count in top_journey_destinations]
+            },
+            "maturity_assessment": {
+                "level": maturity_level,
+                "active_orchestrations": active_items,
+                "draft_orchestrations": draft_items
+            },
+            "by_space": journeys_by_space
+        }
+
+    def _build_destination_summary(self, sources: List[Dict], audiences: List[Dict], destinations: Dict) -> Dict:
+        """Summarize destination landscape with full destination data"""
         all_destinations = set()
 
         # From sources
@@ -243,6 +445,21 @@ class DataStructurer:
                 for d in dests.split(','):
                     if d.strip():
                         all_destinations.add(d.strip())
+
+        # Add from destinations JSON (full destination objects)
+        destinations_list = destinations.get('destinations', [])
+        destination_details = []
+        for dest in destinations_list:
+            dest_name = dest.get('name', '')
+            if dest_name:
+                all_destinations.add(dest_name)
+                destination_details.append({
+                    'name': dest_name,
+                    'type': dest.get('__typename', 'Unknown'),
+                    'enabled': dest.get('enabled', False),
+                    'status': dest.get('integrationStatus') or dest.get('warehouseStatus'),
+                    'categories': dest.get('metadata', {}).get('categories', [])
+                })
 
         # Categorize destinations
         destination_types = {
@@ -270,6 +487,86 @@ class DataStructurer:
             "total_unique_destinations": len(all_destinations),
             "all_destinations": sorted(list(all_destinations)),
             "by_category": {k: sorted(v) for k, v in destination_types.items() if v}
+        }
+
+    def _build_profile_insights_summary(self, profile_insights: List[Dict], space_sources: List[Dict]) -> Dict:
+        """
+        Summarize identity resolution configurations and space-source mappings
+        Critical for understanding data flow: which sources feed which spaces
+        """
+        if not profile_insights and not space_sources:
+            return {
+                "has_profile_resolution": False,
+                "message": "No identity resolution configured"
+            }
+
+        # Group profile configs by space
+        configs_by_space = {}
+        for config in profile_insights:
+            space_slug = config.get('Space Slug', '')
+            space_name = config.get('Space Name', '')
+
+            if space_slug not in configs_by_space:
+                configs_by_space[space_slug] = {
+                    "space_name": space_name,
+                    "space_slug": space_slug,
+                    "identity_types": [],
+                    "optional_identity_types": [],
+                    "profile_limit": config.get('Profile Limit'),
+                    "merge_protection": config.get('Merge Protection Enabled', '').lower() == 'true'
+                }
+
+            # Collect identity types
+            id_type = config.get('Identity Type', '')
+            if id_type:
+                if config.get('Optional', '').lower() == 'true':
+                    configs_by_space[space_slug]["optional_identity_types"].append(id_type)
+                else:
+                    configs_by_space[space_slug]["identity_types"].append(id_type)
+
+        # Map sources to spaces
+        source_space_map = {}
+        for mapping in space_sources:
+            source_name = mapping.get('Source Name', '')
+            space_slug = mapping.get('Space Slug', '')
+            space_name = mapping.get('Space Name', '')
+
+            if source_name:
+                if source_name not in source_space_map:
+                    source_space_map[source_name] = []
+                source_space_map[source_name].append({
+                    "space_slug": space_slug,
+                    "space_name": space_name
+                })
+
+        # Build maturity assessment
+        total_spaces = len(configs_by_space)
+        spaces_with_email = sum(1 for cfg in configs_by_space.values()
+                                if 'email' in [t.lower() for t in cfg['identity_types']])
+        spaces_with_multiple_ids = sum(1 for cfg in configs_by_space.values()
+                                       if len(cfg['identity_types']) > 1)
+
+        maturity_level = "basic"
+        if spaces_with_multiple_ids > 0 and spaces_with_email > 0:
+            maturity_level = "advanced"
+        elif spaces_with_email > 0 or spaces_with_multiple_ids > 0:
+            maturity_level = "intermediate"
+
+        return {
+            "has_profile_resolution": True,
+            "total_spaces_configured": total_spaces,
+            "spaces": list(configs_by_space.values()),
+            "source_to_space_mappings": source_space_map,
+            "source_count": len(source_space_map),
+            "maturity_assessment": {
+                "level": maturity_level,
+                "spaces_with_email_resolution": spaces_with_email,
+                "spaces_with_multi_id_resolution": spaces_with_multiple_ids
+            },
+            "data_flow_insights": {
+                "sources_feeding_profiles": len(source_space_map),
+                "total_data_pathways": sum(len(spaces) for spaces in source_space_map.values())
+            }
         }
 
     def _build_findings_summary(self, findings: Dict) -> Dict:

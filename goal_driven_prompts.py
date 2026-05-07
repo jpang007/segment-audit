@@ -554,6 +554,8 @@ Focus on where value is being left on the table:
 - Revenue projections ("$X opportunity")
 - Growth claims ("will increase revenue by X%")
 - Assumptions about customer goals
+- **DO NOT recommend Journeys/Campaigns if journey_insights.has_journeys=false** (means Engage not enabled)
+- **DO NOT recommend Profiles API if profile_insights.has_profile_resolution=false** (feature not available)
 
 ### Data Available
 ```json
@@ -572,7 +574,19 @@ Return JSON with this EXACT structure:
       "status": "enabled | disabled",
       "opportunity": "what could be done with this",
       "blocking_factor": "why not activated (if observable)",
-      "suggested_action": "specific next step"
+      "suggested_action": "specific next step (for disabled: 'Review why disabled. If still valid, consider enabling for...')",
+      "estimated_effort": "low | medium | high",
+      "owner": "SA | CSM | Customer Marketing | Customer Eng",
+      "evidence": {{
+        "audience_id": "audience ID from data",
+        "space_id": "space ID from data",
+        "destination_count": 0,
+        "enabled": true
+      }},
+      "caveats": [
+        "Validate audience definition before activation",
+        "Confirm consent/compliance if syncing to ad destinations"
+      ]
     }}
   ],
   "unused_destinations": [
@@ -581,7 +595,13 @@ Return JSON with this EXACT structure:
       "category": "email | analytics | ads | other",
       "connected_but_unused": true,
       "opportunity": "how this could be utilized",
-      "suggested_audiences": ["audience names that fit"]
+      "suggested_audiences": ["audience names that fit"],
+      "estimated_effort": "low | medium | high",
+      "owner": "SA | CSM | Customer Marketing | Customer Eng",
+      "caveats": [
+        "Confirm destination is intentionally unused before activating",
+        "Validate match rates and consent requirements for ad destinations"
+      ]
     }}
   ],
   "missing_activation_flows": [
@@ -591,7 +611,14 @@ Return JSON with this EXACT structure:
       "not_used_in": "audiences | destinations",
       "opportunity": "what could be built",
       "impact_level": "high | medium | low",
-      "reasoning": "why this matters based on data"
+      "reasoning": "why this matters based on data",
+      "estimated_effort": "low | medium | high",
+      "owner": "SA | Customer Eng | Customer Data",
+      "evidence": {{
+        "source_id": "source ID from data",
+        "source_status": "ENABLED | DISABLED | NO_RECENT_DATA",
+        "destination_count": 0
+      }}
     }}
   ],
   "segment_product_opportunities": [
@@ -600,11 +627,20 @@ Return JSON with this EXACT structure:
       "evidence": "what in workspace suggests this",
       "use_case": "specific problem it would solve",
       "impact": "qualitative benefit",
-      "confidence": "high | medium | low"
+      "confidence": "high | medium | low",
+      "estimated_effort": "low | medium | high",
+      "owner": "SA | CSM | Sales",
+      "prerequisite": "Feature must be enabled (check journey_insights.has_journeys or profile_insights.has_profile_resolution)",
+      "caveats": [
+        "Requires product purchase if not currently enabled",
+        "May require implementation/onboarding effort"
+      ],
+      "CRITICAL": "Check journey_insights.has_journeys before recommending Engage. If false, DO NOT recommend Journeys."
     }}
   ],
   "expansion_summary": {{
     "total_untapped_users": 50000,
+    "total_untapped_users_definition": "Sum of enabled audiences with zero connected destinations (excludes disabled audiences)",
     "highest_impact_opportunity": "name of top opportunity",
     "quick_wins": ["list of easy activation opportunities"],
     "strategic_opportunities": ["list of longer-term expansion plays"]
@@ -617,6 +653,13 @@ Return JSON with this EXACT structure:
 - Specific with names and numbers
 - Honest about what would require customer input
 - Focus on observable underutilization
+
+**CRITICAL FEATURE AVAILABILITY CHECKS:**
+- **Before recommending Engage (Journeys)**: Check if `journey_insights.has_journeys == true`
+  - If `false`: Customer does NOT have Engage enabled, DO NOT recommend
+  - If `true` but `maturity_level == "none"`: They have it but aren't using it
+- **Before recommending Profiles API**: Check if `profile_insights.has_profile_resolution == true`
+  - If `false`: Feature not configured, handle as expansion opportunity not activation gap
 
 {GoalDrivenPrompts.format_output_instructions(output_type)}
 

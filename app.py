@@ -15,6 +15,10 @@ import csv
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import io
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -25,6 +29,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
+
+# Feature flags
+ENABLE_EXPERIMENTAL_FEATURES = os.getenv('ENABLE_EXPERIMENTAL_FEATURES', 'false').lower() == 'true'
 
 # Configuration
 DATA_DIR = Path('./audit_data')
@@ -1647,10 +1654,10 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         audit_status['message'] = 'Saving audit data...'
         audit_status['progress'] = 90
 
-        # Save sources CSV with traits
+        # Save sources CSV with traits and event count
         if sources:
             with open(DATA_DIR / 'gateway_sources.csv', 'w', newline='', encoding='utf-8') as f:
-                fieldnames = ['Workspace', 'ID', 'Name', 'Slug', 'Status', 'Type', 'Technical Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Destination Types', 'Connected Warehouses', 'Warehouse Types', 'Identify Traits']
+                fieldnames = ['Workspace', 'ID', 'Name', 'Slug', 'Status', 'Type', 'Technical Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Destination Types', 'Connected Warehouses', 'Warehouse Types', 'Identify Traits', 'Event Count']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
@@ -1691,13 +1698,18 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     warehouses_csv_str = ', '.join(warehouses_csv)
                     warehouses_types_str = ', '.join(warehouses_types)
 
-                    # Fetch traits for this source
+                    # Fetch traits and event count for this source
                     traits_list = []
+                    event_count = 0
                     try:
-                        audit_status['message'] = f'Fetching traits for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
+                        audit_status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
                         schema_data = client.get_source_schema(source.get('slug', ''))
 
+                        # Count total events in schema
                         for collection in schema_data.get('collections', []):
+                            events = collection.get('events', [])
+                            event_count += len(events)
+
                             # Look for "users" collection (Identify traits)
                             if collection.get('name', '').lower() == 'users':
                                 for prop in collection.get('objectProperties', []):
@@ -1711,7 +1723,7 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         import time
                         time.sleep(1)
                     except Exception as e:
-                        print(f"    -> Failed to fetch traits for {source.get('slug', '')}: {e}")
+                        print(f"    -> Failed to fetch schema for {source.get('slug', '')}: {e}")
 
                     traits_str = ', '.join(traits_list) if traits_list else ''
 
@@ -1738,7 +1750,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         'Destination Types': integrations_types_str,  # Just "Type" for UI
                         'Connected Warehouses': warehouses_csv_str,  # Full "Name (Type)" for CSV
                         'Warehouse Types': warehouses_types_str,  # Just "Type" for UI
-                        'Identify Traits': traits_str
+                        'Identify Traits': traits_str,
+                        'Event Count': event_count
                     })
 
         # Save audiences CSV
@@ -1930,25 +1943,25 @@ def progress():
 def dashboard():
     """Main dashboard with both sources and audiences"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_dashboard.html', customer_name=customer_name)
+    return render_template('gateway_dashboard.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/sources')
 def sources():
     """Sources view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_sources.html', customer_name=customer_name)
+    return render_template('gateway_sources.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/audiences')
 def audiences():
     """Audiences view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_audiences.html', customer_name=customer_name)
+    return render_template('gateway_audiences.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/destinations')
 def destinations():
     """Destinations view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_destinations.html', customer_name=customer_name)
+    return render_template('gateway_destinations.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/api/destination-health-metrics', methods=['POST'])
 def get_destination_health_metrics():
@@ -2050,13 +2063,13 @@ def get_destination_health_metrics():
 def journeys():
     """Journeys view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_journeys.html', customer_name=customer_name)
+    return render_template('gateway_journeys.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/profile-insights')
 def profile_insights():
     """Profile Insights view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_profile_insights.html', customer_name=customer_name)
+    return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/api/export-profile-insights-excel')
 def export_profile_insights_excel():
@@ -2749,7 +2762,10 @@ def export_sources_excel_v2():
 
 @app.route('/recommendations')
 def recommendations_page():
-    """Recommendations page"""
+    """Recommendations page (experimental feature)"""
+    if not ENABLE_EXPERIMENTAL_FEATURES:
+        return "Feature not available", 404
+
     workspace_slug = session.get('workspace_slug')
     if not workspace_slug:
         return redirect('/')
@@ -2757,7 +2773,10 @@ def recommendations_page():
 
 @app.route('/api/generate-recommendations', methods=['POST'])
 def generate_recommendations_api():
-    """Generate goal-driven workspace recommendations using targeted AI analysis"""
+    """Generate goal-driven workspace recommendations using targeted AI analysis (experimental)"""
+    if not ENABLE_EXPERIMENTAL_FEATURES:
+        return jsonify({'success': False, 'error': 'Feature not available'}), 404
+
     try:
         from recommendations_cache import RecommendationsCache
         from data_structurer import DataStructurer
@@ -2912,8 +2931,8 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         # Step 7: Call Gemini with goal-specific prompt
         print(f"✨ Calling Gemini for {goal} analysis...")
         print(f"   Prompt length: {len(prompt)} characters")
-        # Using gemini-3-flash-preview (you have 17 requests left on this model)
-        response_text = gemini_client.generate_content(prompt, model='gemini-3-flash-preview').strip()
+        # Using gemini-2.0-flash-lite (lighter model with separate rate limits)
+        response_text = gemini_client.generate_content(prompt, model='gemini-2.0-flash-lite').strip()
         print(f"   Response length: {len(response_text)} characters")
         print(f"   Response preview: {response_text[:200]}")
 

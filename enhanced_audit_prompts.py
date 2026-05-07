@@ -109,19 +109,22 @@ Return JSON with TWO outputs:
         "sources": "complete",
         "destinations": "complete",
         "audiences": "complete",
+        "journeys": "complete | not_available",
+        "profile_insights": "complete | not_available",
         "event_volumes": "missing",
         "delivery_metrics": "missing",
         "tracking_plan": "missing"
       }},
       "limitations": [
         "Event-level volumes not provided - cannot assess high-volume events",
-        "Destination delivery health not available - cannot confirm destinations are working"
+        "Destination delivery health not available - cannot confirm destinations are working",
+        "If journeys data shows 'has_journeys: false', this means Engage is not enabled or no orchestrations exist - DO NOT recommend Journey features"
       ]
     }},
     "findings": [
       {{
         "priority": "P0 | P1 | P2",
-        "category": "Source Health | Destination Coverage | Audience Hygiene | Activation Gap | Data Quality | Governance",
+        "category": "Source Health | Destination Coverage | Audience Hygiene | Activation Gap | Data Quality | Governance | Schema Health",
         "finding_fact": "Short, factual observation from data (e.g., 'axios_web_PROD is disabled with 0 destinations')",
         "evidence": [
           "Specific data point 1",
@@ -252,6 +255,7 @@ Return JSON with TWO outputs:
 5. **Don't assign "poor health"** based solely on NO_RECENT_DATA (could be scheduled syncs)
 6. **Don't claim specific ROI** or performance improvements
 7. **Don't use imprecise language** (see precision guide below)
+8. **Don't recommend Journeys/Campaigns if journey_insights shows has_journeys=false** (means Engage not enabled or not in use)
 
 ### 📝 Language Precision Guide:
 
@@ -357,7 +361,16 @@ Generate the SA-quality workspace audit now. Remember:
 - Medium/Low confidence on interpretations
 - Customer validation questions for context-dependent findings
 - NO tool recommendations without business context
-- Be consultative, not alarmist"""
+- Be consultative, not alarmist
+- **Check journey_insights.has_journeys before recommending Journeys/Campaigns**
+  - If has_journeys=false, do NOT recommend Journey features (Engage not enabled)
+  - If has_journeys=true but maturity_level="none" or "exploring", note low adoption
+  - Only recommend Journey features if customer already has active orchestrations
+- **CRITICAL: Check schema_health for event explosion**
+  - If any source has >1000 events, this is a P0 Schema Health finding
+  - Event explosion (especially >3000 events) indicates dynamic event names
+  - This causes: high MTU costs, slow performance, tracking plan bloat
+  - Example: "autoniq_prod has 4,127 events" → CRITICAL schema hygiene issue"""
 
     @staticmethod
     def quick_wins_with_validation(

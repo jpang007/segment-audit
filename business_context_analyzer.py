@@ -25,9 +25,16 @@ class BusinessContextAnalyzer:
             'likely_industries': [],
             'business_signals': {},
             'audience_patterns': {},
+            'source_patterns': {},
             'event_patterns': {},
             'use_case_opportunities': []
         }
+
+        # Analyze sources (CRITICAL for industry detection)
+        sources = self._load_sources()
+        if sources:
+            context['source_patterns'] = self._analyze_source_patterns(sources)
+            context['business_signals']['source_based'] = self._infer_from_sources(sources)
 
         # Analyze audiences
         audiences = self._load_audiences()
@@ -50,6 +57,22 @@ class BusinessContextAnalyzer:
         )
 
         return context
+
+    def _load_sources(self) -> List[Dict[str, str]]:
+        """Load source data from Gateway API"""
+        sources_file = self.data_dir / 'gateway_sources.csv'
+
+        if not sources_file.exists():
+            print("⚠️  WARNING: gateway_sources.csv not found")
+            return []
+
+        sources = []
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                sources.append(row)
+        print(f"✓ Business analyzer loaded {len(sources)} sources from Gateway API")
+        return sources
 
     def _load_audiences(self) -> List[Dict[str, str]]:
         """Load audience data from Gateway API ONLY"""
@@ -102,7 +125,10 @@ class BusinessContextAnalyzer:
             'engagement': 0, 'active': 0, 'inactive': 0, 'churn': 0,
             'local': 0, 'national': 0, 'geo': 0,
             'deal': 0, 'vertical': 0, 'segment': 0,
-            'test': 0, 'example': 0, 'suppression': 0, 'opt-out': 0
+            'test': 0, 'example': 0, 'suppression': 0, 'opt-out': 0,
+            'dealer': 0, 'auction': 0, 'vehicle': 0, 'auto': 0, 'car': 0,
+            'marketplace': 0, 'seller': 0, 'buyer': 0, 'listing': 0,
+            'consignor': 0, 'bidder': 0, 'inventory': 0
         }
 
         for aud in audiences:
@@ -143,6 +169,70 @@ class BusinessContextAnalyzer:
         patterns['themes'] = dict(keywords)
         return patterns
 
+    def _analyze_source_patterns(self, sources: List[Dict]) -> Dict[str, Any]:
+        """Analyze source naming patterns - CRITICAL for industry detection"""
+        patterns = {
+            'total_sources': len(sources),
+            'enabled_count': 0,
+            'themes': Counter()
+        }
+
+        # Source name keywords for industry detection
+        keywords = {
+            'dealer': 0, 'auction': 0, 'vehicle': 0, 'auto': 0, 'car': 0,
+            'marketplace': 0, 'seller': 0, 'buyer': 0, 'listing': 0,
+            'consignor': 0, 'bidder': 0, 'inventory': 0,
+            'newsletter': 0, 'subscriber': 0, 'subscription': 0,
+            'ecommerce': 0, 'shop': 0, 'store': 0, 'cart': 0,
+            'fintech': 0, 'payment': 0, 'banking': 0, 'finance': 0
+        }
+
+        for src in sources:
+            name = src.get('Name', '').lower()
+            status = src.get('Status', '')
+
+            if status == 'ENABLED':
+                patterns['enabled_count'] += 1
+
+            # Count keyword occurrences in source names
+            for keyword in keywords:
+                if keyword in name:
+                    keywords[keyword] += 1
+
+        patterns['themes'] = dict(keywords)
+        return patterns
+
+    def _infer_from_sources(self, sources: List[Dict]) -> List[str]:
+        """Infer business characteristics from source names - MOST RELIABLE signal"""
+        signals = []
+
+        themes = Counter()
+        for src in sources:
+            name = src.get('Name', '').lower()
+
+            # Automotive/Marketplace signals (highest priority - very specific)
+            if any(word in name for word in ['dealer', 'auction', 'vehicle', 'auto', 'car', 'consignor', 'bidder', 'autoniq']):
+                themes['automotive_marketplace'] += 3  # Strong signal
+
+            # Marketplace platform
+            if 'marketplace' in name or 'seller' in name or 'buyer' in name or 'listing' in name:
+                themes['marketplace_platform'] += 2
+
+            # Media/Publishing
+            if 'newsletter' in name or 'subscriber' in name or 'publication' in name:
+                themes['newsletter_focused'] += 1
+
+            # eCommerce
+            if any(word in name for word in ['shop', 'store', 'cart', 'ecommerce', 'checkout']):
+                themes['ecommerce'] += 1
+
+        # Convert top themes to signals
+        for theme, count in themes.most_common(5):
+            if count >= 2:  # At least 2 sources with this theme (lowered threshold for sources)
+                signals.append(theme)
+
+        return signals
+
     def _analyze_event_patterns(self, events: List[str]) -> Dict[str, Any]:
         """Analyze event naming patterns"""
         patterns = {
@@ -157,7 +247,9 @@ class BusinessContextAnalyzer:
             'purchase': 0, 'order': 0, 'cart': 0, 'checkout': 0,
             'signup': 0, 'login': 0, 'register': 0,
             'trial': 0, 'upgrade': 0, 'downgrade': 0,
-            'payment': 0, 'billing': 0, 'invoice': 0
+            'payment': 0, 'billing': 0, 'invoice': 0,
+            'auction': 0, 'bid': 0, 'vehicle': 0, 'dealer': 0, 'listing': 0,
+            'marketplace': 0, 'seller': 0, 'buyer': 0, 'inventory': 0
         }
 
         for event in events:
@@ -192,6 +284,10 @@ class BusinessContextAnalyzer:
                 themes['retention_focused'] += 1
             if 'deal' in name or 'vertical' in name:
                 themes['b2b_segments'] += 1
+            if any(word in name for word in ['dealer', 'auction', 'vehicle', 'auto', 'car', 'consignor', 'bidder', 'marketplace', 'inventory']):
+                themes['automotive_marketplace'] += 1
+            if 'marketplace' in name or 'seller' in name or 'buyer' in name or 'listing' in name:
+                themes['marketplace_platform'] += 1
 
         # Convert top themes to signals
         for theme, count in themes.most_common(5):
@@ -218,6 +314,10 @@ class BusinessContextAnalyzer:
                 themes['subscription_model'] += 1
             if 'trial' in event_lower or 'signup' in event_lower:
                 themes['freemium_saas'] += 1
+            if any(word in event_lower for word in ['auction', 'bid', 'vehicle', 'dealer', 'listing', 'inventory']):
+                themes['automotive_marketplace'] += 1
+            if 'marketplace' in event_lower or 'seller' in event_lower or 'buyer' in event_lower:
+                themes['marketplace_platform'] += 1
 
         for theme, count in themes.most_common(5):
             if count >= 2:
@@ -226,12 +326,15 @@ class BusinessContextAnalyzer:
         return signals
 
     def _infer_industries(self, context: Dict) -> List[str]:
-        """Infer likely industries from combined signals"""
+        """Infer likely industries from combined signals - SOURCE signals are most reliable"""
         industries = []
 
+        source_signals = context['business_signals'].get('source_based', [])
         audience_signals = context['business_signals'].get('audience_based', [])
         event_signals = context['business_signals'].get('event_based', [])
-        all_signals = audience_signals + event_signals
+
+        # Prioritize source signals (most reliable), then audience, then events
+        all_signals = source_signals + audience_signals + event_signals
 
         # Media/Publishing
         media_indicators = ['newsletter_focused', 'email_marketing', 'content_platform', 'subscription_business']
@@ -252,6 +355,17 @@ class BusinessContextAnalyzer:
         b2b_indicators = ['b2b_segments', 'vertical']
         if any(sig in all_signals for sig in b2b_indicators):
             industries.append('B2B')
+
+        # Automotive/Marketplace
+        automotive_indicators = ['automotive_marketplace']
+        if any(sig in all_signals for sig in automotive_indicators):
+            industries.append('Automotive/Marketplace')
+
+        # Marketplace Platform
+        marketplace_indicators = ['marketplace_platform']
+        if any(sig in all_signals for sig in marketplace_indicators):
+            if 'Automotive/Marketplace' not in industries:
+                industries.append('Marketplace')
 
         # Default if nothing detected
         if not industries:

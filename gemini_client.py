@@ -74,7 +74,7 @@ class GeminiClient:
                         url,
                         json=payload,
                         headers=headers,
-                        timeout=60,
+                        timeout=180,  # Increased to 3 minutes for complex audits
                         verify=verify_ssl  # False in dev, True in production
                     )
                     response.raise_for_status()
