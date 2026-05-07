@@ -2959,9 +2959,28 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
 
         # Step 7: Call Gemini with goal-specific prompt
         print(f"✨ Calling Gemini for {goal} analysis...")
-        print(f"   Prompt length: {len(prompt)} characters")
-        # Using gemini-2.0-flash-lite (lighter model with separate rate limits)
-        response_text = gemini_client.generate_content(prompt, model='gemini-2.0-flash-lite').strip()
+        print(f"   Prompt length: {len(prompt):,} characters")
+
+        # Use staged summarization if prompt is too large (>30k chars)
+        USE_STAGED_SUMMARIZATION = len(prompt) > 30000
+
+        if USE_STAGED_SUMMARIZATION:
+            print(f"   ⚠️  Large prompt detected ({len(prompt):,} chars)")
+            print(f"   🔄 Using staged summarization to reduce API load...")
+            try:
+                # This will break the analysis into 4 smaller API calls
+                staged_result = gemini_client.staged_summarization(
+                    structured_data, goal, business_context, model='gemini-2.5-flash'
+                )
+                # For now, we still need to do final generation with compact data
+                # TODO: Update prompts to use compact summaries
+                print(f"   ⚠️  Staged summarization complete, but falling back to full prompt for now")
+            except Exception as stage_error:
+                print(f"   ⚠️  Staged summarization failed: {stage_error}")
+                print(f"   🔄 Falling back to single large prompt...")
+
+        # Using gemini-2.5-flash with intelligent retry and fallback
+        response_text = gemini_client.generate_content(prompt, model='gemini-2.5-flash').strip()
         print(f"   Response length: {len(response_text)} characters")
         print(f"   Response preview: {response_text[:200]}")
 
@@ -3021,22 +3040,36 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         return jsonify(response_data)
 
     except Exception as e:
-        print(f"Error generating goal-driven recommendations: {e}")
+        print(f"❌ Error generating goal-driven recommendations: {e}")
         import traceback
         traceback.print_exc()
 
-        # Check if it's a rate limit error
+        # Classify error type for better user messaging
         error_msg = str(e)
+
+        # Rate limit errors
         if 'Rate limited' in error_msg or '429' in error_msg:
             return jsonify({
                 'success': False,
                 'rate_limited': True,
-                'error': 'Gemini API rate limit reached. The free tier has limits of 5 requests per minute. Please wait 60 seconds and try again, or consider upgrading to a paid plan for higher limits.'
+                'error': 'Gemini API rate limit reached. The system will automatically retry with exponential backoff. If this persists, please wait 60 seconds before trying again.',
+                'user_message': '⏱️ Rate limit reached. Retrying automatically...'
             }), 429
 
+        # Service unavailable errors
+        elif '503' in error_msg or '504' in error_msg or 'unavailable' in error_msg.lower() or 'timeout' in error_msg.lower():
+            return jsonify({
+                'success': False,
+                'service_unavailable': True,
+                'error': error_msg,
+                'user_message': '🔧 Gemini API is temporarily unavailable. The system attempted multiple retries and fallback models. Please try again in a few minutes.'
+            }), 503
+
+        # All other errors
         return jsonify({
             'success': False,
-            'error': error_msg
+            'error': error_msg,
+            'user_message': f'❌ An error occurred: {error_msg[:200]}'
         }), 500
 
 @app.route('/api/recommendations-status')
