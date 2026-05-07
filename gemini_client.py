@@ -30,7 +30,7 @@ class GeminiClient:
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    def generate_content(self, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 2) -> str:
+    def generate_content(self, prompt: str, model: str = "gemini-2.0-flash", max_retries: int = 3) -> str:
         """
         Generate content using Gemini REST API with retry logic
         Returns the response text
@@ -102,9 +102,16 @@ class GeminiClient:
                         time.sleep(wait_time)
                         continue
                     elif e.response.status_code == 429:
-                        # Rate limited
-                        last_error = Exception(f"Rate limited. Please wait a moment and try again.")
-                        break  # Don't retry on rate limit
+                        # Rate limited - wait 60 seconds for rate limit window to reset
+                        if attempt < max_retries - 1:
+                            import time
+                            wait_time = 60  # 60 seconds for RPM window to reset
+                            print(f"   ⚠️  Rate limited on {model_name}, waiting {wait_time}s for rate limit window to reset...")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            last_error = Exception(f"Rate limited after {max_retries} attempts. Please wait a minute and try again.")
+                            break
                     else:
                         last_error = Exception(f"Gemini API call failed: {str(e)}")
                         break

@@ -3024,9 +3024,19 @@ Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown
         print(f"Error generating goal-driven recommendations: {e}")
         import traceback
         traceback.print_exc()
+
+        # Check if it's a rate limit error
+        error_msg = str(e)
+        if 'Rate limited' in error_msg or '429' in error_msg:
+            return jsonify({
+                'success': False,
+                'rate_limited': True,
+                'error': 'Gemini API rate limit reached. The free tier has limits of 5 requests per minute. Please wait 60 seconds and try again, or consider upgrading to a paid plan for higher limits.'
+            }), 429
+
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': error_msg
         }), 500
 
 @app.route('/api/recommendations-status')
