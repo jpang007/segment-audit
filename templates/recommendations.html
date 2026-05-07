@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Workspace Recommendations</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <script src="{{ url_for('static', filename='js/audit_visual_renderer.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/activation_visual_renderer.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/unified_audit_renderer.js') }}"></script>
     <style>
         .recommendations-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -468,9 +467,7 @@
                     document.getElementById('cacheStatus').textContent = 'Miss (generated fresh)';
                 }
 
-                // Show export options
-                document.getElementById('exportOptions').style.display = 'block';
-                document.getElementById('exportJSONBtn').style.display = 'block';
+                // Export handled by unified renderer (no need for separate buttons)
 
                 // Refresh rate limit status
                 loadRateLimitStatus();
@@ -557,20 +554,10 @@
         }
 
         function formatGoalResults(result, goal) {
-            // Check if this is enhanced v2 audit format (account_brief + sa_action_plan)
-            if (goal === 'workspace_audit' && (result.account_brief || result.sa_action_plan)) {
-                // Use new visual renderer
-                const renderer = new AuditVisualRenderer('findingsList');
-                renderer.render(result);
-                return ''; // Renderer handles DOM directly
-            }
-
-            // Check if this is activation & expansion format
-            if (goal === 'activation_expansion' && result.expansion_summary) {
-                // Use activation visual renderer
-                window.activationData = result; // Store for export
-                window.activationRenderer = new ActivationVisualRenderer('findingsList');
-                window.activationRenderer.render(result);
+            // Use unified renderer for all goal types
+            if (result.account_brief || result.sa_action_plan || result.expansion_summary) {
+                window.unifiedRenderer = new UnifiedAuditRenderer('findingsList');
+                window.unifiedRenderer.render(result);
                 return ''; // Renderer handles DOM directly
             }
 
