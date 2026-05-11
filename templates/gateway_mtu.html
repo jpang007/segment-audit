@@ -7,71 +7,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #f9fafb;
-        }
-        nav {
-            background: white;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 1rem 2rem;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 2rem 2rem 2rem;
-        }
-        .mtu-header {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 2rem;
-            border-radius: 8px;
-            margin-bottom: 2rem;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .stat-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .stat-card h3 {
-            margin: 0 0 0.5rem 0;
-            font-size: 0.875rem;
-            color: #6b7280;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .stat-number {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #10b981;
-        }
-        .stat-sublabel {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-        }
-        .chart-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        .chart-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 1rem;
-        }
         .loading {
             text-align: center;
             padding: 3rem;
@@ -97,53 +32,40 @@
             border-left: 4px solid #10b981;
             color: #065f46;
         }
-        .source-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        .source-table th {
-            background: #f3f4f6;
-            padding: 0.75rem;
-            text-align: left;
-            font-weight: 600;
-            color: #374151;
-            border-bottom: 2px solid #e5e7eb;
-        }
-        .source-table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid #e5e7eb;
-            color: #6b7280;
-        }
     </style>
 </head>
-<body>
-    <nav>
-        <div class="nav-brand">
-            <a href="/" style="text-decoration: none; color: inherit;">
-                <h1>🔍 Segment Audit Dashboard</h1>
-            </a>
-        </div>
-        <div class="nav-menu">
-            <a href="/sources">Sources</a>
-            <a href="/audiences">Audiences</a>
-            <a href="/destinations">Destinations</a>
-            <a href="/journeys">Journeys</a>
-            <a href="/profile-insights">Profile Insights</a>
-            <a href="/audit-trail">Audit Trail</a>
-            <a href="/mtu" class="active">MTU Usage</a>
-            {% if enable_experimental %}
-            <a href="/recommendations" style="color: #f59e0b;">💡 Recommendations</a>
-            {% endif %}
-        </div>
-    </nav>
-
+<body class="dashboard-page">
     <div class="container">
-        <div class="mtu-header">
-            <h2 style="margin: 0 0 0.5rem 0;">📊 MTU Usage Analysis</h2>
-            <p style="margin: 0; opacity: 0.9;">Monthly Tracked Users • Billing insights and trends</p>
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - MTU Usage</h1>
+                <p class="subtitle">Monthly Tracked Users • Billing insights and trends</p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>📊 MTU Usage</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/destinations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📍 Destinations</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
+                        <a href="/mtu" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">📊 MTU Usage</a>
+                        {% if enable_experimental %}
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
         </div>
-
         <div id="loading" class="loading">
             <p>Loading MTU data...</p>
         </div>
@@ -154,50 +76,52 @@
 
             <!-- Stats -->
             <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>Annual Quota</h3>
-                    <div class="stat-number" id="quota">-</div>
-                    <div class="stat-sublabel" id="quotaType">-</div>
+                <div class="stat-card primary">
+                    <div class="label">Annual Quota</div>
+                    <div class="value" id="quota">-</div>
+                    <div class="subtext" id="quotaType">-</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Annual Usage (YTD)</h3>
-                    <div class="stat-number" id="annualUsage">-</div>
-                    <div class="stat-sublabel" id="usagePercent">-</div>
+                    <div class="label">Annual Usage (YTD)</div>
+                    <div class="value" id="annualUsage">-</div>
+                    <div class="subtext" id="usagePercent">-</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Last Month MTU</h3>
-                    <div class="stat-number" id="lastMonthMtu">-</div>
-                    <div class="stat-sublabel" id="lastMonthDate">-</div>
+                    <div class="label">Last Month MTU</div>
+                    <div class="value" id="lastMonthMtu">-</div>
+                    <div class="subtext" id="lastMonthDate">-</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Avg Monthly MTU</h3>
-                    <div class="stat-number" id="avgMtu">-</div>
-                    <div class="stat-sublabel">Last 12 months</div>
+                    <div class="label">Avg Monthly MTU</div>
+                    <div class="value" id="avgMtu">-</div>
+                    <div class="subtext">Last 12 months</div>
                 </div>
             </div>
 
             <!-- MTU Trend Chart -->
-            <div class="chart-card">
-                <div class="chart-title">MTU Trend (Last 12 Months)</div>
+            <div class="chart-section">
+                <h2>MTU Trend (Last 12 Months)</h2>
                 <canvas id="mtuTrendChart"></canvas>
             </div>
 
             <!-- Top Sources by MTU -->
-            <div class="chart-card">
-                <div class="chart-title">Top Sources by MTU (Latest Month)</div>
-                <table class="source-table" id="sourceTable">
-                    <thead>
-                        <tr>
-                            <th>Source</th>
-                            <th>Users</th>
-                            <th>Anonymous</th>
-                            <th>Total</th>
-                            <th>% of Workspace</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    </tbody>
-                </table>
+            <div class="chart-section">
+                <h2>Top Sources by MTU (Latest Month)</h2>
+                <div class="table-container">
+                    <table id="sourceTable">
+                        <thead>
+                            <tr>
+                                <th>Source</th>
+                                <th>Users</th>
+                                <th>Anonymous</th>
+                                <th>Total</th>
+                                <th>% of Workspace</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -403,6 +327,20 @@
                 tbody.appendChild(row);
             });
         }
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('navDropdownBtn');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && menu && !dropdown.contains(event.target) && !menu.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
 
         // Load data on page load
         loadMtuData();

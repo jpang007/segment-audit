@@ -7,92 +7,11 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #f9fafb;
-        }
-        nav {
-            background: white;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 1rem 2rem;
-            margin-bottom: 2rem;
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 2rem 2rem 2rem;
-        }
-        .audit-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 2rem;
-            border-radius: 8px;
-            margin-bottom: 2rem;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        .stat-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .stat-number {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #667eea;
-        }
-        .stat-label {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin-top: 0.5rem;
-        }
         .charts-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
             gap: 2rem;
             margin-bottom: 2rem;
-        }
-        .chart-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .chart-title {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 1rem;
-        }
-        .events-table {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .events-table table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .events-table th {
-            background: #f3f4f6;
-            padding: 0.75rem;
-            text-align: left;
-            font-weight: 600;
-            color: #374151;
-            border-bottom: 2px solid #e5e7eb;
-        }
-        .events-table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid #e5e7eb;
-            color: #6b7280;
         }
         .event-type-badge {
             display: inline-block;
@@ -142,33 +61,38 @@
         }
     </style>
 </head>
-<body>
-    <nav>
-        <div class="nav-brand">
-            <a href="/" style="text-decoration: none; color: inherit;">
-                <h1>🔍 Segment Audit Dashboard</h1>
-            </a>
-        </div>
-        <div class="nav-menu">
-            <a href="/sources">Sources</a>
-            <a href="/audiences">Audiences</a>
-            <a href="/destinations">Destinations</a>
-            <a href="/journeys">Journeys</a>
-            <a href="/profile-insights">Profile Insights</a>
-            <a href="/audit-trail" class="active">Audit Trail</a>
-            <a href="/mtu">MTU Usage</a>
-            {% if enable_experimental %}
-            <a href="/recommendations" style="color: #f59e0b;">💡 Recommendations</a>
-            {% endif %}
-        </div>
-    </nav>
-
+<body class="dashboard-page">
     <div class="container">
-        <div class="audit-header">
-            <h2 style="margin: 0 0 0.5rem 0;">🔍 Audit Trail Analysis</h2>
-            <p style="margin: 0; opacity: 0.9;">Workspace activity, governance, and compliance insights</p>
+        <div class="header">
+            <div>
+                <h1 id="customerName">{{ customer_name }} - Audit Trail</h1>
+                <p class="subtitle">Workspace activity, governance, and compliance insights</p>
+            </div>
+            <div class="header-actions">
+                <div class="nav-dropdown" style="position: relative; display: inline-block;">
+                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                        <span>📋 Audit Trail</span>
+                        <span style="font-size: 0.7rem;">▼</span>
+                    </button>
+                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
+                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
+                        <a href="/destinations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📍 Destinations</a>
+                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
+                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">📋 Audit Trail</a>
+                        <a href="/mtu" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 MTU Usage</a>
+                        {% if enable_experimental %}
+                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
+                    ← New Audit
+                </button>
+            </div>
         </div>
-
         <div id="loading" class="loading">
             <p>Loading audit trail data...</p>
         </div>
@@ -176,51 +100,55 @@
         <div id="content" style="display: none;">
             <!-- Stats -->
             <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-number" id="totalEvents">-</div>
-                    <div class="stat-label">Total Events</div>
+                <div class="stat-card primary">
+                    <div class="label">Total Events</div>
+                    <div class="value" id="totalEvents">-</div>
+                    <div class="subtext">Collected</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number" id="uniqueUsers">-</div>
-                    <div class="stat-label">Active Users</div>
+                    <div class="label">Active Users</div>
+                    <div class="value" id="uniqueUsers">-</div>
+                    <div class="subtext">Unique users</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number" id="resourceTypes">-</div>
-                    <div class="stat-label">Resource Types</div>
+                    <div class="label">Resource Types</div>
+                    <div class="value" id="resourceTypes">-</div>
+                    <div class="subtext">Different types</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number" id="recentActivity">-</div>
-                    <div class="stat-label">Events (Last 24h)</div>
+                    <div class="label">Events (Last 24h)</div>
+                    <div class="value" id="recentActivity">-</div>
+                    <div class="subtext">Recent activity</div>
                 </div>
             </div>
 
             <!-- Charts -->
             <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-title">Event Types</div>
+                <div class="chart-section">
+                    <h2>Event Types</h2>
                     <canvas id="eventTypesChart"></canvas>
                 </div>
-                <div class="chart-card">
-                    <div class="chart-title">Resource Activity</div>
+                <div class="chart-section">
+                    <h2>Resource Activity</h2>
                     <canvas id="resourceTypesChart"></canvas>
                 </div>
             </div>
 
             <div class="charts-grid">
-                <div class="chart-card">
-                    <div class="chart-title">Activity Timeline (Last 30 Days)</div>
+                <div class="chart-section">
+                    <h2>Activity Timeline (Last 30 Days)</h2>
                     <canvas id="timelineChart"></canvas>
                 </div>
-                <div class="chart-card">
-                    <div class="chart-title">Top Users by Activity</div>
+                <div class="chart-section">
+                    <h2>Top Users by Activity</h2>
                     <canvas id="topUsersChart"></canvas>
                 </div>
             </div>
 
             <!-- Recent Events Table -->
-            <div class="events-table">
-                <div class="chart-title">Recent Activity</div>
-                <div style="overflow-x: auto;">
+            <div class="chart-section">
+                <h2>Recent Activity</h2>
+                <div class="table-container">
                     <table id="eventsTable">
                         <thead>
                             <tr>
@@ -531,6 +459,20 @@
                 document.querySelector('.events-table').scrollIntoView({ behavior: 'smooth' });
             }
         }
+
+        function toggleNavDropdown() {
+            const menu = document.getElementById('navDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('navDropdownBtn');
+            const menu = document.getElementById('navDropdownMenu');
+            if (dropdown && menu && !dropdown.contains(event.target) && !menu.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
 
         // Load data on page load
         loadAuditTrail();
