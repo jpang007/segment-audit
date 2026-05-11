@@ -86,11 +86,14 @@
             <div class="progress-detail">
                 <h3>📋 Collection Progress</h3>
                 <ul>
-                    <li><span class="checkmark" id="check1">□</span> Workspace Spaces</li>
-                    <li><span class="checkmark" id="check2">□</span> Sources & Destinations</li>
-                    <li><span class="checkmark" id="check3">□</span> Audiences & Journeys</li>
-                    <li><span class="checkmark" id="check4">□</span> Profile Insights & Traits</li>
-                    <li><span class="checkmark" id="check5">□</span> Saving Audit Data</li>
+                    <li><span class="checkmark" id="check1">□</span> Workspace Spaces (10%)</li>
+                    <li><span class="checkmark" id="check2">□</span> Sources & Connections (30%)</li>
+                    <li><span class="checkmark" id="check3">□</span> Audiences (50%)</li>
+                    <li><span class="checkmark" id="check4">□</span> Journeys & Destinations (70%)</li>
+                    <li><span class="checkmark" id="check5">□</span> Audit Trail (82%)</li>
+                    <li><span class="checkmark" id="check6">□</span> MTU Data (85%)</li>
+                    <li><span class="checkmark" id="check7">□</span> Profile Insights (87%)</li>
+                    <li><span class="checkmark" id="check8">□</span> Saving Data (90%)</li>
                 </ul>
             </div>
 
@@ -122,26 +125,41 @@
                 const check3 = document.getElementById('check3');
                 const check4 = document.getElementById('check4');
                 const check5 = document.getElementById('check5');
+                const check6 = document.getElementById('check6');
+                const check7 = document.getElementById('check7');
+                const check8 = document.getElementById('check8');
 
                 if (status.progress >= 10) {
                     check1.textContent = '✓';
                     check1.classList.add('done');
                 }
-                if (status.progress >= 50) {  // After sources & workspace connections
+                if (status.progress >= 30) {
                     check2.textContent = '✓';
                     check2.classList.add('done');
                 }
-                if (status.progress >= 80) {  // After audiences & journeys
+                if (status.progress >= 50) {
                     check3.textContent = '✓';
                     check3.classList.add('done');
                 }
-                if (status.progress >= 85) {  // After profile insights
+                if (status.progress >= 70) {
                     check4.textContent = '✓';
                     check4.classList.add('done');
                 }
-                if (status.progress >= 90) {  // Saving data
+                if (status.progress >= 82) {
                     check5.textContent = '✓';
                     check5.classList.add('done');
+                }
+                if (status.progress >= 85) {
+                    check6.textContent = '✓';
+                    check6.classList.add('done');
+                }
+                if (status.progress >= 87) {
+                    check7.textContent = '✓';
+                    check7.classList.add('done');
+                }
+                if (status.progress >= 90) {
+                    check8.textContent = '✓';
+                    check8.classList.add('done');
                 }
 
                 if (status.error) {
