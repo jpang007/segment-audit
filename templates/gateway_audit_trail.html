@@ -172,7 +172,7 @@
 
             <!-- Recent Events Table -->
             <div class="events-table">
-                <div class="chart-title">Recent Activity (Latest 50 Events)</div>
+                <div class="chart-title">Recent Activity (Latest 200 Events)</div>
                 <div style="overflow-x: auto;">
                     <table id="eventsTable">
                         <thead>
@@ -180,7 +180,6 @@
                                 <th>Timestamp</th>
                                 <th>Type</th>
                                 <th>Target</th>
-                                <th>Resource</th>
                                 <th>User</th>
                             </tr>
                         </thead>
@@ -380,8 +379,11 @@
         function buildTopUsersChart(events) {
             const userCounts = {};
             events.forEach(e => {
-                const userName = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description || 'Unknown';
-                userCounts[userName] = (userCounts[userName] || 0) + 1;
+                const userName = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description;
+                // Only count if we have a valid user (skip if undefined/null/empty)
+                if (userName) {
+                    userCounts[userName] = (userCounts[userName] || 0) + 1;
+                }
             });
 
             const sortedUsers = Object.entries(userCounts)
@@ -421,10 +423,10 @@
             const tbody = document.querySelector('#eventsTable tbody');
             tbody.innerHTML = '';
 
-            // Sort by timestamp desc, take latest 50
+            // Sort by timestamp desc, take latest 200
             const sortedEvents = events
                 .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .slice(0, 50);
+                .slice(0, 200);
 
             sortedEvents.forEach(e => {
                 const row = document.createElement('tr');
@@ -439,11 +441,6 @@
                 if (type.toLowerCase().includes('update')) badgeClass = 'badge-update';
                 if (type.toLowerCase().includes('delete')) badgeClass = 'badge-delete';
 
-                // Format resource
-                const resourceName = e.resource?.source?.name || e.resource?.integration?.name || e.resource?.id || '-';
-                const resourceType = e.resource?.type || 'Unknown';
-                const resource = `${resourceName} (${resourceType})`;
-
                 // Format user
                 const user = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description || '-';
 
@@ -451,7 +448,6 @@
                     <td style="white-space: nowrap;">${timestamp}</td>
                     <td><span class="event-type-badge ${badgeClass}">${type}</span></td>
                     <td>${e.target || '-'}</td>
-                    <td>${resource}</td>
                     <td>${user}</td>
                 `;
 
