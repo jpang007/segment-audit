@@ -77,6 +77,35 @@
             <!-- Billing Tier Alert -->
             <div id="billingTierAlert"></div>
 
+            <!-- Contract Cycle Progress -->
+            <div id="contractCycleProgress" style="display: none; margin-bottom: 1.5rem;">
+                <div style="background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0; font-size: 1rem; color: #1f2937;">📅 Contract Cycle Progress</h3>
+                        <span id="cyclePercent" style="font-weight: 700; font-size: 1.25rem; color: #667eea;">-</span>
+                    </div>
+                    <div style="background: #e5e7eb; height: 24px; border-radius: 12px; overflow: hidden; margin-bottom: 1rem;">
+                        <div id="cycleProgressBar" style="background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.5s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;">
+                            <span style="color: white; font-size: 0.75rem; font-weight: 600;"></span>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; font-size: 0.875rem;">
+                        <div>
+                            <div style="color: #6b7280; margin-bottom: 4px;">Time Elapsed</div>
+                            <div style="font-weight: 600; color: #1f2937;" id="timeElapsed">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #6b7280; margin-bottom: 4px;">Time Remaining</div>
+                            <div style="font-weight: 600; color: #1f2937;" id="timeRemaining">-</div>
+                        </div>
+                        <div>
+                            <div style="color: #6b7280; margin-bottom: 4px;">Usage Pace</div>
+                            <div style="font-weight: 600;" id="usagePace">-</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Stats -->
             <div class="stats-grid">
                 <div class="stat-card primary">
@@ -113,7 +142,11 @@
                 <div style="background: #f9fafb; padding: 1.5rem; border-radius: 8px; border: 2px solid #e5e7eb;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
                         <div>
-                            <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Last 12 Months MTU</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Contract Year MTU</div>
+                            <div style="font-size: 1.5rem; font-weight: 700; color: #1f2937;" id="summaryContractMTU">-</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Rolling 12 Months</div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: #1f2937;" id="summaryAnnualMTU">-</div>
                         </div>
                         <div>
@@ -297,8 +330,27 @@
                 // Build source table
                 buildSourceTable(sourceUserCounts);
 
+                // Calculate contract-year usage if we have contract dates
+                let contractYearUsage = last12MonthsUsage; // fallback
+                if (contractStart && contractEnd) {
+                    const startDate = new Date(contractStart);
+                    const today = new Date();
+
+                    contractYearUsage = mtuPerMonth
+                        .filter(m => {
+                            const monthDate = new Date(m.period);
+                            return monthDate >= startDate && monthDate <= today;
+                        })
+                        .reduce((sum, m) => sum + (m.users || 0) + (m.anonymous || 0), 0);
+                }
+
                 // Build billing summary for CSMs
-                buildBillingSummary(last12MonthsUsage, avgMtu, billingQuota, isBusinessTier, isHighVolume);
+                buildBillingSummary(contractYearUsage, last12MonthsUsage, avgMtu, billingQuota, isBusinessTier, isHighVolume);
+
+                // Build contract cycle analysis
+                if (contractStart && contractEnd && monthlyMtuLimit) {
+                    buildContractCycleAnalysis(contractStart, contractEnd, mtuPerMonth, monthlyMtuLimit);
+                }
 
             } catch (error) {
                 console.error('Error loading MTU data:', error);
@@ -380,11 +432,75 @@
             });
         }
 
-        function buildBillingSummary(last12MonthsUsage, avgMtu, quota, isBusinessTier, isHighVolume) {
+        function buildContractCycleAnalysis(contractStart, contractEnd, mtuPerMonth, monthlyLimit) {
+            document.getElementById('contractCycleProgress').style.display = 'block';
+
+            const startDate = new Date(contractStart);
+            const endDate = new Date(contractEnd);
+            const today = new Date();
+
+            // Calculate contract duration and elapsed time
+            const totalDays = (endDate - startDate) / (1000 * 60 * 60 * 24);
+            const elapsedDays = Math.max(0, (today - startDate) / (1000 * 60 * 60 * 24));
+            const remainingDays = Math.max(0, (endDate - today) / (1000 * 60 * 60 * 24));
+
+            const percentComplete = Math.min(100, (elapsedDays / totalDays) * 100);
+
+            // Calculate usage within contract period
+            let contractUsage = 0;
+            let monthsInContract = 0;
+
+            mtuPerMonth.forEach(month => {
+                const monthDate = new Date(month.period);
+                if (monthDate >= startDate && monthDate <= today) {
+                    contractUsage += (month.users || 0) + (month.anonymous || 0);
+                    monthsInContract++;
+                }
+            });
+
+            // Expected usage at this point (proportional to time elapsed)
+            const monthsElapsed = elapsedDays / 30.44; // Average days per month
+            const expectedUsage = monthlyLimit * monthsElapsed;
+
+            // Calculate pace (actual vs expected)
+            const usagePacePercent = expectedUsage > 0 ? ((contractUsage / expectedUsage) * 100) : 0;
+
+            // Update UI
+            document.getElementById('cyclePercent').textContent = percentComplete.toFixed(1) + '% Complete';
+            document.getElementById('cycleProgressBar').style.width = percentComplete + '%';
+
+            // Time elapsed
+            const elapsedMonths = Math.floor(monthsElapsed);
+            const elapsedDaysRemainder = Math.floor(elapsedDays % 30.44);
+            document.getElementById('timeElapsed').textContent = `${elapsedMonths} months, ${elapsedDaysRemainder} days`;
+
+            // Time remaining
+            const remainingMonths = Math.floor(remainingDays / 30.44);
+            const remainingDaysRemainder = Math.floor(remainingDays % 30.44);
+            document.getElementById('timeRemaining').textContent = `${remainingMonths} months, ${remainingDaysRemainder} days`;
+
+            // Usage pace
+            const paceElement = document.getElementById('usagePace');
+            if (usagePacePercent > 110) {
+                paceElement.textContent = usagePacePercent.toFixed(0) + '% (High pace!)';
+                paceElement.style.color = '#ef4444';
+            } else if (usagePacePercent > 90) {
+                paceElement.textContent = usagePacePercent.toFixed(0) + '% (On track)';
+                paceElement.style.color = '#10b981';
+            } else {
+                paceElement.textContent = usagePacePercent.toFixed(0) + '% (Below expected)';
+                paceElement.style.color = '#6b7280';
+            }
+        }
+
+        function buildBillingSummary(contractYearUsage, last12MonthsUsage, avgMtu, quota, isBusinessTier, isHighVolume) {
             // Show the billing summary section
             document.getElementById('billingSummary').style.display = 'block';
 
-            // Last 12 Months MTU Total
+            // Contract Year MTU (usage within actual contract period)
+            document.getElementById('summaryContractMTU').textContent = contractYearUsage.toLocaleString();
+
+            // Rolling 12 Months MTU Total
             document.getElementById('summaryAnnualMTU').textContent = last12MonthsUsage.toLocaleString();
 
             // Average Monthly MTU
