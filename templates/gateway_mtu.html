@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTU Usage - {{ customer_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f9fafb;
+        }
+        nav {
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 2rem;
+            margin-bottom: 2rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem 2rem 2rem;
+        }
+        .mtu-header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.875rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+        .stat-sublabel {
+            color: #6b7280;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+        .chart-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #6b7280;
+        }
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+        }
+        .alert-info {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            color: #1e40af;
+        }
+        .alert-warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            color: #92400e;
+        }
+        .alert-success {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            color: #065f46;
+        }
+        .source-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        .source-table th {
+            background: #f3f4f6;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .source-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-brand">
+            <a href="/" style="text-decoration: none; color: inherit;">
+                <h1>🔍 Segment Audit Dashboard</h1>
+            </a>
+        </div>
+        <div class="nav-menu">
+            <a href="/sources">Sources</a>
+            <a href="/audiences">Audiences</a>
+            <a href="/destinations">Destinations</a>
+            <a href="/journeys">Journeys</a>
+            <a href="/profile-insights">Profile Insights</a>
+            <a href="/audit-trail">Audit Trail</a>
+            <a href="/mtu" class="active">MTU Usage</a>
+            {% if enable_experimental %}
+            <a href="/recommendations" style="color: #f59e0b;">💡 Recommendations</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="mtu-header">
+            <h2 style="margin: 0 0 0.5rem 0;">📊 MTU Usage Analysis</h2>
+            <p style="margin: 0; opacity: 0.9;">Monthly Tracked Users • Billing insights and trends</p>
+        </div>
+
+        <div id="loading" class="loading">
+            <p>Loading MTU data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Billing Type Alert -->
+            <div id="billingAlert"></div>
+
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Annual Quota</h3>
+                    <div class="stat-number" id="quota">-</div>
+                    <div class="stat-sublabel" id="quotaType">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Annual Usage (YTD)</h3>
+                    <div class="stat-number" id="annualUsage">-</div>
+                    <div class="stat-sublabel" id="usagePercent">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Last Month MTU</h3>
+                    <div class="stat-number" id="lastMonthMtu">-</div>
+                    <div class="stat-sublabel" id="lastMonthDate">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Avg Monthly MTU</h3>
+                    <div class="stat-number" id="avgMtu">-</div>
+                    <div class="stat-sublabel">Last 12 months</div>
+                </div>
+            </div>
+
+            <!-- MTU Trend Chart -->
+            <div class="chart-card">
+                <div class="chart-title">MTU Trend (Last 12 Months)</div>
+                <canvas id="mtuTrendChart"></canvas>
+            </div>
+
+            <!-- Top Sources by MTU -->
+            <div class="chart-card">
+                <div class="chart-title">Top Sources by MTU (Latest Month)</div>
+                <table class="source-table" id="sourceTable">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th>Users</th>
+                            <th>Anonymous</th>
+                            <th>Total</th>
+                            <th>% of Workspace</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        async function loadMtuData() {
+            try {
+                const response = await fetch('/api/mtu-data');
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('loading').innerHTML = `<p style="color: #ef4444;">${data.error}</p>`;
+                    return;
+                }
+
+                // Hide loading, show content
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+                // Process data
+                const billing = data.billing || {};
+                const insights = data.insights || {};
+                const mtuPerMonth = insights.mtuPerMonth || [];
+                const sourceUserCounts = insights.sourceUserCountsPerMonth || [];
+
+                // Calculate stats
+                const quota = billing.quota;
+                const hasQuota = quota && quota > 0;
+
+                // Get last 12 months sorted by date
+                const sortedMonths = mtuPerMonth
+                    .sort((a, b) => new Date(a.period) - new Date(b.period))
+                    .slice(-12);
+
+                // Calculate annual usage (sum of last 12 months)
+                const annualUsage = sortedMonths.reduce((sum, m) => sum + (m.users || 0) + (m.anonymous || 0), 0);
+
+                // Last month
+                const lastMonth = sortedMonths[sortedMonths.length - 1] || {};
+                const lastMonthMtu = (lastMonth.users || 0) + (lastMonth.anonymous || 0);
+
+                // Average
+                const avgMtu = sortedMonths.length > 0 ? Math.round(annualUsage / sortedMonths.length) : 0;
+
+                // Display stats
+                if (hasQuota) {
+                    document.getElementById('quota').textContent = quota.toLocaleString();
+                    document.getElementById('quotaType').textContent = 'Annual allotment';
+
+                    const usagePercent = ((annualUsage / quota) * 100).toFixed(1);
+                    document.getElementById('annualUsage').textContent = annualUsage.toLocaleString();
+                    document.getElementById('usagePercent').textContent = `${usagePercent}% of quota`;
+
+                    // Show alert based on usage
+                    let alertHtml = '';
+                    if (usagePercent > 90) {
+                        alertHtml = '<div class="alert alert-warning"><strong>⚠️ High Usage:</strong> You\'ve used over 90% of your annual MTU quota. Consider upgrading or optimizing your implementation.</div>';
+                    } else if (usagePercent > 75) {
+                        alertHtml = '<div class="alert alert-info"><strong>ℹ️ Tracking:</strong> You\'ve used ' + usagePercent + '% of your annual MTU quota.</div>';
+                    } else {
+                        alertHtml = '<div class="alert alert-success"><strong>✅ Healthy Usage:</strong> You\'re tracking well within your annual MTU quota (' + usagePercent + '% used).</div>';
+                    }
+                    document.getElementById('billingAlert').innerHTML = alertHtml;
+                } else {
+                    document.getElementById('quota').textContent = 'No limit';
+                    document.getElementById('quotaType').textContent = 'Pay-as-you-go billing';
+                    document.getElementById('annualUsage').textContent = annualUsage.toLocaleString();
+                    document.getElementById('usagePercent').textContent = 'No annual quota';
+
+                    document.getElementById('billingAlert').innerHTML = '<div class="alert alert-info"><strong>💳 Pay-as-you-go:</strong> This workspace does not have an annual MTU allotment. Billing is based on monthly usage.</div>';
+                }
+
+                document.getElementById('lastMonthMtu').textContent = lastMonthMtu.toLocaleString();
+                document.getElementById('lastMonthDate').textContent = lastMonth.period ? new Date(lastMonth.period).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-';
+                document.getElementById('avgMtu').textContent = avgMtu.toLocaleString();
+
+                // Build trend chart
+                buildMtuTrendChart(sortedMonths, quota);
+
+                // Build source table
+                buildSourceTable(sourceUserCounts);
+
+            } catch (error) {
+                console.error('Error loading MTU data:', error);
+                document.getElementById('loading').innerHTML = `<p style="color: #ef4444;">Error: ${error.message}</p>`;
+            }
+        }
+
+        function buildMtuTrendChart(months, quota) {
+            const ctx = document.getElementById('mtuTrendChart').getContext('2d');
+
+            const labels = months.map(m => {
+                const date = new Date(m.period);
+                return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            });
+
+            const users = months.map(m => m.users || 0);
+            const anonymous = months.map(m => m.anonymous || 0);
+            const total = months.map((m, i) => users[i] + anonymous[i]);
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Identified Users',
+                            data: users,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Anonymous Users',
+                            data: anonymous,
+                            borderColor: '#6b7280',
+                            backgroundColor: 'rgba(107, 114, 128, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Total MTU',
+                            data: total,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            fill: false,
+                            borderWidth: 3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toLocaleString();
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function buildSourceTable(sourceUserCounts) {
+            const tbody = document.querySelector('#sourceTable tbody');
+            tbody.innerHTML = '';
+
+            // Get latest month's data
+            if (sourceUserCounts.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #9ca3af;">No source data available</td></tr>';
+                return;
+            }
+
+            const latestMonth = sourceUserCounts[sourceUserCounts.length - 1];
+            const sources = latestMonth.sources || [];
+
+            // Calculate workspace total
+            const workspaceTotal = sources.reduce((sum, s) => sum + (s.users || 0) + (s.anonymous || 0), 0);
+
+            // Sort by total desc
+            const sortedSources = sources
+                .map(s => ({
+                    name: s.source?.name || 'Unknown',
+                    users: s.users || 0,
+                    anonymous: s.anonymous || 0,
+                    total: (s.users || 0) + (s.anonymous || 0)
+                }))
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 20); // Top 20
+
+            sortedSources.forEach(s => {
+                const percent = workspaceTotal > 0 ? ((s.total / workspaceTotal) * 100).toFixed(1) : '0.0';
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="font-weight: 600; color: #374151;">${s.name}</td>
+                    <td>${s.users.toLocaleString()}</td>
+                    <td>${s.anonymous.toLocaleString()}</td>
+                    <td style="font-weight: 600; color: #10b981;">${s.total.toLocaleString()}</td>
+                    <td>${percent}%</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Load data on page load
+        loadMtuData();
+    </script>
+</body>
+</html>

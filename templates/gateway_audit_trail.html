@@ -7,6 +7,22 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #f9fafb;
+        }
+        nav {
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 2rem;
+            margin-bottom: 2rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem 2rem 2rem;
+        }
         .audit-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -94,6 +110,36 @@
             padding: 3rem;
             color: #6b7280;
         }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            padding: 1rem 0;
+        }
+        .pagination button {
+            padding: 0.5rem 1rem;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .pagination button:hover:not(:disabled) {
+            background: #667eea;
+            color: white;
+        }
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .pagination span {
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body>
@@ -110,6 +156,7 @@
             <a href="/journeys">Journeys</a>
             <a href="/profile-insights">Profile Insights</a>
             <a href="/audit-trail" class="active">Audit Trail</a>
+            <a href="/mtu">MTU Usage</a>
             {% if enable_experimental %}
             <a href="/recommendations" style="color: #f59e0b;">💡 Recommendations</a>
             {% endif %}
@@ -172,7 +219,7 @@
 
             <!-- Recent Events Table -->
             <div class="events-table">
-                <div class="chart-title">Recent Activity (Latest 200 Events)</div>
+                <div class="chart-title">Recent Activity</div>
                 <div style="overflow-x: auto;">
                     <table id="eventsTable">
                         <thead>
@@ -187,12 +234,20 @@
                         </tbody>
                     </table>
                 </div>
+                <div class="pagination">
+                    <button id="prevPage" onclick="changePage(-1)">← Previous</button>
+                    <span id="pageInfo">Page 1 of 1</span>
+                    <button id="nextPage" onclick="changePage(1)">Next →</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         let charts = {};
+        let allEvents = [];
+        let currentPage = 1;
+        const eventsPerPage = 50;
 
         async function loadAuditTrail() {
             try {
@@ -204,21 +259,21 @@
                     return;
                 }
 
-                const events = data.events || [];
+                allEvents = data.events || [];
 
                 // Hide loading, show content
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
 
                 // Calculate stats
-                calculateStats(events);
+                calculateStats(allEvents);
 
                 // Build visualizations
-                buildEventTypesChart(events);
-                buildResourceTypesChart(events);
-                buildTimelineChart(events);
-                buildTopUsersChart(events);
-                buildEventsTable(events);
+                buildEventTypesChart(allEvents);
+                buildResourceTypesChart(allEvents);
+                buildTimelineChart(allEvents);
+                buildTopUsersChart(allEvents);
+                buildEventsTable();
 
             } catch (error) {
                 console.error('Error loading audit trail:', error);
@@ -419,16 +474,26 @@
             });
         }
 
-        function buildEventsTable(events) {
+        function buildEventsTable() {
             const tbody = document.querySelector('#eventsTable tbody');
             tbody.innerHTML = '';
 
-            // Sort by timestamp desc, take latest 200
-            const sortedEvents = events
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .slice(0, 200);
+            // Sort all events by timestamp desc
+            const sortedEvents = [...allEvents].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-            sortedEvents.forEach(e => {
+            // Calculate pagination
+            const totalPages = Math.ceil(sortedEvents.length / eventsPerPage);
+            const startIdx = (currentPage - 1) * eventsPerPage;
+            const endIdx = startIdx + eventsPerPage;
+            const pageEvents = sortedEvents.slice(startIdx, endIdx);
+
+            // Update pagination controls
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${sortedEvents.length} total events)`;
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = currentPage >= totalPages;
+
+            // Render events for current page
+            pageEvents.forEach(e => {
                 const row = document.createElement('tr');
 
                 // Format timestamp
@@ -453,6 +518,18 @@
 
                 tbody.appendChild(row);
             });
+        }
+
+        function changePage(delta) {
+            const totalPages = Math.ceil(allEvents.length / eventsPerPage);
+            const newPage = currentPage + delta;
+
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                buildEventsTable();
+                // Scroll to top of table
+                document.querySelector('.events-table').scrollIntoView({ behavior: 'smooth' });
+            }
         }
 
         // Load data on page load

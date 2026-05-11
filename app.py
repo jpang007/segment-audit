@@ -1324,6 +1324,83 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {}).get('auditEvents', {})
 
+    def get_mtu_data(self, workspace_id, start_date, end_date, is_monthly=True):
+        """Get MTU (Monthly Tracked Users) data for billing analysis"""
+        query = """
+        query app__GetMtuForPeriod($workspaceId: ID!, $isMonthly: Boolean!, $period: Period!, $isOnCalendarMonth: Boolean!, $mtuStrategy: String!) {
+          workspace(id: $workspaceId) {
+            id
+            billing {
+              quota
+              __typename
+            }
+            insights {
+              mtuPerMonth @include(if: $isMonthly) {
+                users
+                anonymous
+                period
+                __typename
+              }
+              mtuCumulativePerDay(
+                period: $period
+                isOnCalendarMonth: $isOnCalendarMonth
+                mtuStrategy: $mtuStrategy
+              ) @skip(if: $isMonthly) {
+                users
+                anonymous
+                period
+                __typename
+              }
+              mtuDailyCumulativePerSource(
+                period: $period
+                isOnCalendarMonth: $isOnCalendarMonth
+                mtuStrategy: $mtuStrategy
+              ) @skip(if: $isMonthly) {
+                source {
+                  id
+                  name
+                  __typename
+                }
+                users
+                anonymous
+                period
+                __typename
+              }
+              sourceUserCountsPerMonth @include(if: $isMonthly) {
+                period
+                sources {
+                  source {
+                    id
+                    name
+                    __typename
+                  }
+                  users
+                  anonymous
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceId": workspace_id,
+            "isMonthly": is_monthly,
+            "period": {
+                "start": start_date,
+                "end": end_date
+            },
+            "isOnCalendarMonth": True,
+            "mtuStrategy": "de-duped"
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
     def get_data_flows(self, pagination_count=10):
         """Get workspace onboarding use cases and data flows"""
         query = """
@@ -1663,21 +1740,43 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         except Exception as e:
             print(f"  -> ERROR fetching data flows: {e}")
 
-        # Get audit trail events for governance insights
+        # Get audit trail events for governance insights (last 90 days)
         audit_status['message'] = 'Collecting audit trail...'
         audit_status['progress'] = 85
         print(f"\n=== FETCHING AUDIT TRAIL ===")
         audit_events = []
         try:
-            # Fetch last 500 events (5 pages of 100)
-            for page in range(1, 6):
-                print(f"  Page {page}/5...")
+            # Fetch events until we hit 90 days or run out
+            # Estimate: 50 pages (5000 events) should cover most workspaces for 90 days
+            max_pages = 50
+            for page in range(1, max_pages + 1):
+                if page % 10 == 0:
+                    print(f"  Page {page}/{max_pages}... ({len(audit_events)} events so far)")
+
                 result = client.get_audit_trail_events(page=page, per_page=100)
                 nodes = result.get('nodes', [])
+
+                if not nodes:
+                    break
+
                 audit_events.extend(nodes)
+
+                # Check if we've reached 90 days back
+                if nodes:
+                    oldest_event = nodes[-1]
+                    event_time = oldest_event.get('timestamp')
+                    if event_time:
+                        from datetime import datetime, timedelta
+                        event_date = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                        ninety_days_ago = datetime.now(event_date.tzinfo) - timedelta(days=90)
+
+                        if event_date < ninety_days_ago:
+                            print(f"  -> Reached 90 days back at page {page}")
+                            break
 
                 # Stop if no more pages
                 if not result.get('pageInfo', {}).get('hasNextPage', False):
+                    print(f"  -> No more pages available")
                     break
 
             print(f"  -> Collected {len(audit_events)} audit events")
@@ -1685,9 +1784,42 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             print(f"  -> ERROR fetching audit trail: {e}")
             print(f"     (Audit trail may not be available on this plan)")
 
+        # Get MTU (Monthly Tracked Users) data
+        audit_status['message'] = 'Collecting MTU data...'
+        audit_status['progress'] = 87
+        print(f"\n=== FETCHING MTU DATA ===")
+        mtu_data = {}
+        try:
+            # Get workspace ID from workspace_connections
+            workspace_data = client.get_workspace_connections()
+            workspace_id = workspace_data.get('id')
+
+            if workspace_id:
+                # Get last 12 months of MTU data
+                from datetime import datetime, timedelta
+                end_date = datetime.utcnow()
+                start_date = end_date - timedelta(days=365)
+
+                mtu_data = client.get_mtu_data(
+                    workspace_id,
+                    start_date.isoformat() + 'Z',
+                    end_date.isoformat() + 'Z',
+                    is_monthly=True
+                )
+
+                quota = mtu_data.get('billing', {}).get('quota')
+                mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])
+                print(f"  -> MTU Quota: {quota if quota else 'Not set'}")
+                print(f"  -> Collected {len(mtu_months)} months of MTU data")
+            else:
+                print(f"  -> Could not determine workspace ID")
+        except Exception as e:
+            print(f"  -> ERROR fetching MTU data: {e}")
+            print(f"     (MTU data may not be available on this plan)")
+
         # Get profile insights data
         audit_status['message'] = 'Collecting profile insights...'
-        audit_status['progress'] = 88
+        audit_status['progress'] = 90
         print(f"\n=== FETCHING PROFILE INSIGHTS ===")
 
         # Get workspace-level personas data
@@ -2036,6 +2168,12 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         print(f"Saved {len(audit_events)} audit trail events")
 
+        # Save MTU data
+        with open(DATA_DIR / 'gateway_mtu.json', 'w') as f:
+            json.dump(mtu_data, f, indent=2)
+
+        print(f"Saved MTU data")
+
         # Save summary
         destinations_list = destinations_data.get('destinations', [])
         summary = {
@@ -2212,6 +2350,12 @@ def profile_insights():
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
+@app.route('/mtu')
+def mtu():
+    """MTU (Monthly Tracked Users) view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('gateway_mtu.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+
 @app.route('/api/audit-trail-data')
 def get_audit_trail_data():
     """Get audit trail data for visualization"""
@@ -2228,6 +2372,26 @@ def get_audit_trail_data():
 
     except Exception as e:
         print(f"Error loading audit trail: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/mtu-data')
+def get_mtu_data():
+    """Get MTU data for visualization"""
+    try:
+        mtu_file = DATA_DIR / 'gateway_mtu.json'
+
+        if not mtu_file.exists():
+            return jsonify({'error': 'No MTU data available. Please run an audit first.'}), 404
+
+        with open(mtu_file, 'r') as f:
+            mtu_data = json.load(f)
+
+        return jsonify(mtu_data)
+
+    except Exception as e:
+        print(f"Error loading MTU data: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
