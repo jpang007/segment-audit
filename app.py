@@ -1246,6 +1246,84 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {})
 
+    def get_audit_trail_events(self, page=1, per_page=100):
+        """Get audit trail events for governance and activity analysis"""
+        query = """
+        query app__getAuditTrailEvents($workspaceSlug: Slug!, $pageArgs: PageArgs, $filter: AuditEventFilter!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            auditEvents(pagination: $pageArgs, filter: $filter) {
+              pageInfo {
+                page
+                perPage
+                totalEntries
+                hasNextPage
+                hasPreviousPage
+              }
+              nodes {
+                id
+                timestamp
+                type
+                target
+                resource {
+                  id
+                  type
+                  source {
+                    id
+                    name
+                    slug
+                  }
+                  integration {
+                    id
+                    name
+                    metadata {
+                      id
+                      slug
+                    }
+                  }
+                  trackingPlan {
+                    id
+                    name
+                    resourceId
+                  }
+                  destinationFilter {
+                    id
+                    name
+                    sourceSlug
+                    destinationMetadataSlug
+                  }
+                }
+                subject {
+                  id
+                  type
+                  user {
+                    id
+                    name
+                    email
+                  }
+                  token {
+                    id
+                    description
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "pageArgs": {
+                "page": page,
+                "perPage": per_page
+            },
+            "filter": {}
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {}).get('auditEvents', {})
+
     def get_data_flows(self, pagination_count=10):
         """Get workspace onboarding use cases and data flows"""
         query = """
@@ -1584,6 +1662,28 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             print(f"  -> Found {len(use_cases)} use cases")
         except Exception as e:
             print(f"  -> ERROR fetching data flows: {e}")
+
+        # Get audit trail events for governance insights
+        audit_status['message'] = 'Collecting audit trail...'
+        audit_status['progress'] = 85
+        print(f"\n=== FETCHING AUDIT TRAIL ===")
+        audit_events = []
+        try:
+            # Fetch last 500 events (5 pages of 100)
+            for page in range(1, 6):
+                print(f"  Page {page}/5...")
+                result = client.get_audit_trail_events(page=page, per_page=100)
+                nodes = result.get('nodes', [])
+                audit_events.extend(nodes)
+
+                # Stop if no more pages
+                if not result.get('pageInfo', {}).get('hasNextPage', False):
+                    break
+
+            print(f"  -> Collected {len(audit_events)} audit events")
+        except Exception as e:
+            print(f"  -> ERROR fetching audit trail: {e}")
+            print(f"     (Audit trail may not be available on this plan)")
 
         # Get profile insights data
         audit_status['message'] = 'Collecting profile insights...'
@@ -1930,6 +2030,12 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         print(f"Saved destinations, usage, and data flow data")
 
+        # Save audit trail events
+        with open(DATA_DIR / 'gateway_audit_trail.json', 'w') as f:
+            json.dump(audit_events, f, indent=2)
+
+        print(f"Saved {len(audit_events)} audit trail events")
+
         # Save summary
         destinations_list = destinations_data.get('destinations', [])
         summary = {
@@ -1991,6 +2097,12 @@ def destinations():
     """Destinations view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_destinations.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+
+@app.route('/audit-trail')
+def audit_trail():
+    """Audit trail view - governance and activity analysis"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('gateway_audit_trail.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
 @app.route('/api/destination-health-metrics', methods=['POST'])
 def get_destination_health_metrics():
@@ -2099,6 +2211,26 @@ def profile_insights():
     """Profile Insights view"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+
+@app.route('/api/audit-trail-data')
+def get_audit_trail_data():
+    """Get audit trail data for visualization"""
+    try:
+        audit_file = DATA_DIR / 'gateway_audit_trail.json'
+
+        if not audit_file.exists():
+            return jsonify({'error': 'No audit trail data available. Please run an audit first.'}), 404
+
+        with open(audit_file, 'r') as f:
+            audit_events = json.load(f)
+
+        return jsonify({'events': audit_events})
+
+    except Exception as e:
+        print(f"Error loading audit trail: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/export-profile-insights-excel')
 def export_profile_insights_excel():

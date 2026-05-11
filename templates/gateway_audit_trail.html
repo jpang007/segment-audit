@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Trail - {{ customer_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .audit-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #6b7280;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        .chart-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+        .events-table {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .events-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .events-table th {
+            background: #f3f4f6;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .events-table td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #e5e7eb;
+            color: #6b7280;
+        }
+        .event-type-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-create { background: #d1fae5; color: #065f46; }
+        .badge-update { background: #dbeafe; color: #1e40af; }
+        .badge-delete { background: #fee2e2; color: #991b1b; }
+        .badge-other { background: #f3f4f6; color: #374151; }
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-brand">
+            <a href="/" style="text-decoration: none; color: inherit;">
+                <h1>🔍 Segment Audit Dashboard</h1>
+            </a>
+        </div>
+        <div class="nav-menu">
+            <a href="/sources">Sources</a>
+            <a href="/audiences">Audiences</a>
+            <a href="/destinations">Destinations</a>
+            <a href="/journeys">Journeys</a>
+            <a href="/profile-insights">Profile Insights</a>
+            <a href="/audit-trail" class="active">Audit Trail</a>
+            {% if enable_experimental %}
+            <a href="/recommendations" style="color: #f59e0b;">💡 Recommendations</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="audit-header">
+            <h2 style="margin: 0 0 0.5rem 0;">🔍 Audit Trail Analysis</h2>
+            <p style="margin: 0; opacity: 0.9;">Workspace activity, governance, and compliance insights</p>
+        </div>
+
+        <div id="loading" class="loading">
+            <p>Loading audit trail data...</p>
+        </div>
+
+        <div id="content" style="display: none;">
+            <!-- Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalEvents">-</div>
+                    <div class="stat-label">Total Events</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="uniqueUsers">-</div>
+                    <div class="stat-label">Active Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="resourceTypes">-</div>
+                    <div class="stat-label">Resource Types</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="recentActivity">-</div>
+                    <div class="stat-label">Events (Last 24h)</div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-title">Event Types</div>
+                    <canvas id="eventTypesChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Resource Activity</div>
+                    <canvas id="resourceTypesChart"></canvas>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <div class="chart-title">Activity Timeline (Last 30 Days)</div>
+                    <canvas id="timelineChart"></canvas>
+                </div>
+                <div class="chart-card">
+                    <div class="chart-title">Top Users by Activity</div>
+                    <canvas id="topUsersChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Recent Events Table -->
+            <div class="events-table">
+                <div class="chart-title">Recent Activity (Latest 50 Events)</div>
+                <div style="overflow-x: auto;">
+                    <table id="eventsTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Type</th>
+                                <th>Target</th>
+                                <th>Resource</th>
+                                <th>User</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let charts = {};
+
+        async function loadAuditTrail() {
+            try {
+                const response = await fetch('/api/audit-trail-data');
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('loading').innerHTML = `<p style="color: #ef4444;">${data.error}</p>`;
+                    return;
+                }
+
+                const events = data.events || [];
+
+                // Hide loading, show content
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+
+                // Calculate stats
+                calculateStats(events);
+
+                // Build visualizations
+                buildEventTypesChart(events);
+                buildResourceTypesChart(events);
+                buildTimelineChart(events);
+                buildTopUsersChart(events);
+                buildEventsTable(events);
+
+            } catch (error) {
+                console.error('Error loading audit trail:', error);
+                document.getElementById('loading').innerHTML = `<p style="color: #ef4444;">Error: ${error.message}</p>`;
+            }
+        }
+
+        function calculateStats(events) {
+            // Total events
+            document.getElementById('totalEvents').textContent = events.length.toLocaleString();
+
+            // Unique users
+            const users = new Set();
+            events.forEach(e => {
+                const userName = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description;
+                if (userName) users.add(userName);
+            });
+            document.getElementById('uniqueUsers').textContent = users.size;
+
+            // Resource types
+            const resourceTypes = new Set();
+            events.forEach(e => {
+                if (e.resource?.type) resourceTypes.add(e.resource.type);
+            });
+            document.getElementById('resourceTypes').textContent = resourceTypes.size;
+
+            // Recent activity (last 24h)
+            const oneDayAgo = new Date();
+            oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+            const recentCount = events.filter(e => {
+                const eventTime = new Date(e.timestamp);
+                return eventTime >= oneDayAgo;
+            }).length;
+            document.getElementById('recentActivity').textContent = recentCount;
+        }
+
+        function buildEventTypesChart(events) {
+            const typeCounts = {};
+            events.forEach(e => {
+                const type = e.type || 'Unknown';
+                typeCounts[type] = (typeCounts[type] || 0) + 1;
+            });
+
+            const sortedTypes = Object.entries(typeCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const ctx = document.getElementById('eventTypesChart').getContext('2d');
+            charts.eventTypes = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: sortedTypes.map(t => t[0]),
+                    datasets: [{
+                        data: sortedTypes.map(t => t[1]),
+                        backgroundColor: [
+                            '#667eea', '#764ba2', '#f093fb', '#4facfe',
+                            '#43e97b', '#fa709a', '#fee140', '#30cfd0',
+                            '#a8edea', '#fed6e3'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'right'
+                        }
+                    }
+                }
+            });
+        }
+
+        function buildResourceTypesChart(events) {
+            const resourceCounts = {};
+            events.forEach(e => {
+                const type = e.resource?.type || 'Unknown';
+                resourceCounts[type] = (resourceCounts[type] || 0) + 1;
+            });
+
+            const sortedResources = Object.entries(resourceCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const ctx = document.getElementById('resourceTypesChart').getContext('2d');
+            charts.resourceTypes = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedResources.map(r => r[0]),
+                    datasets: [{
+                        label: 'Events',
+                        data: sortedResources.map(r => r[1]),
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function buildTimelineChart(events) {
+            // Group by day
+            const dailyCounts = {};
+            events.forEach(e => {
+                const date = new Date(e.timestamp);
+                const dayKey = date.toISOString().split('T')[0];
+                dailyCounts[dayKey] = (dailyCounts[dayKey] || 0) + 1;
+            });
+
+            // Sort by date and get last 30 days
+            const sortedDays = Object.entries(dailyCounts)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .slice(-30);
+
+            const ctx = document.getElementById('timelineChart').getContext('2d');
+            charts.timeline = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: sortedDays.map(d => d[0]),
+                    datasets: [{
+                        label: 'Daily Events',
+                        data: sortedDays.map(d => d[1]),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function buildTopUsersChart(events) {
+            const userCounts = {};
+            events.forEach(e => {
+                const userName = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description || 'Unknown';
+                userCounts[userName] = (userCounts[userName] || 0) + 1;
+            });
+
+            const sortedUsers = Object.entries(userCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const ctx = document.getElementById('topUsersChart').getContext('2d');
+            charts.topUsers = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedUsers.map(u => u[0]),
+                    datasets: [{
+                        label: 'Events',
+                        data: sortedUsers.map(u => u[1]),
+                        backgroundColor: '#764ba2'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function buildEventsTable(events) {
+            const tbody = document.querySelector('#eventsTable tbody');
+            tbody.innerHTML = '';
+
+            // Sort by timestamp desc, take latest 50
+            const sortedEvents = events
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 50);
+
+            sortedEvents.forEach(e => {
+                const row = document.createElement('tr');
+
+                // Format timestamp
+                const timestamp = new Date(e.timestamp).toLocaleString();
+
+                // Format type with badge
+                const type = e.type || 'Unknown';
+                let badgeClass = 'badge-other';
+                if (type.toLowerCase().includes('create')) badgeClass = 'badge-create';
+                if (type.toLowerCase().includes('update')) badgeClass = 'badge-update';
+                if (type.toLowerCase().includes('delete')) badgeClass = 'badge-delete';
+
+                // Format resource
+                const resourceName = e.resource?.source?.name || e.resource?.integration?.name || e.resource?.id || '-';
+                const resourceType = e.resource?.type || 'Unknown';
+                const resource = `${resourceName} (${resourceType})`;
+
+                // Format user
+                const user = e.subject?.user?.name || e.subject?.user?.email || e.subject?.token?.description || '-';
+
+                row.innerHTML = `
+                    <td style="white-space: nowrap;">${timestamp}</td>
+                    <td><span class="event-type-badge ${badgeClass}">${type}</span></td>
+                    <td>${e.target || '-'}</td>
+                    <td>${resource}</td>
+                    <td>${user}</td>
+                `;
+
+                tbody.appendChild(row);
+            });
+        }
+
+        // Load data on page load
+        loadAuditTrail();
+    </script>
+</body>
+</html>
