@@ -1324,17 +1324,151 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {}).get('auditEvents', {})
 
-    def get_billing_tier_info(self):
-        """Get billing tier information (business tier, high volume plan)"""
+    def get_usage_period_data(self):
+        """Get comprehensive billing and usage data including contract dates"""
         query = """
-        query workspace__billingTier($workspaceSlug: Slug!) {
+        query app__getUsagePeriodData($workspaceSlug: Slug!) {
           workspace(slug: $workspaceSlug) {
             id
             billing {
+              canUpgrade
+              planName
+              start: subscriptionStart
+              end: subscriptionEnd
+              hasThroughput
+              isOnApiPlan
+              isOnCalendarMonth
+              isOnMtuPlan
+              isOnWarehousesPlan
+              isOnTwilioDeveloperPlan
+              isOnInvoicedPlan
               isOnBusinessTier
               isOnHighVolumePlan
+              mtuStrategy
+              personasPlan
+              profilesPlan
+              isAutomaticallyChargedForOverages
+              personasComputeCredits
+              personasComputeHistory
+              personasSyncFrequency
+              personasProfileApi
+              quota
+              usage {
+                mtus {
+                  anonymous
+                  users
+                  __typename
+                }
+                __typename
+              }
+              overages {
+                costPerUnit
+                value
+                low
+                high
+                __typename
+              }
+              startupProgramPromotion {
+                grantAmount
+                balanceRemaining
+                createdAt
+                expiresAt
+                __typename
+              }
               __typename
             }
+            historicalBilling {
+              planName
+              start: subscriptionStart
+              end: subscriptionEnd
+              hasThroughput
+              isOnApiPlan
+              isOnCalendarMonth
+              isOnInvoicedPlan
+              isOnMtuPlan
+              isOnWarehousesPlan
+              isAutomaticallyChargedForOverages
+              mtuStrategy
+              usage {
+                mtus {
+                  anonymous
+                  users
+                  __typename
+                }
+                __typename
+              }
+              overages {
+                costPerUnit
+                value
+                low
+                high
+                __typename
+              }
+              quota {
+                calls
+                rows
+                throughput
+                trackedObjects
+                __typename
+              }
+              __typename
+            }
+            entitlements {
+              features {
+                personas
+                functionsExecute
+                unifyPlus
+                twilioEngage
+                profiles
+                reverseEtl
+                linkedAudiences
+                __typename
+              }
+              quotas {
+                global {
+                  mtu
+                  throughput
+                  api {
+                    inbound
+                    outbound
+                    __typename
+                  }
+                  __typename
+                }
+                personas {
+                  computeCredits
+                  sqlTraits
+                  computeHistory
+                  syncFrequency
+                  profileApi
+                  spaces
+                  journeys
+                  journeyNodes
+                  maxJourneys
+                  activationEvents
+                  __typename
+                }
+                warehouses {
+                  rows
+                  __typename
+                }
+                functions {
+                  hoursUntilOverage
+                  hoursUntilLockout
+                  __typename
+                }
+                connections {
+                  reverseEtlRows
+                  linkedEventsRows
+                  linkedEventsEntities
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            isFunctionsTermsAccepted
+            inFunctionsBeta
             __typename
           }
         }
@@ -1812,12 +1946,20 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         audit_status['progress'] = 87
         print(f"\n=== FETCHING MTU DATA ===")
         mtu_data = {}
-        billing_tier_info = {}
+        usage_period_data = {}
         try:
-            # Get billing tier info (business tier, high volume plan)
-            billing_tier_info = client.get_billing_tier_info()
-            is_business = billing_tier_info.get('billing', {}).get('isOnBusinessTier')
-            is_high_volume = billing_tier_info.get('billing', {}).get('isOnHighVolumePlan')
+            # Get comprehensive usage period data (includes contract dates, billing tier, etc.)
+            usage_period_data = client.get_usage_period_data()
+
+            billing = usage_period_data.get('billing', {})
+            plan_name = billing.get('planName')
+            contract_start = billing.get('start')
+            contract_end = billing.get('end')
+            is_business = billing.get('isOnBusinessTier')
+            is_high_volume = billing.get('isOnHighVolumePlan')
+
+            print(f"  -> Plan: {plan_name}")
+            print(f"  -> Contract: {contract_start} to {contract_end}")
             print(f"  -> Business Tier: {is_business}, High Volume: {is_high_volume}")
 
             # Get workspace ID from workspace_connections
@@ -1837,11 +1979,14 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     is_monthly=True
                 )
 
-                # Merge billing tier info into mtu_data
+                # Merge usage period data into mtu_data for frontend
                 if 'billing' not in mtu_data:
                     mtu_data['billing'] = {}
-                mtu_data['billing']['isOnBusinessTier'] = is_business
-                mtu_data['billing']['isOnHighVolumePlan'] = is_high_volume
+
+                # Merge all billing info
+                mtu_data['billing'].update(billing)
+                mtu_data['entitlements'] = usage_period_data.get('entitlements', {})
+                mtu_data['historicalBilling'] = usage_period_data.get('historicalBilling', [])
 
                 quota = mtu_data.get('billing', {}).get('quota')
                 mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])

@@ -182,15 +182,24 @@
                 // Process data
                 const billing = data.billing || {};
                 const insights = data.insights || {};
+                const entitlements = data.entitlements || {};
                 const mtuPerMonth = insights.mtuPerMonth || [];
                 const sourceUserCounts = insights.sourceUserCountsPerMonth || [];
 
-                // Show billing tier info
+                // Show contract period and billing tier info
                 const isBusinessTier = billing.isOnBusinessTier;
                 const isHighVolume = billing.isOnHighVolumePlan;
+                const planName = billing.planName;
+                const contractStart = billing.start;
+                const contractEnd = billing.end;
+
                 const tierAlertDiv = document.getElementById('billingTierAlert');
 
                 let tierInfo = '';
+                if (planName) {
+                    tierInfo += '<strong>Plan:</strong> ' + planName + ' • ';
+                }
+
                 if (isBusinessTier) {
                     tierInfo += '<strong>Business Tier</strong>';
                 } else {
@@ -201,17 +210,29 @@
                     tierInfo += ' • <strong>High Volume Plan</strong>';
                 }
 
+                // Add contract dates if available
+                if (contractStart && contractEnd) {
+                    const startDate = new Date(contractStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const endDate = new Date(contractEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    tierInfo += '<br><strong>Contract Period:</strong> ' + startDate + ' → ' + endDate;
+                }
+
                 if (tierInfo) {
-                    tierAlertDiv.innerHTML = '<div class="alert alert-info" style="margin-bottom: 1.5rem;"><strong>📋 Contract Type:</strong> ' + tierInfo + '</div>';
+                    tierAlertDiv.innerHTML = '<div class="alert alert-info" style="margin-bottom: 1.5rem;"><strong>📋 Contract Details:</strong><br>' + tierInfo + '</div>';
                 }
 
                 // Calculate stats
-                // MTU quota could be in several places
+                // MTU quota could be in several places - check entitlements first (most accurate)
                 const billingQuota = billing.quota || {};
                 let monthlyMtuLimit = null;
 
-                // Check different quota fields (API returns different formats)
-                if (billingQuota.trackedObjects) {
+                // Priority 1: Check entitlements.quotas.global.mtu (most accurate)
+                const globalMtu = entitlements.quotas?.global?.mtu;
+                if (globalMtu && globalMtu > 0) {
+                    monthlyMtuLimit = globalMtu;
+                }
+                // Priority 2: Check billing.quota.trackedObjects
+                else if (billingQuota.trackedObjects) {
                     monthlyMtuLimit = billingQuota.trackedObjects;
                 } else if (billingQuota['tracked-objects']) {
                     monthlyMtuLimit = billingQuota['tracked-objects'];
