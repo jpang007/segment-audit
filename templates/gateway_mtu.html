@@ -74,15 +74,18 @@
             <!-- Billing Type Alert -->
             <div id="billingAlert"></div>
 
+            <!-- Billing Tier Alert -->
+            <div id="billingTierAlert"></div>
+
             <!-- Stats -->
             <div class="stats-grid">
                 <div class="stat-card primary">
-                    <div class="label">Annual Quota</div>
+                    <div class="label">Monthly MTU Limit</div>
                     <div class="value" id="quota">-</div>
                     <div class="subtext" id="quotaType">-</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">Annual Usage (YTD)</div>
+                    <div class="label">Usage (Last 12 Months)</div>
                     <div class="value" id="annualUsage">-</div>
                     <div class="subtext" id="usagePercent">-</div>
                 </div>
@@ -110,7 +113,7 @@
                 <div style="background: #f9fafb; padding: 1.5rem; border-radius: 8px; border: 2px solid #e5e7eb;">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
                         <div>
-                            <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Annual MTU Total</div>
+                            <div style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Last 12 Months MTU</div>
                             <div style="font-size: 1.5rem; font-weight: 700; color: #1f2937;" id="summaryAnnualMTU">-</div>
                         </div>
                         <div>
@@ -182,72 +185,85 @@
                 const mtuPerMonth = insights.mtuPerMonth || [];
                 const sourceUserCounts = insights.sourceUserCountsPerMonth || [];
 
+                // Show billing tier info
+                const isBusinessTier = billing.isOnBusinessTier;
+                const isHighVolume = billing.isOnHighVolumePlan;
+                const tierAlertDiv = document.getElementById('billingTierAlert');
+
+                let tierInfo = '';
+                if (isBusinessTier) {
+                    tierInfo += '<strong>Business Tier</strong>';
+                } else {
+                    tierInfo += '<strong>Team Tier</strong>';
+                }
+
+                if (isHighVolume) {
+                    tierInfo += ' • <strong>High Volume Plan</strong>';
+                }
+
+                if (tierInfo) {
+                    tierAlertDiv.innerHTML = '<div class="alert alert-info" style="margin-bottom: 1.5rem;"><strong>📋 Contract Type:</strong> ' + tierInfo + '</div>';
+                }
+
                 // Calculate stats
                 // MTU quota could be in several places
                 const billingQuota = billing.quota || {};
-                let mtuQuota = null;
+                let monthlyMtuLimit = null;
 
                 // Check different quota fields (API returns different formats)
-                if (typeof billingQuota === 'number') {
-                    mtuQuota = billingQuota;
-                } else if (billingQuota.trackedObjects) {
-                    // Monthly tracked objects limit
-                    mtuQuota = billingQuota.trackedObjects * 12; // Annualize it
+                if (billingQuota.trackedObjects) {
+                    monthlyMtuLimit = billingQuota.trackedObjects;
                 } else if (billingQuota['tracked-objects']) {
-                    mtuQuota = billingQuota['tracked-objects'] * 12;
+                    monthlyMtuLimit = billingQuota['tracked-objects'];
                 }
 
-                const hasQuota = mtuQuota && mtuQuota > 0;
+                const hasQuota = monthlyMtuLimit && monthlyMtuLimit > 0;
 
                 // Get last 12 months sorted by date
                 const sortedMonths = mtuPerMonth
                     .sort((a, b) => new Date(a.period) - new Date(b.period))
                     .slice(-12);
 
-                // Calculate annual usage (sum of last 12 months)
-                const annualUsage = sortedMonths.reduce((sum, m) => sum + (m.users || 0) + (m.anonymous || 0), 0);
+                // Calculate usage over last 12 months (NOT necessarily contract year)
+                const last12MonthsUsage = sortedMonths.reduce((sum, m) => sum + (m.users || 0) + (m.anonymous || 0), 0);
 
                 // Last month
                 const lastMonth = sortedMonths[sortedMonths.length - 1] || {};
                 const lastMonthMtu = (lastMonth.users || 0) + (lastMonth.anonymous || 0);
 
                 // Average
-                const avgMtu = sortedMonths.length > 0 ? Math.round(annualUsage / sortedMonths.length) : 0;
+                const avgMtu = sortedMonths.length > 0 ? Math.round(last12MonthsUsage / sortedMonths.length) : 0;
 
                 // Display stats
                 if (hasQuota) {
-                    document.getElementById('quota').textContent = mtuQuota.toLocaleString();
+                    document.getElementById('quota').textContent = monthlyMtuLimit.toLocaleString();
+                    document.getElementById('quotaType').textContent = 'Per month (contract limit)';
 
-                    // Show if this was calculated from monthly limit
-                    const monthlyLimit = billingQuota.trackedObjects || billingQuota['tracked-objects'];
-                    if (monthlyLimit) {
-                        document.getElementById('quotaType').textContent = `Annual estimate (${monthlyLimit.toLocaleString()}/mo × 12)`;
-                    } else {
-                        document.getElementById('quotaType').textContent = 'Annual allotment';
-                    }
+                    // Calculate if last month exceeded limit
+                    const lastMonthTotal = (lastMonth.users || 0) + (lastMonth.anonymous || 0);
+                    const monthlyUsagePercent = ((lastMonthTotal / monthlyMtuLimit) * 100).toFixed(1);
 
-                    const usagePercent = ((annualUsage / mtuQuota) * 100).toFixed(1);
-                    document.getElementById('annualUsage').textContent = annualUsage.toLocaleString();
-                    document.getElementById('usagePercent').textContent = `${usagePercent}% of quota`;
+                    document.getElementById('annualUsage').textContent = last12MonthsUsage.toLocaleString();
+                    document.getElementById('usagePercent').textContent = `Total over 12 months`;
 
-                    // Show alert based on usage
+                    // Show alert based on last month vs limit
                     let alertHtml = '';
-                    if (usagePercent > 90) {
-                        alertHtml = '<div class="alert alert-warning"><strong>⚠️ High Usage:</strong> You\'ve used over 90% of your annual MTU quota. Consider upgrading or optimizing your implementation.</div>';
-                    } else if (usagePercent > 75) {
-                        alertHtml = '<div class="alert alert-info"><strong>ℹ️ Tracking:</strong> You\'ve used ' + usagePercent + '% of your annual MTU quota.</div>';
+                    if (monthlyUsagePercent > 100) {
+                        alertHtml = '<div class="alert alert-warning"><strong>⚠️ Over Limit:</strong> Last month (' + lastMonthTotal.toLocaleString() + ' MTU) exceeded the monthly limit of ' + monthlyMtuLimit.toLocaleString() + ' (' + monthlyUsagePercent + '%).</div>';
+                    } else if (monthlyUsagePercent > 90) {
+                        alertHtml = '<div class="alert alert-info"><strong>ℹ️ Near Limit:</strong> Last month used ' + monthlyUsagePercent + '% of monthly MTU limit.</div>';
                     } else {
-                        alertHtml = '<div class="alert alert-success"><strong>✅ Healthy Usage:</strong> You\'re tracking well within your annual MTU quota (' + usagePercent + '% used).</div>';
+                        alertHtml = '<div class="alert alert-success"><strong>✅ Within Limit:</strong> Last month used ' + monthlyUsagePercent + '% of monthly MTU limit (' + lastMonthTotal.toLocaleString() + ' / ' + monthlyMtuLimit.toLocaleString() + ').</div>';
                     }
                     document.getElementById('billingAlert').innerHTML = alertHtml;
                 } else {
                     document.getElementById('quota').textContent = 'No limit set';
-                    document.getElementById('quotaType').textContent = 'Pay-as-you-go or usage-based';
-                    document.getElementById('annualUsage').textContent = annualUsage.toLocaleString();
-                    document.getElementById('usagePercent').textContent = 'Annual total (no quota)';
+                    document.getElementById('quotaType').textContent = 'Usage-based billing';
+                    document.getElementById('annualUsage').textContent = last12MonthsUsage.toLocaleString();
+                    document.getElementById('usagePercent').textContent = 'Total over 12 months';
 
-                    // Still useful info for CSM - show the annual total
-                    document.getElementById('billingAlert').innerHTML = '<div class="alert alert-info"><strong>💳 Usage-Based Billing:</strong> This workspace does not have a fixed annual MTU quota in the API response. Annual usage shown above (' + annualUsage.toLocaleString() + ' MTU) can be used for billing discussions.</div>';
+                    // Still useful info for CSM
+                    document.getElementById('billingAlert').innerHTML = '<div class="alert alert-info"><strong>💳 Usage-Based Billing:</strong> No monthly MTU limit found in contract. Last 12 months usage: ' + last12MonthsUsage.toLocaleString() + ' MTU.</div>';
                 }
 
                 document.getElementById('lastMonthMtu').textContent = lastMonthMtu.toLocaleString();
@@ -255,13 +271,13 @@
                 document.getElementById('avgMtu').textContent = avgMtu.toLocaleString();
 
                 // Build trend chart
-                buildMtuTrendChart(sortedMonths, mtuQuota);
+                buildMtuTrendChart(sortedMonths, monthlyMtuLimit);
 
                 // Build source table
                 buildSourceTable(sourceUserCounts);
 
                 // Build billing summary for CSMs
-                buildBillingSummary(annualUsage, avgMtu, billingQuota);
+                buildBillingSummary(last12MonthsUsage, avgMtu, billingQuota, isBusinessTier, isHighVolume);
 
             } catch (error) {
                 console.error('Error loading MTU data:', error);
@@ -343,12 +359,12 @@
             });
         }
 
-        function buildBillingSummary(annualUsage, avgMtu, quota) {
+        function buildBillingSummary(last12MonthsUsage, avgMtu, quota, isBusinessTier, isHighVolume) {
             // Show the billing summary section
             document.getElementById('billingSummary').style.display = 'block';
 
-            // Annual MTU Total
-            document.getElementById('summaryAnnualMTU').textContent = annualUsage.toLocaleString();
+            // Last 12 Months MTU Total
+            document.getElementById('summaryAnnualMTU').textContent = last12MonthsUsage.toLocaleString();
 
             // Average Monthly MTU
             document.getElementById('summaryAvgMTU').textContent = avgMtu.toLocaleString();

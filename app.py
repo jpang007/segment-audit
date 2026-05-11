@@ -1324,6 +1324,29 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {}).get('auditEvents', {})
 
+    def get_billing_tier_info(self):
+        """Get billing tier information (business tier, high volume plan)"""
+        query = """
+        query workspace__billingTier($workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            billing {
+              isOnBusinessTier
+              isOnHighVolumePlan
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
     def get_mtu_data(self, workspace_id, start_date, end_date, is_monthly=True):
         """Get MTU (Monthly Tracked Users) data for billing analysis"""
         query = """
@@ -1789,7 +1812,14 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         audit_status['progress'] = 87
         print(f"\n=== FETCHING MTU DATA ===")
         mtu_data = {}
+        billing_tier_info = {}
         try:
+            # Get billing tier info (business tier, high volume plan)
+            billing_tier_info = client.get_billing_tier_info()
+            is_business = billing_tier_info.get('billing', {}).get('isOnBusinessTier')
+            is_high_volume = billing_tier_info.get('billing', {}).get('isOnHighVolumePlan')
+            print(f"  -> Business Tier: {is_business}, High Volume: {is_high_volume}")
+
             # Get workspace ID from workspace_connections
             workspace_data = client.get_workspace_connections()
             workspace_id = workspace_data.get('id')
@@ -1806,6 +1836,12 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     end_date.isoformat() + 'Z',
                     is_monthly=True
                 )
+
+                # Merge billing tier info into mtu_data
+                if 'billing' not in mtu_data:
+                    mtu_data['billing'] = {}
+                mtu_data['billing']['isOnBusinessTier'] = is_business
+                mtu_data['billing']['isOnHighVolumePlan'] = is_high_volume
 
                 quota = mtu_data.get('billing', {}).get('quota')
                 mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])
