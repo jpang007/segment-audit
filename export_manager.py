@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Export Manager - Generate CSV exports for audit data and recommendations
+Export Manager - Generate CSV exports for audit data
 """
 
 import csv
@@ -9,7 +9,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List
 import io
-from business_context_analyzer import BusinessContextAnalyzer
 
 
 class ExportManager:
@@ -17,149 +16,6 @@ class ExportManager:
 
     def __init__(self, audit_data_dir: str = './audit_data'):
         self.data_dir = Path(audit_data_dir)
-        self.analyzer = BusinessContextAnalyzer(audit_data_dir)
-
-    def export_recommendations_csv(self, recommendations: Dict[str, Any]) -> str:
-        """
-        Export recommendations to CSV format with context-aware use cases
-        Returns CSV as string
-        """
-        output = io.StringIO()
-        writer = csv.writer(output)
-
-        # Analyze business context once
-        business_context = self.analyzer.analyze_business_context()
-
-        # Header
-        writer.writerow([
-            'Priority',
-            'Severity',
-            'Type',
-            'Title',
-            'Evidence',
-            'Impact',
-            'Recommendation',
-            'Affected Count',
-            'Use Case Examples',
-            'Detected Business Model'
-        ])
-
-        # Findings
-        for idx, finding in enumerate(recommendations.get('findings', []), 1):
-            # Generate contextual use cases based on actual data
-            use_cases = self._generate_contextual_use_cases(finding, business_context)
-
-            writer.writerow([
-                idx,
-                finding.get('severity', 'unknown'),
-                finding.get('type', 'unknown'),
-                finding.get('title', ''),
-                finding.get('evidence', ''),
-                finding.get('impact', ''),
-                finding.get('recommendation', ''),
-                finding.get('count', 0),
-                use_cases,
-                ', '.join(business_context.get('likely_industries', ['General']))
-            ])
-
-        return output.getvalue()
-
-    def _generate_contextual_use_cases(self, finding: Dict[str, Any], business_context: Dict[str, Any]) -> str:
-        """Generate contextual use cases based on actual business model and data"""
-        finding_type = finding.get('type', '')
-        industries = business_context.get('likely_industries', ['General'])
-
-        # Get relevant use case opportunities from business context
-        relevant_opportunities = [
-            opp for opp in business_context.get('use_case_opportunities', [])
-            if self._is_relevant_to_finding(opp, finding_type)
-        ]
-
-        # Build contextual use cases
-        use_cases = []
-
-        if finding_type == 'activation_gap':
-            # Use actual detected patterns
-            if 'Media/Publishing' in industries:
-                use_cases.append("Newsletter Campaigns: Activate subscriber segments in Braze/Iterable for personalized sends")
-                use_cases.append("Content Recommendations: Use engagement scores to recommend relevant articles/topics")
-                use_cases.append("Reader Re-engagement: Build win-back campaigns for inactive subscribers")
-
-            if 'SaaS' in industries:
-                use_cases.append("Product Onboarding: Send contextual emails based on feature usage patterns")
-                use_cases.append("Trial Conversion: Alert sales when trial users hit activation milestones")
-                use_cases.append("Expansion Revenue: Target power users with upsell/cross-sell offers")
-
-            if 'eCommerce' in industries:
-                use_cases.append("Cart Recovery: Automated abandonment emails with product recommendations")
-                use_cases.append("Loyalty Programs: Reward high-value customers with exclusive offers")
-                use_cases.append("Retargeting: Sync to Google/Facebook Ads for lookalike audiences")
-
-            # Universal recommendations
-            use_cases.append("Paid Media: Create lookalike audiences in ad platforms")
-            use_cases.append("Analytics: Track segment performance across activation channels")
-
-        elif finding_type == 'underutilized_source':
-            if 'Media/Publishing' in industries:
-                use_cases.append("Engagement Scoring: Build audiences from article views, reading time")
-                use_cases.append("Content Affinity: Segment by topic preferences for personalization")
-            else:
-                use_cases.append("Behavioral Targeting: Build audiences from high-volume user actions")
-                use_cases.append("Conversion Funnels: Track user journeys from events to outcomes")
-
-            use_cases.append("Retention Analysis: Identify drop-off points in user lifecycle")
-            use_cases.append("Feature Adoption: Track and segment by product usage patterns")
-            use_cases.append("Attribution Models: Connect engagement events to conversions")
-
-        elif finding_type == 'unused_high_volume':
-            use_cases.append("Event-Triggered Campaigns: Send messages based on specific user actions")
-            use_cases.append("Predictive Models: Build scoring from behavioral event patterns")
-            use_cases.append("Journey Orchestration: Create multi-step flows based on event sequences")
-            use_cases.append("Real-time Personalization: React to high-volume events with dynamic content")
-            use_cases.append("Cohort Analysis: Build and compare user segments by event behavior")
-
-        elif finding_type == 'personalization_opportunity':
-            use_cases.append("Dynamic Content: Show different website/email content by user attributes")
-            use_cases.append("A/B Testing: Create test variants by segment characteristics")
-            use_cases.append("Recommendation Engine: Personalize suggestions using trait data")
-            use_cases.append("Send Time Optimization: Schedule messages based on user timezone/behavior")
-            use_cases.append("Landing Page Variants: Customize CTAs and messaging by segment")
-
-        elif finding_type in ['stale_audience', 'workspace_hygiene']:
-            use_cases.append("Workspace Cleanup: Remove outdated segments to improve team productivity")
-            use_cases.append("Performance Optimization: Free up computation resources")
-            use_cases.append("Logic Audit: Review and fix broken audience definitions")
-            use_cases.append("Documentation: Update audience descriptions and use cases")
-            use_cases.append("Cost Management: Stop syncing empty segments to reduce destination costs")
-
-        elif finding_type == 'delivery_issue':
-            use_cases.append("Data Quality: Fix schema mismatches causing sync failures")
-            use_cases.append("Credential Audit: Verify destination API keys and permissions")
-            use_cases.append("Monitoring: Set up alerts for delivery failures and drops")
-            use_cases.append("Vendor Support: Escalate persistent issues to destination teams")
-            use_cases.append("Fallback Strategy: Implement backup destinations for critical audiences")
-
-        else:
-            # Generic fallback
-            use_cases.append("Improve data quality and activation effectiveness")
-
-        # Format as numbered list
-        if len(use_cases) > 5:
-            use_cases = use_cases[:5]
-
-        formatted = "Use Cases:\n" + "\n".join([f"{i+1}. {uc}" for i, uc in enumerate(use_cases)])
-        return formatted
-
-    def _is_relevant_to_finding(self, opportunity: Dict[str, Any], finding_type: str) -> bool:
-        """Check if a use case opportunity is relevant to a finding type"""
-        relevance_map = {
-            'activation_gap': ['Newsletter Engagement', 'Trial Conversion', 'Cart Recovery', 'Activation Gap'],
-            'underutilized_source': ['Content Personalization', 'Product Analytics'],
-            'unused_high_volume': ['Product Analytics', 'Content Personalization'],
-        }
-
-        relevant_categories = relevance_map.get(finding_type, [])
-        return opportunity.get('category', '') in relevant_categories
 
     def export_sources_with_destinations_csv(self) -> str:
         """
@@ -306,7 +162,7 @@ class ExportManager:
         return output.getvalue()
 
     def _recommend_audience_use_case(self, audience: Dict[str, str]) -> str:
-        """Recommend use cases based on audience characteristics and business context"""
+        """Recommend use cases based on audience characteristics"""
         name = audience.get('Name', '').lower()
         size = audience.get('Size', '0')
         dest_count = int(audience.get('Destination Count', '0'))
@@ -316,9 +172,8 @@ class ExportManager:
         except (ValueError, AttributeError):
             size_int = 0
 
-        # Get business context for smarter recommendations
-        business_context = self.analyzer.analyze_business_context()
-        industries = business_context.get('likely_industries', ['General'])
+        # Simple pattern-based recommendations
+        industries = ['General']
 
         # Build contextual recommendation
         recommendations = []
@@ -833,13 +688,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         export_type = sys.argv[1]
 
-        if export_type == 'recommendations':
-            # Load recommendations
-            from recommendations_engine import generate_recommendations
-            recs = generate_recommendations()
-            print(exporter.export_recommendations_csv(recs))
-
-        elif export_type == 'sources':
+        if export_type == 'sources':
             print(exporter.export_sources_with_destinations_csv())
 
         elif export_type == 'audiences':
@@ -849,9 +698,7 @@ if __name__ == '__main__':
             print(exporter.export_top_events_csv())
 
         elif export_type == 'all':
-            from recommendations_engine import generate_recommendations
-            recs = generate_recommendations()
-            zip_data = exporter.export_all_as_zip(recs)
+            zip_data = exporter.export_all_as_zip()
 
             # Write to file
             output_file = 'segment_audit_export.zip'
@@ -859,4 +706,4 @@ if __name__ == '__main__':
                 f.write(zip_data)
             print(f"Exported to {output_file}")
     else:
-        print("Usage: python export_manager.py [recommendations|sources|audiences|events|all]")
+        print("Usage: python export_manager.py [sources|audiences|events|all]")
