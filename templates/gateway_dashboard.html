@@ -28,12 +28,14 @@
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
                         <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
-            <a href="/mtu" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 MTU Usage</a>
+            <a href="/mtu" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
                         {% if enable_experimental %}
-                        <a href="/recommendations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">💡 Recommendations</a>
                         {% endif %}
                     </div>
                 </div>
+                <button onclick="downloadAllFiles()" class="btn btn-primary btn-sm" style="margin-right: 10px;">
+                    📦 Download All Files
+                </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
                     ← New Audit
                 </button>
@@ -338,6 +340,238 @@
                 `;
                 topAudiencesList.appendChild(div);
             });
+        }
+
+        async function loadHealthCheckData() {
+            try {
+                const response = await fetch('/api/health-check-data');
+                if (!response.ok) {
+                    console.warn('Health check data not available');
+                    return;
+                }
+
+                const data = await response.json();
+                renderHealthCheckCharts(data);
+            } catch (error) {
+                console.error('Error loading health check data:', error);
+            }
+        }
+
+        function renderHealthCheckCharts(data) {
+            // API Calls Over Time Chart with Plan Limit
+            if (data.api_calls_per_month && data.api_calls_per_month.length > 0) {
+                const apiCallsData = data.api_calls_per_month.slice(-12); // Last 12 months
+                const labels = apiCallsData.map(d => {
+                    const date = new Date(d.period);
+                    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+                });
+                const counts = apiCallsData.map(d => d.count);
+                const quota = data.billing_quota;
+
+                const ctx = document.getElementById('apiCallsChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'API Calls',
+                            data: counts,
+                            backgroundColor: '#48bb78',
+                            borderRadius: 4
+                        }, {
+                            label: 'Plan Limit',
+                            data: Array(labels.length).fill(quota),
+                            type: 'line',
+                            borderColor: '#f56565',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            fill: false,
+                            pointRadius: 0
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'top',
+                                labels: { padding: 15, font: { size: 11 } }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        label += (context.parsed.y / 1000000).toFixed(2) + 'M';
+                                        return label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return (value / 1000000).toFixed(0) + 'M';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Event Casing Chart
+            if (data.casing_analysis && data.casing_analysis.event_casing) {
+                const eventCasing = data.casing_analysis.event_casing;
+                const eventLabels = Object.keys(eventCasing).filter(k => eventCasing[k] > 0);
+                const eventValues = eventLabels.map(k => eventCasing[k]);
+
+                if (eventValues.length > 0) {
+                    const ctx = document.getElementById('eventCasingChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: eventLabels,
+                            datasets: [{
+                                label: 'Unique Events',
+                                data: eventValues,
+                                backgroundColor: ['#48bb78', '#4299e1', '#9f7aea', '#ed8936', '#f56565'],
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                x: { beginAtZero: true }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // Property Casing Chart
+            if (data.casing_analysis && data.casing_analysis.property_casing) {
+                const propertyCasing = data.casing_analysis.property_casing;
+                const propertyLabels = Object.keys(propertyCasing).filter(k => propertyCasing[k] > 0);
+                const propertyValues = propertyLabels.map(k => propertyCasing[k]);
+
+                if (propertyValues.length > 0) {
+                    const ctx = document.getElementById('propertyCasingChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: propertyLabels,
+                            datasets: [{
+                                label: 'Unique Properties',
+                                data: propertyValues,
+                                backgroundColor: ['#9f7aea', '#4299e1', '#48bb78', '#ed8936', '#f56565'],
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                x: { beginAtZero: true }
+                            }
+                        }
+                    });
+                }
+            }
+
+            // MTU Health Summary
+            if (data.mtu_summary && data.mtu_summary.current_mtu) {
+                document.getElementById('mtuHealthSection').style.display = 'block';
+                document.getElementById('currentMTU').textContent = (data.mtu_summary.current_mtu || 0).toLocaleString();
+                document.getElementById('mtuQuota').textContent = data.billing_quota ? (data.billing_quota / 1000000).toFixed(1) + 'M' : 'N/A';
+
+                if (data.billing_quota && data.mtu_summary.current_mtu) {
+                    const utilization = ((data.mtu_summary.current_mtu / data.billing_quota) * 100).toFixed(1);
+                    const utilizationEl = document.getElementById('mtuUtilization');
+                    utilizationEl.textContent = utilization + '%';
+
+                    // Color code utilization
+                    if (utilization > 90) {
+                        utilizationEl.style.color = '#f56565'; // Red
+                    } else if (utilization > 75) {
+                        utilizationEl.style.color = '#ed8936'; // Orange
+                    } else {
+                        utilizationEl.style.color = '#48bb78'; // Green
+                    }
+                }
+            }
+        }
+
+        async function downloadAllFiles() {
+            try {
+                // Show loading state
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '⏳ Preparing download...';
+                button.disabled = true;
+
+                // Fetch the ZIP file
+                const response = await fetch('/api/export-all-audit-data');
+
+                if (!response.ok) {
+                    throw new Error('Failed to generate export');
+                }
+
+                // Get the blob
+                const blob = await response.blob();
+
+                // Create download link
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+
+                // Get filename from response header or use default
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let filename = 'segment_audit_complete.zip';
+                if (contentDisposition) {
+                    const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                    if (matches != null && matches[1]) {
+                        filename = matches[1].replace(/['"]/g, '');
+                    }
+                }
+                a.download = filename;
+
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                // Show success message
+                button.innerHTML = '✅ Downloaded!';
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                    button.disabled = false;
+                }, 2000);
+
+            } catch (error) {
+                console.error('Error downloading files:', error);
+                alert('Error downloading files. Please try again.');
+
+                // Reset button
+                const button = event.target;
+                button.innerHTML = '📦 Download All Files';
+                button.disabled = false;
+            }
         }
 
         loadData();

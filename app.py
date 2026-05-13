@@ -1558,6 +1558,112 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {})
 
+    def get_throughput_for_period(self, workspace_id, start_date, end_date, is_monthly=False):
+        """Get API call throughput data with billing quota for health check visualization"""
+        query = """
+        query app__GetThroughputForPeriod($workspaceId: ID!, $isMonthly: Boolean!, $period: Period!) {
+          workspace(id: $workspaceId) {
+            id
+            billing {
+              quota
+              __typename
+            }
+            insights {
+              apiCallCountsPerMonth @include(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              apiCallCountsCumulativePerDay(period: $period) @skip(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              objectCountsPerMonth @include(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              objectCountsCumulativePerDay(period: $period) @skip(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceId": workspace_id,
+            "isMonthly": is_monthly,
+            "period": {
+                "start": start_date,
+                "end": end_date
+            }
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
+    def get_api_usage(self, workspace_id, start_date, end_date, is_monthly=True):
+        """Get API usage with per-source breakdown"""
+        query = """
+        query app_ApiUsage($workspaceId: ID!, $isMonthly: Boolean!, $period: Period!) {
+          workspace(id: $workspaceId) {
+            id
+            insights {
+              apiCallCountsPerMonth @include(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              apiCallCountsCumulativePerDay(period: $period) @skip(if: $isMonthly) {
+                period
+                count
+                __typename
+              }
+              apiCallsDailyCumulativePerSource(period: $period) @skip(if: $isMonthly) {
+                count
+                source {
+                  id
+                  name
+                  __typename
+                }
+                period
+                __typename
+              }
+              apiCallsMonthlyPerSource @include(if: $isMonthly) {
+                count
+                source {
+                  id
+                  name
+                  __typename
+                }
+                period
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceId": workspace_id,
+            "isMonthly": is_monthly,
+            "period": {
+                "start": start_date,
+                "end": end_date
+            }
+        }
+
+        data = self._execute_query(query, variables)
+        return data.get('workspace', {})
+
     def get_data_flows(self, pagination_count=10):
         """Get workspace onboarding use cases and data flows"""
         query = """
@@ -1992,6 +2098,25 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                 mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])
                 print(f"  -> MTU Quota: {quota if quota else 'Not set'}")
                 print(f"  -> Collected {len(mtu_months)} months of MTU data")
+
+                # Also fetch API usage data if on API plan
+                try:
+                    api_usage = client.get_api_usage(
+                        workspace_id,
+                        start_date.isoformat() + 'Z',
+                        end_date.isoformat() + 'Z',
+                        is_monthly=True
+                    )
+
+                    if 'apiUsage' not in mtu_data:
+                        mtu_data['apiUsage'] = {}
+
+                    mtu_data['apiUsage'] = api_usage.get('insights', {})
+
+                    api_months = api_usage.get('insights', {}).get('apiCallCountsPerMonth', [])
+                    print(f"  -> Collected {len(api_months)} months of API usage data")
+                except Exception as api_err:
+                    print(f"  -> Could not fetch API usage: {api_err}")
             else:
                 print(f"  -> Could not determine workspace ID")
         except Exception as e:
@@ -2357,10 +2482,17 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         # Save summary
         destinations_list = destinations_data.get('destinations', [])
+
+        # Get workspace_id from usage_data if available
+        workspace_id = None
+        if usage_period_data:
+            workspace_id = usage_period_data.get('id')
+
         summary = {
             'audit_date': datetime.now().isoformat(),
             'customer_name': customer_name,
             'workspace_slug': workspace_slug,
+            'workspace_id': workspace_id,
             'sources_count': len(sources),
             'destinations_count': len(destinations_list),
             'audiences_count': len(all_audiences),
@@ -2559,15 +2691,80 @@ def get_audit_trail_data():
 
 @app.route('/api/mtu-data')
 def get_mtu_data():
-    """Get MTU data for visualization"""
+    """Get MTU and usage data for visualization"""
     try:
         mtu_file = DATA_DIR / 'gateway_mtu.json'
+        usage_file = DATA_DIR / 'gateway_usage_data.json'
 
-        if not mtu_file.exists():
-            return jsonify({'error': 'No MTU data available. Please run an audit first.'}), 404
+        # Try to load MTU file first
+        mtu_data = {}
+        if mtu_file.exists():
+            with open(mtu_file, 'r') as f:
+                mtu_data = json.load(f)
 
-        with open(mtu_file, 'r') as f:
-            mtu_data = json.load(f)
+        # If MTU data is empty or missing, use usage_data as fallback
+        if not mtu_data or mtu_data == {}:
+            if usage_file.exists():
+                print("MTU data empty, using usage_data.json as fallback")
+                with open(usage_file, 'r') as f:
+                    mtu_data = json.load(f)
+
+                # Generate insights from historicalBilling if not present
+                if 'insights' not in mtu_data or not mtu_data.get('insights'):
+                    print("Generating insights from historicalBilling")
+                    mtu_data['insights'] = {
+                        'mtuPerMonth': [],
+                        'sourceUserCountsPerMonth': []
+                    }
+
+                    # Convert historicalBilling to mtuPerMonth format
+                    for hist in mtu_data.get('historicalBilling', []):
+                        if hist.get('usage', {}).get('mtus'):
+                            mtus = hist['usage']['mtus']
+                            mtu_data['insights']['mtuPerMonth'].append({
+                                'users': mtus.get('users', 0),
+                                'anonymous': mtus.get('anonymous', 0),
+                                'period': hist.get('start'),
+                                '__typename': 'MtuCounts'
+                            })
+
+                    # Sort by period
+                    mtu_data['insights']['mtuPerMonth'].sort(key=lambda x: x.get('period', ''))
+
+            else:
+                return jsonify({'error': 'No usage data available. Please run an audit first.'}), 404
+
+        # Try to fetch API usage data if we have workspace_id
+        workspace_id = mtu_data.get('id')
+        if workspace_id:
+            try:
+                gateway_token = session.get('gateway_token')
+                workspace_slug = session.get('workspace_slug')
+
+                if gateway_token and workspace_slug:
+                    from datetime import datetime, timedelta
+                    client = GatewayAPIClient(gateway_token, workspace_slug)
+
+                    # Get last 12 months of API usage
+                    end_date = datetime.utcnow()
+                    start_date = end_date - timedelta(days=365)
+
+                    api_usage = client.get_api_usage(
+                        workspace_id,
+                        start_date.isoformat() + 'Z',
+                        end_date.isoformat() + 'Z',
+                        is_monthly=True
+                    )
+
+                    # Add API usage to response
+                    if 'apiUsage' not in mtu_data:
+                        mtu_data['apiUsage'] = {}
+                    mtu_data['apiUsage'] = api_usage.get('insights', {})
+
+                    print(f"Fetched API usage data: {len(api_usage.get('insights', {}).get('apiCallCountsPerMonth', []))} months")
+            except Exception as api_err:
+                print(f"Could not fetch real-time API usage: {api_err}")
+                # Continue without API usage
 
         return jsonify(mtu_data)
 
@@ -3266,322 +3463,131 @@ def export_sources_excel_v2():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/recommendations')
-def recommendations_page():
-    """Recommendations page (experimental feature)"""
-    if not ENABLE_EXPERIMENTAL_FEATURES:
-        return "Feature not available", 404
-
-    workspace_slug = session.get('workspace_slug')
-    if not workspace_slug:
-        return redirect('/')
-    return render_template('recommendations.html', workspace_slug=workspace_slug)
-
-@app.route('/api/generate-recommendations', methods=['POST'])
-def generate_recommendations_api():
-    """Generate goal-driven workspace recommendations using targeted AI analysis (experimental)"""
-    if not ENABLE_EXPERIMENTAL_FEATURES:
-        return jsonify({'success': False, 'error': 'Feature not available'}), 404
-
+@app.route('/api/health-check-data')
+def get_health_check_data():
+    """Get health check data: billing quota, API usage, casing analysis"""
     try:
-        from recommendations_cache import RecommendationsCache
-        from data_structurer import DataStructurer
-        from business_inference_prompts import BusinessInferencePrompts
-        from goal_driven_prompts import GoalDrivenPrompts
-        from enhanced_audit_prompts import EnhancedAuditPrompts  # New enhanced system
-        # from mcp_collective_intelligence import MCPCollectiveIntelligence  # Disabled - no database
-        from gemini_client import GeminiClient
-        import re
+        gateway_token = session.get('gateway_token')
+        workspace_slug = session.get('workspace_slug')
 
-        # Initialize cache
-        cache = RecommendationsCache(str(DATA_DIR))
+        if not gateway_token or not workspace_slug:
+            return jsonify({'error': 'Not authenticated'}), 401
 
-        # Get workspace slug from session
-        workspace_slug = session.get('workspace_slug', 'unknown')
+        # Get workspace ID from summary
+        summary_file = DATA_DIR / 'gateway_summary.json'
+        if not summary_file.exists():
+            return jsonify({'error': 'No workspace data available. Please run audit first.'}), 404
 
-        # Get request parameters (goal-driven approach)
-        req_data = request.json or {}
-        goal = req_data.get('goal')
-        output_type = req_data.get('output_type', 'recommended_actions')  # Default to full JSON
-        industry_override = req_data.get('industry_override')
-        business_model_override = req_data.get('business_model_override')
-        user_notes = req_data.get('user_notes', '')
-        force_refresh = req_data.get('force_refresh', False)
+        with open(summary_file, 'r') as f:
+            summary = json.load(f)
 
-        if not goal:
-            return jsonify({
-                'success': False,
-                'error': 'Goal is required'
-            }), 400
+        workspace_id = summary.get('workspace_id')
+        if not workspace_id:
+            return jsonify({'error': 'Workspace ID not found'}), 400
 
-        # Simplified: output_type no longer required (always return full JSON)
-        import hashlib
-        context_hash = hashlib.md5(f"{industry_override}_{business_model_override}_{user_notes}".encode()).hexdigest()[:8]
-        cache_key = f"{goal}_{context_hash}"
+        client = GatewayAPIClient(gateway_token, workspace_slug)
 
-        # Only use cache if not forcing refresh
-        if not force_refresh:
-            cached = cache.get_cached_recommendations(workspace_slug, cache_key)
-            if cached:
-                print("✓ Using cached result")
-                return jsonify({
-                    'success': True,
-                    'result': cached.get('result'),
-                    'layer0': cached.get('layer0'),
-                    'cached': True
-                })
-        else:
-            print("🔄 Force refresh - bypassing cache")
+        # Get last 12 months of data
+        from datetime import datetime, timedelta
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=365)
 
-        # Check rate limits before calling Gemini
-        allowed, reason = cache.check_rate_limit()
-        if not allowed:
-            return jsonify({
-                'success': False,
-                'error': reason,
-                'rate_limited': True
-            }), 429
+        start_iso = start_date.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        end_iso = end_date.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
-        # Record API call
-        cache.record_api_call()
+        # Fetch throughput data (monthly)
+        throughput_data = client.get_throughput_for_period(
+            workspace_id,
+            start_iso,
+            end_iso,
+            is_monthly=True
+        )
 
-        print(f"🎯 Goal-driven analysis: {goal} -> {output_type}")
+        billing_quota = throughput_data.get('billing', {}).get('quota')
+        insights = throughput_data.get('insights', {})
+        api_calls_per_month = insights.get('apiCallCountsPerMonth', [])
+        object_counts_per_month = insights.get('objectCountsPerMonth', [])
 
-        # Step 1: Generate findings (needed for data structuring)
-        print("🔍 Generating rule-based findings...")
-        from recommendations_engine import generate_recommendations
-        findings = generate_recommendations(str(DATA_DIR))
+        # Load source schema data for casing analysis
+        sources_file = DATA_DIR / 'gateway_sources.json'
+        casing_data = {'event_casing': {}, 'property_casing': {}}
 
-        # Step 2: Structure data for AI
-        print("📊 Structuring workspace data...")
-        structurer = DataStructurer(str(DATA_DIR))
-        structured_data = structurer.structure_for_gemini(findings)
+        if sources_file.exists():
+            with open(sources_file, 'r') as f:
+                sources = json.load(f)
 
-        # Step 3: Business context (use overrides or simple default - SKIP AI inference to save API calls)
-        print("🔍 Setting business context...")
-
-        # Get Gemini API key
-        gemini_api_key = os.environ.get('GEMINI_API_KEY')
-        if not gemini_api_key:
-            return jsonify({
-                'success': False,
-                'error': 'GEMINI_API_KEY environment variable not set'
-            }), 500
-
-        # Initialize Gemini client (handles SSL bypass in dev mode)
-        gemini_client = GeminiClient(gemini_api_key)
-
-        if industry_override and business_model_override:
-            print(f"   Using overrides: {industry_override} / {business_model_override}")
-            layer0_result = {
-                'industry': {'primary': industry_override, 'primary_confidence': 'high'},
-                'business_model': {'primary': business_model_override, 'primary_confidence': 'high'}
+            # Analyze event and property casing
+            event_casing_counts = {
+                'Title Case': 0,
+                'camelCase': 0,
+                'snake_case': 0,
+                'path/case': 0,
+                'Non-Standard': 0
             }
-        else:
-            # Use simple default to avoid extra API call
-            # User can override in the UI if needed
-            workspace_slug = session.get('workspace_slug', 'unknown')
-            print(f"   Using default context for {workspace_slug}")
-            layer0_result = {
-                'industry': {'primary': 'Media/Publishing', 'primary_confidence': 'medium'},
-                'business_model': {'primary': 'Subscription', 'primary_confidence': 'medium'}
+            property_casing_counts = {
+                'dot.notation': 0,
+                'camelCase': 0,
+                'snake_case': 0,
+                'singleword': 0,
+                'Non-Standard': 0
             }
 
-        # Step 4: Query MCP for collective intelligence (DISABLED FOR NOW)
-        print("🌐 Skipping collective intelligence (database disabled)...")
-        # mcp = MCPCollectiveIntelligence()
-        # collective_insights = mcp.get_contextual_insights(layer0_result)
-        collective_insights = {
-            'industry': layer0_result.get('industry', {}).get('primary', 'Unknown'),
-            'business_model': layer0_result.get('business_model', {}).get('primary', 'Unknown'),
-            'similar_workspaces_analyzed': 0,
-            'benchmarks': {},
-            'best_practices': [],
-            'collective_context': ''
+            for source in sources:
+                if 'schema' in source and source['schema']:
+                    schema = source['schema']
+
+                    # Analyze track events
+                    if 'track' in schema and 'events' in schema['track']:
+                        for event_name, event_data in schema['track']['events'].items():
+                            # Determine event casing
+                            if ' ' in event_name and event_name[0].isupper():
+                                event_casing_counts['Title Case'] += 1
+                            elif '/' in event_name:
+                                event_casing_counts['path/case'] += 1
+                            elif '_' in event_name:
+                                event_casing_counts['snake_case'] += 1
+                            elif event_name[0].islower() and any(c.isupper() for c in event_name):
+                                event_casing_counts['camelCase'] += 1
+                            else:
+                                event_casing_counts['Non-Standard'] += 1
+
+                            # Analyze properties
+                            if 'properties' in event_data:
+                                for prop_name in event_data['properties'].keys():
+                                    if '.' in prop_name:
+                                        property_casing_counts['dot.notation'] += 1
+                                    elif '_' in prop_name:
+                                        property_casing_counts['snake_case'] += 1
+                                    elif prop_name[0].islower() and any(c.isupper() for c in prop_name):
+                                        property_casing_counts['camelCase'] += 1
+                                    elif not any(c.isupper() or c == '_' or c == '.' for c in prop_name):
+                                        property_casing_counts['singleword'] += 1
+                                    else:
+                                        property_casing_counts['Non-Standard'] += 1
+
+            casing_data = {
+                'event_casing': event_casing_counts,
+                'property_casing': property_casing_counts
+            }
+
+        # Load MTU data from summary
+        mtu_data = summary.get('mtu_summary', {})
+
+        result = {
+            'billing_quota': billing_quota,
+            'api_calls_per_month': api_calls_per_month,
+            'object_counts_per_month': object_counts_per_month,
+            'casing_analysis': casing_data,
+            'mtu_summary': mtu_data,
+            'workspace_name': summary.get('customer_name', workspace_slug)
         }
 
-        # Step 5: Build business context string
-        business_context = f"""
-Industry: {layer0_result.get('industry', {}).get('primary', 'Unknown')}
-Business Model: {layer0_result.get('business_model', {}).get('primary', 'Unknown')}
-
-{collective_insights.get('collective_context', '')}
-"""
-
-        # Step 6: Select goal-specific prompt
-        print(f"📝 Generating {goal} prompt for {output_type}...")
-
-        # Use enhanced prompts for workspace_audit, fallback to original for others
-        if goal == 'workspace_audit':
-            print(f"   ✨ Using ENHANCED prompt system with confidence levels ✨")
-            enhanced_prompts = EnhancedAuditPrompts()
-            prompt = enhanced_prompts.workspace_audit_with_confidence_levels(
-                structured_data,
-                business_context,
-                user_notes
-            )
-        else:
-            # Fallback to original system for growth_usecases and activation_expansion
-            print(f"   Using original prompt system")
-            prompts = GoalDrivenPrompts()
-            if goal == 'growth_usecases':
-                prompt = prompts.goal_growth_usecases(structured_data, business_context, user_notes, 'recommended_actions')
-            elif goal == 'activation_expansion':
-                prompt = prompts.goal_activation_expansion(structured_data, business_context, user_notes, 'recommended_actions')
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': f'Unknown goal: {goal}'
-                }), 400
-
-        # Step 7: Call Gemini with goal-specific prompt
-        print(f"✨ Calling Gemini for {goal} analysis...")
-        print(f"   Prompt length: {len(prompt):,} characters")
-
-        # Use staged summarization if prompt is too large (>30k chars)
-        USE_STAGED_SUMMARIZATION = len(prompt) > 30000
-
-        if USE_STAGED_SUMMARIZATION:
-            print(f"   ⚠️  Large prompt detected ({len(prompt):,} chars)")
-            print(f"   🔄 Using staged summarization to reduce API load...")
-            try:
-                # This will break the analysis into 4 smaller API calls
-                staged_result = gemini_client.staged_summarization(
-                    structured_data, goal, business_context, model='gemini-2.5-flash'
-                )
-                # For now, we still need to do final generation with compact data
-                # TODO: Update prompts to use compact summaries
-                print(f"   ⚠️  Staged summarization complete, but falling back to full prompt for now")
-            except Exception as stage_error:
-                print(f"   ⚠️  Staged summarization failed: {stage_error}")
-                print(f"   🔄 Falling back to single large prompt...")
-
-        # Using gemini-2.5-flash with intelligent retry and fallback
-        response_text = gemini_client.generate_content(prompt, model='gemini-2.5-flash').strip()
-        print(f"   Response length: {len(response_text)} characters")
-        print(f"   Response preview: {response_text[:200]}")
-
-        # Always expect JSON structure (simplified)
-        # Try direct JSON parse first
-        try:
-            result = json.loads(response_text)
-            print(f"   ✓ Direct JSON parse successful, keys: {list(result.keys())}")
-        except json.JSONDecodeError as e:
-            print(f"   ⚠️ Direct JSON parse failed: {e}")
-            # Try extracting from markdown code block
-            # Look for ```json or ``` followed by JSON content
-            if response_text.strip().startswith('```'):
-                # Remove opening ``` and optional json marker
-                json_str = response_text.strip()
-                json_str = re.sub(r'^```(?:json)?\s*', '', json_str)
-                # Remove closing ```
-                json_str = re.sub(r'\s*```\s*$', '', json_str)
-
-                print(f"   Extracted from markdown block: {len(json_str)} chars")
-                try:
-                    result = json.loads(json_str)
-                    print(f"   ✓ Markdown JSON parse successful, keys: {list(result.keys())}")
-                except json.JSONDecodeError as e2:
-                    print(f"   ✗ Markdown JSON parse failed: {e2}")
-                    print(f"   First 200 chars of extracted JSON: {json_str[:200]}")
-                    return jsonify({
-                        'success': False,
-                        'error': f'Could not parse JSON from markdown: {str(e2)}',
-                        'response_preview': response_text[:500]
-                    }), 500
-            else:
-                # If still no JSON, return error with response preview
-                print(f"⚠️ No JSON found in response. First 500 chars: {response_text[:500]}")
-                return jsonify({
-                    'success': False,
-                    'error': 'Gemini returned non-JSON response',
-                    'response_preview': response_text[:500]
-                }), 500
-
-        # Step 8: Contribute to MCP for future learning (DISABLED)
-        # Database functionality disabled per user request
-        print("📝 Skipping MCP contribution (database disabled)")
-
-        # Prepare response
-        response_data = {
-            'success': True,
-            'result': result,
-            'layer0': layer0_result,
-            'collective_insights': collective_insights,
-            'cached': False
-        }
-
-        # Cache the result
-        cache.cache_recommendations(workspace_slug, response_data, cache_key)
-
-        return jsonify(response_data)
+        return jsonify(result)
 
     except Exception as e:
-        print(f"❌ Error generating goal-driven recommendations: {e}")
+        print(f"Error fetching health check data: {e}")
         import traceback
         traceback.print_exc()
-
-        # Classify error type for better user messaging
-        error_msg = str(e)
-
-        # Rate limit errors
-        if 'Rate limited' in error_msg or '429' in error_msg:
-            return jsonify({
-                'success': False,
-                'rate_limited': True,
-                'error': 'Gemini API rate limit reached. The system will automatically retry with exponential backoff. If this persists, please wait 60 seconds before trying again.',
-                'user_message': '⏱️ Rate limit reached. Retrying automatically...'
-            }), 429
-
-        # Service unavailable errors
-        elif '503' in error_msg or '504' in error_msg or 'unavailable' in error_msg.lower() or 'timeout' in error_msg.lower():
-            return jsonify({
-                'success': False,
-                'service_unavailable': True,
-                'error': error_msg,
-                'user_message': '🔧 Gemini API is temporarily unavailable. The system attempted multiple retries and fallback models. Please try again in a few minutes.'
-            }), 503
-
-        # All other errors
-        return jsonify({
-            'success': False,
-            'error': error_msg,
-            'user_message': f'❌ An error occurred: {error_msg[:200]}'
-        }), 500
-
-@app.route('/api/recommendations-status')
-def recommendations_status():
-    """Get current rate limit status"""
-    try:
-        from recommendations_cache import RecommendationsCache
-        cache = RecommendationsCache(str(DATA_DIR))
-        status = cache.get_rate_limit_status()
-        return jsonify(status)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/export-recommendations-csv')
-def export_recommendations_csv():
-    """Export recommendations as CSV"""
-    try:
-        from recommendations_engine import generate_recommendations
-        from export_manager import ExportManager
-
-        # Generate recommendations
-        findings = generate_recommendations(str(DATA_DIR))
-
-        # Export to CSV
-        exporter = ExportManager(str(DATA_DIR))
-        csv_data = exporter.export_recommendations_csv(findings)
-
-        # Return as downloadable file
-        from flask import Response
-        return Response(
-            csv_data,
-            mimetype='text/csv',
-            headers={'Content-Disposition': 'attachment; filename=recommendations.csv'}
-        )
-    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/export-sources-destinations-csv')
@@ -3622,21 +3628,18 @@ def export_audiences_destinations_csv():
 
 @app.route('/api/export-all-audit-data')
 def export_all_audit_data():
-    """Export all audit data as ZIP"""
+    """Export all audit data as comprehensive ZIP file"""
     try:
-        from recommendations_engine import generate_recommendations
         from export_manager import ExportManager
-
-        # Generate recommendations
-        findings = generate_recommendations(str(DATA_DIR))
 
         # Export all as ZIP
         exporter = ExportManager(str(DATA_DIR))
-        zip_data = exporter.export_all_as_zip(findings)
+        zip_data = exporter.export_all_as_zip()
 
         from flask import Response
         workspace_slug = session.get('workspace_slug', 'workspace')
-        filename = f'segment_audit_{workspace_slug}_{datetime.now().strftime("%Y%m%d")}.zip'
+        customer_name = session.get('customer_name', 'customer')
+        filename = f'segment_audit_{workspace_slug}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'
 
         return Response(
             zip_data,
@@ -3644,6 +3647,9 @@ def export_all_audit_data():
             headers={'Content-Disposition': f'attachment; filename={filename}'}
         )
     except Exception as e:
+        print(f"Error exporting all audit data: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/reset')

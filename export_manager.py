@@ -452,9 +452,10 @@ class ExportManager:
 
         return output.getvalue()
 
-    def export_all_as_zip(self, recommendations: Dict[str, Any] = None) -> bytes:
+    def export_all_as_zip(self) -> bytes:
         """
-        Export all data as a ZIP file
+        Export all audit data as a comprehensive ZIP file
+        Includes all raw data files, processed CSVs, and JSON exports
         Returns ZIP file as bytes
         """
         import zipfile
@@ -463,39 +464,250 @@ class ExportManager:
         zip_buffer = BytesIO()
 
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # Recommendations
-            if recommendations:
-                zip_file.writestr(
-                    'recommendations.csv',
-                    self.export_recommendations_csv(recommendations)
-                )
+            # ===== PROCESSED EXPORTS (Analysis-ready CSVs) =====
 
             # Sources with destinations
-            zip_file.writestr(
-                'sources_with_destinations.csv',
-                self.export_sources_with_destinations_csv()
-            )
+            try:
+                zip_file.writestr(
+                    'processed/sources_with_destinations.csv',
+                    self.export_sources_with_destinations_csv()
+                )
+            except Exception as e:
+                print(f"Warning: Could not export sources_with_destinations: {e}")
 
             # Audiences with destinations
-            zip_file.writestr(
-                'audiences_with_destinations.csv',
-                self.export_audiences_with_destinations_csv()
-            )
+            try:
+                zip_file.writestr(
+                    'processed/audiences_with_destinations.csv',
+                    self.export_audiences_with_destinations_csv()
+                )
+            except Exception as e:
+                print(f"Warning: Could not export audiences_with_destinations: {e}")
 
             # Top events
-            zip_file.writestr(
-                'top_events.csv',
-                self.export_top_events_csv()
-            )
+            try:
+                zip_file.writestr(
+                    'processed/top_events.csv',
+                    self.export_top_events_csv()
+                )
+            except Exception as e:
+                print(f"Warning: Could not export top_events: {e}")
 
-            # Add summary
-            summary = self._generate_summary(recommendations)
+            # ===== RAW DATA FILES (All Gateway API data) =====
+
+            # List of Gateway API files to include
+            gateway_files = [
+                'gateway_audiences.csv',
+                'gateway_sources.csv',
+                'gateway_profile_insights.csv',
+                'gateway_space_sources.csv',
+                'gateway_summary.json',
+                'gateway_destinations.json',
+                'gateway_audit_trail.json',
+                'gateway_mtu.json',
+                'gateway_usage_data.json',
+                'gateway_data_flows.json',
+                'gateway_personas_entitlements.json'
+            ]
+
+            # Add each Gateway file if it exists
+            for filename in gateway_files:
+                file_path = self.data_dir / filename
+                if file_path.exists():
+                    try:
+                        with open(file_path, 'rb') as f:
+                            zip_file.writestr(f'raw_data/{filename}', f.read())
+                    except Exception as e:
+                        print(f"Warning: Could not add {filename}: {e}")
+
+            # ===== SOURCES JSON (for Gem analysis) =====
+
+            # Include sources.json with full schema data
+            sources_json = self.data_dir / 'gateway_sources.json'
+            if sources_json.exists():
+                try:
+                    with open(sources_json, 'rb') as f:
+                        zip_file.writestr('raw_data/gateway_sources.json', f.read())
+                except Exception as e:
+                    print(f"Warning: Could not add sources JSON: {e}")
+
+            # ===== GEM ANALYSIS FILE (formatted for Gemini Gem) =====
+
+            try:
+                gem_data = self._generate_gem_analysis_file()
+                zip_file.writestr('for_gem_analysis/workspace_audit_data.json', gem_data)
+            except Exception as e:
+                print(f"Warning: Could not generate Gem analysis file: {e}")
+
+            # ===== DOCUMENTATION =====
+
+            # Add comprehensive summary
+            summary = self._generate_summary()
             zip_file.writestr('README.txt', summary)
+
+            # Add file manifest
+            manifest = self._generate_file_manifest()
+            zip_file.writestr('FILE_MANIFEST.txt', manifest)
 
         zip_buffer.seek(0)
         return zip_buffer.read()
 
-    def _generate_summary(self, recommendations: Dict[str, Any] = None) -> str:
+    def _generate_gem_analysis_file(self) -> str:
+        """
+        Generate a JSON file formatted for Gemini Gem analysis
+        Includes all workspace data in a structure the Gem expects
+        """
+        # Load all necessary files
+        summary_file = self.data_dir / 'gateway_summary.json'
+        sources_file = self.data_dir / 'gateway_sources.json'
+        destinations_file = self.data_dir / 'gateway_destinations.json'
+        audiences_file = self.data_dir / 'gateway_audiences.csv'
+        mtu_file = self.data_dir / 'gateway_mtu.json'
+        audit_trail_file = self.data_dir / 'gateway_audit_trail.json'
+        profile_insights_file = self.data_dir / 'gateway_profile_insights.csv'
+
+        gem_data = {
+            "workspace_summary": {},
+            "sources": [],
+            "destinations": [],
+            "audiences": [],
+            "mtu_data": {},
+            "audit_trail_summary": {},
+            "profile_insights": [],
+            "business_context": "Add any relevant customer context here before uploading to Gem"
+        }
+
+        # Load summary
+        if summary_file.exists():
+            with open(summary_file) as f:
+                gem_data["workspace_summary"] = json.load(f)
+
+        # Load sources JSON (with full schema)
+        if sources_file.exists():
+            with open(sources_file) as f:
+                gem_data["sources"] = json.load(f)
+
+        # Load destinations
+        if destinations_file.exists():
+            with open(destinations_file) as f:
+                gem_data["destinations"] = json.load(f)
+
+        # Load audiences from CSV
+        if audiences_file.exists():
+            with open(audiences_file, 'r') as f:
+                reader = csv.DictReader(f)
+                gem_data["audiences"] = list(reader)
+
+        # Load MTU data
+        if mtu_file.exists():
+            with open(mtu_file) as f:
+                gem_data["mtu_data"] = json.load(f)
+
+        # Load audit trail (summarized)
+        if audit_trail_file.exists():
+            with open(audit_trail_file) as f:
+                audit_data = json.load(f)
+                # Just include count and recent events
+                gem_data["audit_trail_summary"] = {
+                    "total_events": len(audit_data),
+                    "recent_events": audit_data[:10] if len(audit_data) > 10 else audit_data
+                }
+
+        # Load profile insights from CSV
+        if profile_insights_file.exists():
+            with open(profile_insights_file, 'r') as f:
+                reader = csv.DictReader(f)
+                gem_data["profile_insights"] = list(reader)
+
+        return json.dumps(gem_data, indent=2)
+
+    def _generate_file_manifest(self) -> str:
+        """Generate a manifest explaining all files in the ZIP"""
+        return """Segment Workspace Audit - File Manifest
+==========================================
+
+This ZIP contains a complete export of your Segment workspace audit data.
+
+📁 FOLDER STRUCTURE:
+--------------------
+
+/processed/
+    Analysis-ready CSV files for immediate use:
+    - sources_with_destinations.csv: Sources and their connected destinations
+    - audiences_with_destinations.csv: Audiences and activation status
+    - top_events.csv: Event usage analysis
+
+/raw_data/
+    Complete raw data from Segment Gateway API:
+    - gateway_sources.csv: All sources (basic info)
+    - gateway_sources.json: All sources with full schemas
+    - gateway_audiences.csv: All audiences and their properties
+    - gateway_destinations.json: All destinations and configs
+    - gateway_mtu.json: MTU/API usage data with billing info
+    - gateway_audit_trail.json: Workspace activity logs
+    - gateway_usage_data.json: Usage metrics
+    - gateway_data_flows.json: Onboarding use cases
+    - gateway_profile_insights.csv: Identity resolution configs
+    - gateway_space_sources.csv: Sources by Engage space
+    - gateway_summary.json: High-level workspace summary
+    - gateway_personas_entitlements.json: Engage/Unify features
+
+/for_gem_analysis/
+    Ready for AI analysis:
+    - workspace_audit_data.json: Formatted for Gemini Gem analysis
+      → Upload this file to your Segment SA Auditor Gem for recommendations
+
+📖 QUICK START GUIDE:
+--------------------
+
+1. AI RECOMMENDATIONS:
+   - Upload: for_gem_analysis/workspace_audit_data.json
+   - To your Gemini Gem (Segment SA Auditor or Use Case Builder)
+   - Get detailed SA-quality recommendations
+
+2. SOURCE ANALYSIS:
+   - Open: processed/sources_with_destinations.csv
+   - Check for disabled production sources
+   - Verify all sources have destinations
+
+3. SOURCE ANALYSIS:
+   - Open: processed/audiences_with_destinations.csv
+   - Find audiences with 0 destinations
+   - Identify high-user-count audiences to activate
+
+4. DEEP DIVE:
+   - Use raw_data/ files for detailed investigation
+   - gateway_sources.json has full event schemas
+   - gateway_audit_trail.json shows recent activity
+   - gateway_mtu.json has billing/usage details
+
+🎯 RECOMMENDED ORDER:
+--------------------
+
+1st → for_gem_analysis/ (AI analysis via Gemini Gem)
+2nd → processed/sources_with_destinations.csv (data health)
+3rd → processed/audiences_with_destinations.csv (activation gaps)
+4th → raw_data/ (detailed investigation)
+
+📊 DATA FRESHNESS:
+-----------------
+
+All data reflects the state of the workspace at audit time.
+Check gateway_summary.json for exact audit date/time.
+
+💡 NOTES:
+---------
+
+- CSV files open in Excel/Google Sheets
+- JSON files open in any text editor (or use jsonviewer.stack.hu)
+- For Gem analysis: Copy workspace_audit_data.json content
+- For questions: Contact your Segment Customer Success Manager
+
+==========================================
+Generated by Segment Audit Dashboard
+"""
+
+    def _generate_summary(self) -> str:
         """Generate README summary for exports"""
         # Use Gateway API summary
         summary_file = self.data_dir / 'gateway_summary.json'
@@ -507,39 +719,107 @@ class ExportManager:
         else:
             print("⚠️  WARNING: gateway_summary.json not found")
 
-        text = f"""Segment Workspace Audit Export (Gateway API)
+        text = f"""SEGMENT WORKSPACE AUDIT - COMPLETE EXPORT
+==========================================
+
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-Workspace: {summary_data.get('workspace_slug', 'Unknown')}
+WORKSPACE INFORMATION:
+---------------------
 Customer: {summary_data.get('customer_name', 'Unknown')}
+Workspace: {summary_data.get('workspace_slug', 'Unknown')}
 Audit Date: {summary_data.get('audit_date', 'Unknown')}
 
-=== Summary ===
+WORKSPACE METRICS:
+-----------------
 Total Sources: {summary_data.get('sources_count', 0)}
+Total Destinations: {summary_data.get('destinations_count', 0)}
 Total Audiences: {summary_data.get('audiences_count', 0)}
+Total Journeys: {summary_data.get('journeys_count', 0)}
+Total Campaigns: {summary_data.get('campaigns_count', 0)}
 Total Spaces: {summary_data.get('spaces_count', 0)}
-Total Findings: {recommendations.get('total_findings', 0) if recommendations else 0}
 
-=== Files Included ===
-1. recommendations.csv - Prioritized findings and recommendations with use cases
-2. sources_with_destinations.csv - All sources and their connected destinations
-3. audiences_with_destinations.csv - All audiences and their activation status
-4. top_events.csv - Event usage analysis and recommendations
+WHAT'S INCLUDED:
+---------------
 
-=== How to Use ===
-- Review recommendations.csv first for priority actions
-- Use sources_with_destinations.csv to audit data collection
-- Use audiences_with_destinations.csv to identify activation gaps
-- Use top_events.csv to understand event patterns
+📂 /processed/ - Analysis-Ready Files
+   ✓ sources_with_destinations.csv - Source connectivity audit
+   ✓ audiences_with_destinations.csv - Activation gap analysis
+   ✓ top_events.csv - Event usage patterns
 
-=== Next Steps ===
-1. Review high-priority recommendations
-2. Identify quick wins (low effort, high impact)
-3. Connect unactivated audiences to destinations
-4. Clean up empty or disabled audiences
-5. Build event-based audiences from high-volume events
+📂 /raw_data/ - Complete Workspace Data
+   ✓ All Gateway API JSON/CSV exports
+   ✓ Full source schemas with event definitions
+   ✓ MTU/API usage and billing data
+   ✓ Audit trail activity logs
+   ✓ Identity resolution configurations
 
-For questions, contact your Segment Customer Success Manager.
+📂 /for_gem_analysis/ - AI-Ready Format
+   ✓ workspace_audit_data.json
+   → Upload to Gemini Gem for detailed SA recommendations
+
+QUICK START:
+-----------
+
+1. GET AI RECOMMENDATIONS:
+   → Upload: for_gem_analysis/workspace_audit_data.json
+   → To your Gemini Gem (Segment SA Auditor)
+   → Receive detailed, confidence-rated findings
+
+2. AUDIT DATA COLLECTION:
+   → Open: processed/sources_with_destinations.csv
+   → Check for disabled sources
+   → Verify production sources are active
+
+3. FIND ACTIVATION GAPS:
+   → Open: processed/audiences_with_destinations.csv
+   → Find audiences with 0 destinations
+   → Prioritize high-user-count audiences
+
+4. DEEP DIVE (if needed):
+   → Explore raw_data/ for detailed investigation
+   → gateway_sources.json has full event schemas
+   → gateway_mtu.json has billing/usage metrics
+
+PRIORITY ACTIONS:
+----------------
+
+P0 - Critical (Do Now):
+• Re-enable any disabled production sources
+• Fix broken destination connections
+• Address compliance/data loss issues
+
+P1 - High (This Week):
+• Activate large audiences with 0 destinations
+• Connect high-value segments to marketing tools
+• Clean up stale rETL sources
+
+P2 - Medium (This Month):
+• Improve naming conventions
+• Remove test/staging sources
+• Organize audiences into folders
+
+NEXT STEPS:
+----------
+
+1. Share this export with your team
+2. Upload workspace_audit_data.json to Gemini Gem
+3. Review AI recommendations for detailed guidance
+4. Schedule implementation with customer
+5. Follow up after 30 days to measure impact
+
+SUPPORT:
+-------
+
+For questions about this audit or implementing recommendations:
+→ Contact your Segment Customer Success Manager
+→ Schedule an office hours session
+→ Visit docs.segment.com for best practices
+
+See FILE_MANIFEST.txt for detailed file descriptions.
+
+==========================================
+Powered by Segment Audit Dashboard
 """
         return text
 
