@@ -1,127 +1,229 @@
-# Gateway API Audit Dashboard
+# Segment Workspace Audit Dashboard
 
-**Testing Gateway API as a replacement for Public API**
+A Flask web application for auditing Segment workspaces using the Gateway API. Generates comprehensive reports on sources, destinations, audiences, MTU usage, and more.
 
-This is a test environment to validate that the Gateway API can provide all necessary audit data without requiring a Public API token.
+## Features
 
-## Key Differences from Production Dashboard
+- 🔍 **Complete Workspace Audit** - Sources, destinations, audiences, MTU data, audit trail
+- 📊 **One-Click PowerPoint Generation** - Generate Technical Health Check presentations instantly
+- 📦 **Export All Data** - Download complete audit as ZIP with CSV, JSON, and analysis-ready files
+- 🎯 **Gateway API Only** - Uses official Segment Gateway GraphQL API
+- 🚀 **Easy Deployment** - Runs locally or deploys to Render
 
-| Feature | Production (port 5001) | Gateway Test (port 5003) |
-|---------|------------------------|--------------------------|
-| **Authentication** | Public API token required | Gateway JWT only |
-| **Sources** | Public API | Gateway API `AllSources` |
-| **Audiences** | Public API + Gateway API | Gateway API `AudiencesAndFolders` |
-| **Connections** | Public API | Gateway API `getWorkspaceConnections` |
-| **Folder Support** | ❌ | ✅ |
-| **Event Volumes** | ✅ Public API | ❌ Not implemented yet |
-| **Tracking Plans** | ✅ Public API | ❌ Not implemented yet |
+## Quick Start
 
-## What Works
+### 1. Install Dependencies
 
-✅ **Sources** - Complete list with destinations and warehouses  
-✅ **Audiences** - With destinations and folder organization  
-✅ **Source-Destination Connections** - Full graph of connections  
-✅ **Metadata** - Logos, categories, labels  
-✅ **Recommendations** - AI-powered workspace analysis (NEW!)
-
-## New Feature: Workspace Recommendations 💡
-
-Automatically analyzes your workspace and provides actionable insights:
-- **Activation Gaps**: Audiences not connected to destinations
-- **Underutilized Sources**: Data collected but not used
-- **Delivery Issues**: High failure rates
-- **Quick Wins**: Low-effort, high-impact improvements
-
-**Two modes:**
-1. **Rule-Based Analysis** (free, instant)
-2. **AI Summary** (optional, requires Gemini API key)
-
-See [RECOMMENDATIONS_FEATURE.md](RECOMMENDATIONS_FEATURE.md) for full details.
-
-## What's Missing (for now)
-
-❌ Event volume metrics (still needs Public API)  
-❌ Tracking plan/schema data (need to implement)  
-❌ Computed traits  
-❌ Journeys/campaigns  
-❌ Delivery metrics  
-
-## How to Run
-
-1. Start the server:
 ```bash
-cd /Users/jpang/gateway-audit-dashboard
-python3 gateway_app.py
+pip install -r requirements.txt
 ```
 
-2. Open browser: http://localhost:5003
+### 2. Run Locally
 
-3. Get your Gateway JWT token:
-   - Open Segment UI in browser
-   - Open DevTools (F12)
-   - Go to Application → Cookies → https://app.segment.com
-   - Copy the value of `auth_key` cookie
+```bash
+python app.py
+```
 
-4. Enter:
-   - Workspace slug (e.g., "axios")
-   - Gateway JWT token
-   - Click "Start Gateway Audit"
+Open http://localhost:5001
 
-## Gateway API Queries Used
+### 3. Run an Audit
 
-### Sources
-- `AllSources` - Lists all sources with metadata and connections
-- `getWorkspaceConnections` - Complete source-destination graph
+1. Enter workspace slug (e.g., `my-company`)
+2. Enter Gateway API token ([How to get token](https://segment.com/docs/api/))
+3. Click "Start Audit"
+4. Wait for completion (1-2 minutes)
 
-### Audiences  
-- `AudiencesAndFolders` - Audiences with folder support and destinations
-- Folder recursion - Queries each folder to get all audiences
+### 4. Generate PowerPoint
 
-### Spaces
-- `GetSpaces` - Lists all Engage spaces
+Click the green **"📊 Generate Health Check PPT"** button to instantly download a Technical Health Check PowerPoint presentation.
 
-## Benefits of Gateway API
+## What You Get
 
-1. **No API Token Setup** - Users don't need to create/find API tokens
-2. **Richer Metadata** - Logos, categories, detailed type information
-3. **Folder Support** - Audiences can be organized in folders
-4. **Real-time** - Direct access to live data
-5. **Future Features** - Access to Journeys, Campaigns, and other Engage features
+### Dashboard Pages
 
-## Next Steps
+- **Overview** - High-level summary with key metrics
+- **Sources** - All sources with status, libraries, connections
+- **Audiences** - Engage audiences with sizes and destinations
+- **Destinations** - Connected destinations by category
+- **Observability** - Event volumes and stacked charts
+- **Audit Trail** - Recent workspace activity
+- **Usage** - MTU data and quota tracking
 
-To make this production-ready:
-1. Add event schema queries (`getSourceSchemaEvents`)
-2. Add delivery metrics (`getDeliveryMetricsBySource`)
-3. Add computed traits support
-4. Add Journeys/Campaigns (already working in prod)
-5. Handle pagination for large workspaces
-6. Add error handling and retry logic
+### Exports
+
+#### PowerPoint Generation (NEW!)
+- **One-Click**: Generate Technical Health Check presentation
+- **6 Slides**: Title, Limits, Events, Source Variety, Summary, Thank You
+- **Template Colors**: Blue, Teal, Orange matching Segment style
+- **Charts**: Bar charts, column charts, big numbers, insights
+
+#### Download All Files (ZIP)
+- `processed/` - Analysis-ready CSVs
+  - sources_with_destinations.csv
+  - audiences_with_destinations.csv
+  - top_events.csv
+- `raw_data/` - Complete JSON exports
+  - gateway_sources.json (with event schemas)
+  - gateway_destinations.json
+  - gateway_audiences.csv
+  - gateway_mtu.json
+  - gateway_usage_data.json
+  - gateway_audit_trail.json
+- `for_gem_analysis/` - Formatted for Gemini Gem analysis
+  - workspace_audit_data.json (SA recommendations)
+  - technical_health_check_data.json (PowerPoint data)
+
+## PowerPoint Generation
+
+### Usage
+
+1. Run audit
+2. Click "📊 Generate Health Check PPT"
+3. PowerPoint downloads automatically (10 seconds)
+
+### What's Generated:
+
+- **Slide 1**: Title with customer name
+- **Slide 2**: MTU usage (big percentage + quota)
+- **Slide 3**: Top events chart (horizontal bars)
+- **Slide 4**: Source variety (column chart by library)
+- **Slide 5**: Summary with health indicators
+- **Slide 6**: Thank you slide
+
+See [DASHBOARD_PPT_BUTTON.md](DASHBOARD_PPT_BUTTON.md) for details.
 
 ## Architecture
 
+### Core Files
+
+- **app.py** (140KB) - Main Flask application with all routes
+- **export_manager.py** (35KB) - Handles all data exports and ZIP generation
+- **ppt_generator_api.py** (12KB) - PowerPoint generation from audit data
+- **gemini_client.py** (12KB) - Gemini API integration (optional)
+
+### Data Flow
+
 ```
-gateway_app.py
-├── GatewayAPIClient
-│   ├── get_workspace_connections()
-│   ├── get_all_sources()
-│   ├── get_audiences_with_folders()
-│   └── get_spaces()
-├── Routes
-│   ├── / (index)
-│   ├── /start-audit
-│   ├── /progress
-│   ├── /sources
-│   └── /audiences
-└── Templates
-    ├── gateway_index.html
-    ├── gateway_progress.html
-    ├── gateway_sources.html
-    └── gateway_audiences.html
+Gateway API → app.py → audit_data/*.json → 
+  ├─→ Dashboard pages (HTML/JS)
+  ├─→ PowerPoint generation (ppt_generator_api.py)
+  └─→ ZIP export (export_manager.py)
 ```
 
-## Port Usage
+## Configuration
 
-- **5001** - Production audit dashboard (Public API + Gateway API)
-- **5002** - GraphQL testing framework (not in use)
-- **5003** - Gateway-only audit dashboard (this app)
+### Environment Variables
+
+Create a `.env` file (or set in Render):
+
+```bash
+# Optional: Enable experimental features
+ENABLE_EXPERIMENTAL_FEATURES=false
+
+# Optional: Gemini API for recommendations
+ENABLE_GEMINI_API=false
+GEMINI_API_KEY=your_key_here
+```
+
+### Session Storage
+
+- Workspace data stored in `audit_data/` folder
+- Session persists for 7 days
+- Click "New Audit" to reset
+
+## Deployment
+
+### Deploy to Render
+
+1. Connect GitHub repo to Render
+2. Set environment: Python 3
+3. Build command: `pip install -r requirements.txt`
+4. Start command: `gunicorn app:app`
+5. Auto-deploys on push to main
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
+
+## Development
+
+### Project Structure
+
+```
+segment-audit-dashboard/
+├── app.py                    # Main application
+├── export_manager.py         # Export logic
+├── ppt_generator_api.py      # PowerPoint generation
+├── gemini_client.py          # Gemini integration (optional)
+├── requirements.txt          # Python dependencies
+├── templates/                # HTML templates
+├── static/                   # CSS, JS assets
+├── audit_data/              # Workspace data (gitignored)
+└── _docs_archive/           # Development documentation
+```
+
+### Adding Features
+
+**New Dashboard Page:**
+1. Add route in `app.py`
+2. Create template in `templates/`
+3. Add navigation link
+
+**New Export Format:**
+1. Add method to `ExportManager` in `export_manager.py`
+2. Call from route in `app.py`
+
+**Customize PowerPoint:**
+1. Edit `ppt_generator_api.py`
+2. Modify `generate_ppt_from_data()` function
+3. Add slides, change colors, adjust layouts
+
+## Troubleshooting
+
+### PowerPoint Generation Fails
+- Check: `audit_data/` folder has JSON files
+- Fix: Run audit first to collect data
+
+### "No module named 'pptx'"
+- Fix: `pip install python-pptx XlsxWriter`
+
+### Charts are empty
+- Check: Sources have event schema data
+- Fix: Ensure Gateway API token has correct permissions
+
+### Session expired
+- Fix: Click "New Audit" and re-authenticate
+
+## Requirements
+
+- Python 3.8+
+- Flask 3.x
+- python-pptx (for PowerPoint generation)
+- XlsxWriter (for charts in PowerPoint)
+- openpyxl (for Excel exports)
+- requests (for Gateway API)
+
+See `requirements.txt` for complete list.
+
+## Gemini Gem Integration (Optional)
+
+For enhanced analysis, you can use Gemini Gems:
+
+1. Export: `for_gem_analysis/workspace_audit_data.json`
+2. Upload to your "Segment SA Auditor" Gem
+3. Get detailed recommendations and action plans
+
+Gem instructions available in `_docs_archive/GEMINI_GEM_INSTRUCTIONS_V2.md`.
+
+## Documentation
+
+- **DASHBOARD_PPT_BUTTON.md** - PowerPoint generation guide
+- **DEPLOYMENT.md** - Deployment instructions
+- **_docs_archive/** - Development notes and Gem instructions
+
+## Support
+
+For issues or questions, check the documentation files or contact maintainer.
+
+---
+
+**Last Updated:** May 2026  
+**Version:** 2.0 (PowerPoint generation integrated)

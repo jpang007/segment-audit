@@ -28,12 +28,12 @@
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
                         <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
-            <a href="/mtu" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
+            <a href="/usage" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
                         {% if enable_experimental %}
                         {% endif %}
                     </div>
                 </div>
-                <button onclick="downloadAllFiles()" class="btn btn-primary btn-sm" style="margin-right: 10px;">
+                <button onclick="downloadAllFiles(event)" class="btn btn-primary btn-sm" style="margin-right: 10px;">
                     📦 Download All Files
                 </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
@@ -516,7 +516,7 @@
             }
         }
 
-        async function downloadAllFiles() {
+        async function downloadAllFiles(event) {
             try {
                 // Show loading state
                 const button = event.target;
@@ -570,6 +570,52 @@
                 // Reset button
                 const button = event.target;
                 button.innerHTML = '📦 Download All Files';
+                button.disabled = false;
+            }
+        }
+
+        async function generateHealthCheckPPT(event) {
+            event.preventDefault();
+            const button = event.target;
+            button.innerHTML = '⏳ Generating PowerPoint...';
+            button.disabled = true;
+
+            try {
+                const response = await fetch('/api/generate-health-check-ppt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        customer_name: '{{ customer_name }}'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('PowerPoint generation failed');
+                }
+
+                // Download the file
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Health_Check_{{ customer_name }}_${new Date().toISOString().split('T')[0]}.pptx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                button.innerHTML = '✅ PowerPoint Downloaded!';
+                setTimeout(() => {
+                    button.innerHTML = '📊 Generate Health Check PPT';
+                    button.disabled = false;
+                }, 2000);
+
+            } catch (error) {
+                console.error('Error generating PowerPoint:', error);
+                alert('Error generating PowerPoint. Please try again.');
+                button.innerHTML = '📊 Generate Health Check PPT';
                 button.disabled = false;
             }
         }

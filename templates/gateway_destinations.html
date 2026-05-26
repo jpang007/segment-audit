@@ -27,8 +27,8 @@
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
                         <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
-            <a href="/audit-trail">Audit Trail</a>
-            <a href="/mtu">MTU Usage</a>
+                        <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
+                        <a href="/usage" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
                         {% if enable_experimental %}
                         {% endif %}
                     </div>
@@ -64,16 +64,6 @@
                     <div class="subtext" id="destinationsBreakdown">-</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">Active MTUs</div>
-                    <div class="value" id="totalMTUs">-</div>
-                    <div class="subtext" id="mtuBreakdown">-</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">Plan</div>
-                    <div class="value" style="font-size: 1.2rem;" id="planName">-</div>
-                    <div class="subtext" id="planDetails">-</div>
-                </div>
-                <div class="stat-card">
                     <div class="label">Integrations</div>
                     <div class="value" id="totalIntegrations">-</div>
                     <div class="subtext">Destinations</div>
@@ -86,10 +76,6 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 style="margin: 0;">📍 All Destinations</h2>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button id="loadHealthBtn" onclick="loadHealthMetrics()" class="btn btn-primary btn-sm" style="display: flex; align-items: center; gap: 6px;">
-                            <span id="healthBtnIcon">📊</span>
-                            <span id="healthBtnText">Load Health Metrics</span>
-                        </button>
                         <input
                             type="text"
                             id="searchInput"
@@ -131,6 +117,21 @@
 
                 <div id="pagination" style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px;">
                     <!-- Pagination will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Delivery Metrics Modal -->
+            <div id="metricsModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 2000; padding: 20px; overflow-y: auto;">
+                <div style="max-width: 800px; margin: 40px auto; background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="padding: 24px; border-bottom: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <h2 id="modalDestName" style="margin: 0; color: #2d3748;">Delivery Metrics</h2>
+                        <button onclick="closeMetricsModal()" style="background: none; border: none; font-size: 24px; color: #718096; cursor: pointer; padding: 0; width: 32px; height: 32px;">&times;</button>
+                    </div>
+                    <div style="padding: 24px;">
+                        <div id="modalContent">
+                            <!-- Content will be inserted here -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -209,6 +210,9 @@
                     renderUsageCharts();
                     renderUseCases();
                     renderTable();
+
+                    // Auto-load health metrics
+                    loadHealthMetrics();
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
@@ -224,28 +228,6 @@
             const enabled = allDestinations.filter(d => d.enabled).length;
             const disabled = allDestinations.length - enabled;
             document.getElementById('destinationsBreakdown').textContent = `${enabled} enabled, ${disabled} disabled`;
-
-            // MTU stats
-            if (usageData && usageData.billing && usageData.billing.usage) {
-                const mtus = usageData.billing.usage.mtus || {};
-                const totalMTUs = (mtus.users || 0) + (mtus.anonymous || 0);
-                document.getElementById('totalMTUs').textContent = totalMTUs.toLocaleString();
-                document.getElementById('mtuBreakdown').textContent = `${mtus.users || 0} users + ${mtus.anonymous || 0} anon`;
-            } else {
-                document.getElementById('totalMTUs').textContent = 'N/A';
-                document.getElementById('mtuBreakdown').textContent = 'No billing data';
-            }
-
-            // Plan info
-            if (usageData && usageData.billing) {
-                const billing = usageData.billing;
-                document.getElementById('planName').textContent = billing.planName || 'Unknown';
-
-                let planType = [];
-                if (billing.isOnMtuPlan) planType.push('MTU');
-                if (billing.isOnWarehousesPlan) planType.push('Warehouses');
-                document.getElementById('planDetails').textContent = planType.join(' + ') || 'Standard';
-            }
 
             // Count integrations
             const integrations = allDestinations.filter(d => d.__typename === 'Integration').length;
@@ -310,13 +292,25 @@
                 if (healthMetrics && healthMetrics[dest.id]) {
                     const metrics = healthMetrics[dest.id];
                     const status = metrics.health_status;
-                    const successCount = metrics.success_count;
+                    const successRate = metrics.success_rate || 0;
                     const lastDelivery = metrics.last_delivery ? new Date(metrics.last_delivery).toLocaleDateString() : 'Never';
 
+                    // Build detailed tooltip
+                    const tooltipLines = [
+                        `Success Rate: ${successRate}%`,
+                        `Successful: ${(metrics.successful_delivery || 0).toLocaleString()}`,
+                        `Failed: ${(metrics.failed_delivery || 0).toLocaleString()}`,
+                        `Retries: ${(metrics.retry_count || 0).toLocaleString()}`,
+                        `Last: ${lastDelivery}`
+                    ];
+                    const tooltip = tooltipLines.join('&#10;');
+
                     if (status === 'healthy') {
-                        healthBadge = `<span style="background: #48bb78; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;" title="${successCount.toLocaleString()} events (Last: ${lastDelivery})">✓ Healthy</span>`;
+                        healthBadge = `<span style="background: #48bb78; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; cursor: help;" title="${tooltip}">✓ ${successRate}%</span>`;
                     } else if (status === 'warning') {
-                        healthBadge = `<span style="background: #f6ad55; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;" title="${successCount.toLocaleString()} events, some retries">⚠ Warning</span>`;
+                        healthBadge = `<span style="background: #f6ad55; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; cursor: help;" title="${tooltip}">⚠ ${successRate}%</span>`;
+                    } else if (status === 'critical') {
+                        healthBadge = `<span style="background: #f56565; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; cursor: help;" title="${tooltip}">✗ ${successRate}%</span>`;
                     } else {
                         healthBadge = `<span style="background: #a0aec0; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">No Data</span>`;
                     }
@@ -337,9 +331,14 @@
 
                 const createdAt = dest.createdAt ? new Date(dest.createdAt).toLocaleDateString() : 'N/A';
 
+                // Make name clickable if metrics available
+                const nameDisplay = healthMetrics && healthMetrics[dest.id]
+                    ? `<strong style="color: #667eea; cursor: pointer; text-decoration: underline;" onclick="showMetricsModal('${dest.id}')">${dest.name || 'Unknown'}</strong>`
+                    : `<strong>${dest.name || 'Unknown'}</strong>`;
+
                 row.innerHTML = `
                     <td style="text-align: center;">${statusBadge}</td>
-                    <td><strong>${dest.name || 'Unknown'}</strong></td>
+                    <td>${nameDisplay}</td>
                     <td>${typeBadge}</td>
                     ${healthMetrics ? `<td style="text-align: center;">${healthBadge}</td>` : ''}
                     <td><span style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${sourceName}</span></td>
@@ -356,18 +355,13 @@
         async function loadHealthMetrics() {
             if (healthMetricsLoading) return;
 
-            const btn = document.getElementById('loadHealthBtn');
-            const btnText = document.getElementById('healthBtnText');
-            const btnIcon = document.getElementById('healthBtnIcon');
-
             healthMetricsLoading = true;
-            btn.disabled = true;
-            btnText.textContent = 'Loading...';
-            btnIcon.textContent = '⏳';
 
             try {
                 // Get all destination IDs
                 const destinationIds = allDestinations.map(d => d.id);
+
+                console.log('Loading health metrics for', destinationIds.length, 'destinations...');
 
                 const response = await fetch('/api/destination-health-metrics', {
                     method: 'POST',
@@ -381,19 +375,20 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to fetch health metrics');
+                    const errorData = await response.json().catch(() => ({}));
+                    console.warn('Health metrics not available:', errorData.error || response.statusText);
+                    healthMetricsLoading = false;
+                    return; // Silently fail if not authenticated or error
                 }
 
                 const data = await response.json();
                 healthMetrics = data.metrics;
 
+                console.log('Health metrics loaded for', Object.keys(healthMetrics).length, 'destinations');
+
                 // Show health column
                 document.getElementById('healthHeader').style.display = 'table-cell';
 
-                // Update button
-                btnText.textContent = 'Refresh Metrics';
-                btnIcon.textContent = '🔄';
-                btn.disabled = false;
                 healthMetricsLoading = false;
 
                 // Re-render table with health data
@@ -401,11 +396,6 @@
 
             } catch (error) {
                 console.error('Error loading health metrics:', error);
-                const errorMsg = error.message || 'Unknown error';
-                alert('Failed to load health metrics: ' + errorMsg + '\n\nCheck browser console for details.');
-                btnText.textContent = 'Load Health Metrics';
-                btnIcon.textContent = '📊';
-                btn.disabled = false;
                 healthMetricsLoading = false;
             }
         }
@@ -445,6 +435,88 @@
             nextBtn.onclick = () => { currentPage++; renderTable(); };
             pagination.appendChild(nextBtn);
         }
+
+        function showMetricsModal(destId) {
+            const dest = allDestinations.find(d => d.id === destId);
+            if (!dest || !healthMetrics || !healthMetrics[destId]) return;
+
+            const metrics = healthMetrics[destId];
+            const modal = document.getElementById('metricsModal');
+            const modalName = document.getElementById('modalDestName');
+            const modalContent = document.getElementById('modalContent');
+
+            modalName.textContent = `${dest.name} - Delivery Metrics (Last 7 Days)`;
+
+            // Build metrics visualization
+            const successDelivery = metrics.successful_delivery || 0;
+            const failedDelivery = metrics.failed_delivery || 0;
+            const retries = metrics.retry_count || 0;
+            const successRate = metrics.success_rate || 0;
+            const lastDelivery = metrics.last_delivery ? new Date(metrics.last_delivery).toLocaleString() : 'Never';
+
+            const totalAttempts = successDelivery + failedDelivery;
+            const successBarWidth = totalAttempts > 0 ? (successDelivery / totalAttempts * 100) : 0;
+            const failedBarWidth = totalAttempts > 0 ? (failedDelivery / totalAttempts * 100) : 0;
+
+            modalContent.innerHTML = `
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                    <div style="text-align: center; padding: 20px; background: ${metrics.health_status === 'healthy' ? '#f0fff4' : metrics.health_status === 'warning' ? '#fffaf0' : metrics.health_status === 'critical' ? '#fff5f5' : '#f7fafc'}; border-radius: 8px; border: 2px solid ${metrics.health_status === 'healthy' ? '#48bb78' : metrics.health_status === 'warning' ? '#f6ad55' : metrics.health_status === 'critical' ? '#f56565' : '#cbd5e0'};">
+                        <div style="font-size: 0.9rem; color: #718096; margin-bottom: 8px;">Success Rate</div>
+                        <div style="font-size: 2.5rem; font-weight: 700; color: ${metrics.health_status === 'healthy' ? '#48bb78' : metrics.health_status === 'warning' ? '#ed8936' : metrics.health_status === 'critical' ? '#f56565' : '#718096'};">${successRate.toFixed(1)}%</div>
+                        <div style="font-size: 0.85rem; color: #718096; margin-top: 8px;">${metrics.health_status === 'healthy' ? '✓ Healthy' : metrics.health_status === 'warning' ? '⚠ Warning' : metrics.health_status === 'critical' ? '✗ Critical' : 'No Data'}</div>
+                    </div>
+                    <div style="text-align: center; padding: 20px; background: #f7fafc; border-radius: 8px; border: 2px solid #e2e8f0;">
+                        <div style="font-size: 0.9rem; color: #718096; margin-bottom: 8px;">Last Delivery</div>
+                        <div style="font-size: 1.2rem; font-weight: 600; color: #2d3748; margin-top: 8px;">${lastDelivery}</div>
+                    </div>
+                </div>
+
+                <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 1.1rem;">📊 Delivery Breakdown (Last 7 Days)</h3>
+                <div style="display: grid; gap: 12px; margin-bottom: 30px;">
+                    <div style="display: flex; justify-content: space-between; padding: 12px; background: #f0fff4; border-radius: 6px; border-left: 4px solid #48bb78;">
+                        <span style="color: #2d3748; font-weight: 500;">✓ Successful Delivery</span>
+                        <span style="color: #48bb78; font-weight: 700;">${successDelivery.toLocaleString()}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 12px; background: #fff5f5; border-radius: 6px; border-left: 4px solid #f56565;">
+                        <span style="color: #2d3748; font-weight: 500;">✗ Failed Delivery</span>
+                        <span style="color: #f56565; font-weight: 700;">${failedDelivery.toLocaleString()}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding: 12px; background: #fffaf0; border-radius: 6px; border-left: 4px solid #ed8936;">
+                        <span style="color: #2d3748; font-weight: 500;">🔄 Retries</span>
+                        <span style="color: #ed8936; font-weight: 700;">${retries.toLocaleString()}</span>
+                    </div>
+                </div>
+
+                ${totalAttempts > 0 ? `
+                <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 1.1rem;">📈 Success vs Failed</h3>
+                <div style="margin-bottom: 20px;">
+                    <div style="display: flex; height: 40px; border-radius: 6px; overflow: hidden; background: #e2e8f0;">
+                        ${successBarWidth > 0 ? `<div style="width: ${successBarWidth}%; background: #48bb78; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.85rem;">${successBarWidth.toFixed(1)}%</div>` : ''}
+                        ${failedBarWidth > 0 ? `<div style="width: ${failedBarWidth}%; background: #f56565; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.85rem;">${failedBarWidth.toFixed(1)}%</div>` : ''}
+                    </div>
+                </div>
+                ` : ''}
+
+                ${metrics.visibility_state ? `
+                <div style="margin-top: 20px; padding: 12px; background: #edf2f7; border-radius: 6px; font-size: 0.9rem; color: #718096;">
+                    <strong>Visibility State:</strong> ${metrics.visibility_state}
+                </div>
+                ` : ''}
+            `;
+
+            modal.style.display = 'block';
+        }
+
+        function closeMetricsModal() {
+            document.getElementById('metricsModal').style.display = 'none';
+        }
+
+        // Close modal on outside click
+        document.getElementById('metricsModal')?.addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeMetricsModal();
+            }
+        });
 
         // Load data on page load
         loadData();

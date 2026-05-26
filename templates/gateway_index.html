@@ -34,6 +34,16 @@
                         </div>
 
                         <div class="form-group">
+                            <label for="region">Region</label>
+                            <select id="region" name="region" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.95rem;">
+                                <option value="auto">Auto-detect from token (recommended)</option>
+                                <option value="us1">🇺🇸 US (app.segment.com)</option>
+                                <option value="eu1">🇪🇺 EU (eu1.app.segment.com)</option>
+                            </select>
+                            <small>Region is usually auto-detected from your JWT token</small>
+                        </div>
+
+                        <div class="form-group">
                             <label for="gateway_token">Gateway JWT Token *</label>
                             <textarea id="gateway_token"
                                       name="gateway_token"
@@ -47,20 +57,111 @@
                         </div>
 
                         <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <label style="display: block; font-weight: 600; margin-bottom: 10px; color: #2d3748;">⚙️ Additional Settings</label>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <input type="checkbox"
-                                       id="fetch_definitions"
-                                       name="fetch_definitions"
-                                       style="width: 18px; height: 18px; cursor: pointer;">
-                                <label for="fetch_definitions" style="margin: 0; cursor: pointer; color: #4a5568;">
-                                    Fetch audience definitions during audit
+                            <label style="display: block; font-weight: 600; margin-bottom: 15px; color: #2d3748;">📋 Select Data to Collect</label>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                                <!-- Core Collections -->
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_sources" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_sources" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            🔌 Sources
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Connection inventory</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_destinations" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_destinations" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            📍 Destinations
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Integration list</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_audiences" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_audiences" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            👥 Audiences
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Size, status, destinations</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_journeys" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_journeys" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            🚀 Journeys
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Engage workflows</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_profiles" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_profiles" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            🔍 Profile Insights
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Identity resolution</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_mtu" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_mtu" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            📊 MTU Data
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Usage analytics</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_audit_trail" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_audit_trail" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            📋 Audit Trail
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Activity logs (slow)</small>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_usage_data" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_usage_data" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            💳 Billing Data
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Plan & entitlements</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Quick Select Buttons -->
+                            <div style="display: flex; gap: 8px; margin-bottom: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+                                <button type="button" onclick="selectAudiencesOnly()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
+                                    👥 Audiences Only
+                                </button>
+                                <button type="button" onclick="selectAll()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
+                                    ✓ Select All
+                                </button>
+                                <button type="button" onclick="selectNone()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
+                                    ✗ Clear All
+                                </button>
+                            </div>
+
+                            <!-- Audience Definition Toggle -->
+                            <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;" id="definitionToggle">
+                                <input type="checkbox" id="fetch_definitions" style="width: 18px; height: 18px; cursor: pointer;">
+                                <label for="fetch_definitions" style="margin: 0; cursor: pointer; color: #856404; font-size: 0.9rem; flex: 1;">
+                                    <strong>⚠️ Fetch audience definitions</strong> (adds 1-2 min per 100 audiences)
                                 </label>
                             </div>
-                            <small style="display: block; margin-top: 8px; color: #718096; line-height: 1.5;">
-                                ⚠️ <strong>Warning:</strong> Enabling this will significantly increase audit time (1-2 minutes per 100 audiences) due to API rate limits.
-                                Definitions can also be viewed on-demand by clicking any audience in the results.
-                            </small>
                         </div>
 
                         <div class="form-actions">
@@ -147,7 +248,7 @@
                         <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
                             <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📋 Audit Trail</div>
                             <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                90 days of workspace activity, governance insights, user actions
+                                30 days of workspace activity, governance insights, user actions
                             </p>
                         </div>
 
@@ -170,6 +271,51 @@
     </div>
 
     <script>
+        // Quick select helper functions
+        function selectAudiencesOnly() {
+            document.getElementById('collect_sources').checked = false;
+            document.getElementById('collect_destinations').checked = false;
+            document.getElementById('collect_audiences').checked = true;
+            document.getElementById('collect_journeys').checked = false;
+            document.getElementById('collect_profiles').checked = false;
+            document.getElementById('collect_mtu').checked = false;
+            document.getElementById('collect_audit_trail').checked = false;
+            document.getElementById('collect_usage_data').checked = false;
+        }
+
+        function selectAll() {
+            document.getElementById('collect_sources').checked = true;
+            document.getElementById('collect_destinations').checked = true;
+            document.getElementById('collect_audiences').checked = true;
+            document.getElementById('collect_journeys').checked = true;
+            document.getElementById('collect_profiles').checked = true;
+            document.getElementById('collect_mtu').checked = true;
+            document.getElementById('collect_audit_trail').checked = true;
+            document.getElementById('collect_usage_data').checked = true;
+        }
+
+        function selectNone() {
+            document.getElementById('collect_sources').checked = false;
+            document.getElementById('collect_destinations').checked = false;
+            document.getElementById('collect_audiences').checked = false;
+            document.getElementById('collect_journeys').checked = false;
+            document.getElementById('collect_profiles').checked = false;
+            document.getElementById('collect_mtu').checked = false;
+            document.getElementById('collect_audit_trail').checked = false;
+            document.getElementById('collect_usage_data').checked = false;
+        }
+
+        // Show/hide definition toggle based on audiences selection
+        document.getElementById('collect_audiences').addEventListener('change', function() {
+            const definitionToggle = document.getElementById('definitionToggle');
+            if (this.checked) {
+                definitionToggle.style.display = 'flex';
+            } else {
+                definitionToggle.style.display = 'none';
+                document.getElementById('fetch_definitions').checked = false;
+            }
+        });
+
         document.getElementById('auditForm').addEventListener('submit', async (e) => {
             e.preventDefault();
 
@@ -181,9 +327,30 @@
             const workspaceSlug = document.getElementById('workspace_slug').value.trim();
             const gatewayToken = document.getElementById('gateway_token').value.trim();
             const fetchDefinitions = document.getElementById('fetch_definitions').checked;
+            const region = document.getElementById('region').value;
+
+            // Collect data collection toggles
+            const collectOptions = {
+                sources: document.getElementById('collect_sources').checked,
+                destinations: document.getElementById('collect_destinations').checked,
+                audiences: document.getElementById('collect_audiences').checked,
+                journeys: document.getElementById('collect_journeys').checked,
+                profiles: document.getElementById('collect_profiles').checked,
+                mtu: document.getElementById('collect_mtu').checked,
+                audit_trail: document.getElementById('collect_audit_trail').checked,
+                usage_data: document.getElementById('collect_usage_data').checked
+            };
 
             if (!workspaceSlug || !gatewayToken) {
                 errorDiv.textContent = 'Please provide workspace slug and Gateway token';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Check if at least one collection option is selected
+            const hasSelection = Object.values(collectOptions).some(v => v);
+            if (!hasSelection) {
+                errorDiv.textContent = 'Please select at least one data type to collect';
                 errorDiv.style.display = 'block';
                 return;
             }
@@ -208,7 +375,9 @@
                         workspace_slug: workspaceSlug,
                         gateway_token: gatewayToken,
                         customer_name: workspaceSlug,
-                        fetch_definitions: fetchDefinitions
+                        fetch_definitions: fetchDefinitions,
+                        region: region === 'auto' ? null : region,
+                        collect_options: collectOptions
                     })
                 });
 

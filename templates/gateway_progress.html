@@ -86,14 +86,32 @@
             <div class="progress-detail">
                 <h3>📋 Collection Progress</h3>
                 <ul>
-                    <li><span class="checkmark" id="check1">□</span> Workspace Spaces (10%)</li>
-                    <li><span class="checkmark" id="check2">□</span> Sources & Connections (30%)</li>
-                    <li><span class="checkmark" id="check3">□</span> Audiences (50%)</li>
-                    <li><span class="checkmark" id="check4">□</span> Journeys & Destinations (70%)</li>
-                    <li><span class="checkmark" id="check5">□</span> Audit Trail (82%)</li>
-                    <li><span class="checkmark" id="check6">□</span> MTU Data (85%)</li>
-                    <li><span class="checkmark" id="check7">□</span> Profile Insights (87%)</li>
-                    <li><span class="checkmark" id="check8">□</span> Saving Data (90%)</li>
+                    <li><span class="checkmark" id="check_spaces">□</span> Workspace Spaces (5%)</li>
+                    {% if collect_options.sources %}
+                    <li><span class="checkmark" id="check_sources">□</span> 🔌 Sources & Connections</li>
+                    {% endif %}
+                    {% if collect_options.audiences %}
+                    <li><span class="checkmark" id="check_audiences">□</span> 👥 Audiences</li>
+                    {% endif %}
+                    {% if collect_options.journeys %}
+                    <li><span class="checkmark" id="check_journeys">□</span> 🚀 Journeys</li>
+                    {% endif %}
+                    {% if collect_options.destinations %}
+                    <li><span class="checkmark" id="check_destinations">□</span> 📍 Destinations</li>
+                    {% endif %}
+                    {% if collect_options.usage_data %}
+                    <li><span class="checkmark" id="check_usage">□</span> 💳 Usage Data</li>
+                    {% endif %}
+                    {% if collect_options.audit_trail %}
+                    <li><span class="checkmark" id="check_audit">□</span> 📋 Audit Trail</li>
+                    {% endif %}
+                    {% if collect_options.mtu %}
+                    <li><span class="checkmark" id="check_mtu">□</span> 📊 MTU Data</li>
+                    {% endif %}
+                    {% if collect_options.profiles %}
+                    <li><span class="checkmark" id="check_profiles">□</span> 🔍 Profile Insights</li>
+                    {% endif %}
+                    <li><span class="checkmark" id="check_save">□</span> 💾 Saving Data (95%)</li>
                 </ul>
             </div>
 
@@ -119,47 +137,79 @@
                 progressText.textContent = status.progress + '%';
                 statusMessage.textContent = status.message;
 
-                // Update checkmarks based on progress
-                const check1 = document.getElementById('check1');
-                const check2 = document.getElementById('check2');
-                const check3 = document.getElementById('check3');
-                const check4 = document.getElementById('check4');
-                const check5 = document.getElementById('check5');
-                const check6 = document.getElementById('check6');
-                const check7 = document.getElementById('check7');
-                const check8 = document.getElementById('check8');
+                // Update checkmarks based on message content
+                const message = status.message.toLowerCase();
 
-                if (status.progress >= 10) {
-                    check1.textContent = '✓';
-                    check1.classList.add('done');
+                // Always check spaces first
+                const checkSpaces = document.getElementById('check_spaces');
+                if (checkSpaces && status.progress >= 5) {
+                    checkSpaces.textContent = '✓';
+                    checkSpaces.classList.add('done');
                 }
-                if (status.progress >= 30) {
-                    check2.textContent = '✓';
-                    check2.classList.add('done');
+
+                // Check based on current activity
+                const checks = {
+                    'sources': document.getElementById('check_sources'),
+                    'audiences': document.getElementById('check_audiences'),
+                    'journeys': document.getElementById('check_journeys'),
+                    'destinations': document.getElementById('check_destinations'),
+                    'usage': document.getElementById('check_usage'),
+                    'audit': document.getElementById('check_audit'),
+                    'mtu': document.getElementById('check_mtu'),
+                    'profiles': document.getElementById('check_profiles'),
+                    'save': document.getElementById('check_save')
+                };
+
+                // Mark items as done based on message
+                if (message.includes('source') && checks.sources && status.progress > 5) {
+                    checks.sources.textContent = '✓';
+                    checks.sources.classList.add('done');
                 }
-                if (status.progress >= 50) {
-                    check3.textContent = '✓';
-                    check3.classList.add('done');
+                if (message.includes('audience') && checks.audiences) {
+                    if (status.progress > 40 || message.includes('journeys') || message.includes('destination') || message.includes('saving')) {
+                        checks.audiences.textContent = '✓';
+                        checks.audiences.classList.add('done');
+                    }
                 }
-                if (status.progress >= 70) {
-                    check4.textContent = '✓';
-                    check4.classList.add('done');
+                if (message.includes('journeys') && checks.journeys) {
+                    if (status.progress > 60 || message.includes('destination') || message.includes('saving')) {
+                        checks.journeys.textContent = '✓';
+                        checks.journeys.classList.add('done');
+                    }
                 }
-                if (status.progress >= 82) {
-                    check5.textContent = '✓';
-                    check5.classList.add('done');
+                if (message.includes('destination') && checks.destinations) {
+                    if (status.progress > 70 || message.includes('usage') || message.includes('audit') || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
+                        checks.destinations.textContent = '✓';
+                        checks.destinations.classList.add('done');
+                    }
                 }
-                if (status.progress >= 85) {
-                    check6.textContent = '✓';
-                    check6.classList.add('done');
+                if (message.includes('usage') && checks.usage) {
+                    if (status.progress > 75 || message.includes('audit') || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
+                        checks.usage.textContent = '✓';
+                        checks.usage.classList.add('done');
+                    }
                 }
-                if (status.progress >= 87) {
-                    check7.textContent = '✓';
-                    check7.classList.add('done');
+                if (message.includes('audit trail') && checks.audit) {
+                    if (status.progress > 80 || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
+                        checks.audit.textContent = '✓';
+                        checks.audit.classList.add('done');
+                    }
                 }
-                if (status.progress >= 90) {
-                    check8.textContent = '✓';
-                    check8.classList.add('done');
+                if (message.includes('mtu') && checks.mtu) {
+                    if (status.progress > 85 || message.includes('profile') || message.includes('saving')) {
+                        checks.mtu.textContent = '✓';
+                        checks.mtu.classList.add('done');
+                    }
+                }
+                if (message.includes('profile') && checks.profiles) {
+                    if (status.progress > 90 || message.includes('saving')) {
+                        checks.profiles.textContent = '✓';
+                        checks.profiles.classList.add('done');
+                    }
+                }
+                if (message.includes('saving') && checks.save && status.progress >= 95) {
+                    checks.save.textContent = '✓';
+                    checks.save.classList.add('done');
                 }
 
                 if (status.error) {

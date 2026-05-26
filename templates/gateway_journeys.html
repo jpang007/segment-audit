@@ -25,9 +25,9 @@
                         <a href="/destinations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📍 Destinations</a>
                         <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
                         <a href="/journeys" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">🚀 Journeys</a>
-                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
-            <a href="/audit-trail">Audit Trail</a>
-            <a href="/mtu">MTU Usage</a>
+                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔍 Profile Insights</a>
+                        <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
+                        <a href="/usage" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
                         {% if enable_experimental %}
                         {% endif %}
                     </div>
@@ -48,7 +48,7 @@
             <div class="stats-grid">
                 <div class="stat-card primary">
                     <div class="label">Journeys</div>
-                    <div class="value" id="journeyCount">-</div>
+                    <div class="value" id="totalJourneys">-</div>
                     <div class="subtext">Workflows</div>
                 </div>
                 <div class="stat-card">
@@ -61,10 +61,20 @@
             <!-- Journeys Table -->
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2>All Journeys</h2>
+                    <div>
+                        <h2 style="margin: 0;">All Journeys</h2>
+                        <p id="journeyCount" style="margin: 5px 0 0 0; color: #718096; font-size: 0.9rem;">Loading...</p>
+                    </div>
                     <div style="display: flex; gap: 10px;">
-                        <input type="text" id="searchBox" placeholder="🔍 Search..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
-                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                        <input type="text" id="searchBox" placeholder="🔍 Search..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 200px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'" onkeyup="applyFiltersAndSort()">
+                        <select id="stateFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;" onchange="applyFiltersAndSort()">
+                            <option value="all">All States</option>
+                            <option value="published">Published</option>
+                            <option value="draft">Draft</option>
+                            <option value="archived">Archived</option>
+                            <option value="deleted">Deleted</option>
+                        </select>
+                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;" onchange="applyFiltersAndSort()">
                             <option value="name-asc">Name (A-Z)</option>
                             <option value="name-desc">Name (Z-A)</option>
                             <option value="dest-desc">Dest Count (High-Low)</option>
@@ -72,7 +82,7 @@
                             <option value="updated-desc">Updated: Newest First</option>
                             <option value="updated-asc">Updated: Oldest First</option>
                         </select>
-                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
+                        <button onclick="exportToCSV()" class="btn btn-primary btn-sm">
                             📥 Export CSV
                         </button>
                     </div>
@@ -92,18 +102,18 @@
                     </div>
                 </div>
 
-                <div class="table-container" id="journeysTable" style="display: none;">
-                    <table>
+                <div class="table-container" id="journeysTable" style="display: none; overflow-x: auto;">
+                    <table style="table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
-                                <th style="white-space: nowrap;">State</th>
-                                <th>Name</th>
-                                <th>Space</th>
-                                <th style="white-space: nowrap;">Last Published</th>
-                                <th style="text-align: center; white-space: nowrap;">Dest Count</th>
-                                <th>Destinations</th>
-                                <th style="white-space: nowrap;">Created By</th>
-                                <th style="white-space: nowrap;">Updated</th>
+                                <th style="width: 140px; white-space: nowrap;">State</th>
+                                <th style="width: 300px; min-width: 200px;">Name</th>
+                                <th style="width: 150px;">Space</th>
+                                <th style="width: 100px; text-align: center; white-space: nowrap;">Version</th>
+                                <th style="width: 80px; text-align: center; white-space: nowrap;">Dests</th>
+                                <th style="width: 250px;">Destinations</th>
+                                <th style="width: 150px; white-space: nowrap;">Created By</th>
+                                <th style="width: 120px; white-space: nowrap;">Updated</th>
                             </tr>
                         </thead>
                         <tbody id="journeysTableBody"></tbody>
@@ -243,7 +253,7 @@
 
         function updateStats() {
             // Count all journeys (both Journey and Campaign types)
-            document.getElementById('journeyCount').textContent = allJourneys.length;
+            document.getElementById('totalJourneys').textContent = allJourneys.length;
 
             const allDests = new Set();
             allJourneys.forEach(j => {
@@ -259,6 +269,12 @@
         function renderTable() {
             const tbody = document.getElementById('journeysTableBody');
             tbody.innerHTML = '';
+
+            // Update count
+            const countText = filteredJourneys.length === allJourneys.length
+                ? `Showing all ${allJourneys.length} journeys`
+                : `Showing ${filteredJourneys.length} of ${allJourneys.length} journeys`;
+            document.getElementById('journeyCount').textContent = countText;
 
             const start = (currentPage - 1) * pageSize;
             const end = start + pageSize;
@@ -303,13 +319,13 @@
 
                 row.innerHTML = `
                     <td style="white-space: nowrap;">${stateBadge}</td>
-                    <td>${name}</td>
-                    <td>${space}</td>
+                    <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${name}"><strong>${name}</strong></td>
+                    <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${space}">${space}</td>
                     <td style="text-align: center; white-space: nowrap;">${versionDisplay}</td>
                     <td style="text-align: center;">${destCount}</td>
-                    <td>${destDisplay}</td>
-                    <td style="white-space: nowrap;">${createdBy}</td>
-                    <td style="white-space: nowrap;">${updatedDisplay}</td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; color: #718096;" title="${destinations}">${destDisplay}</td>
+                    <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem;" title="${createdBy}">${createdBy}</td>
+                    <td style="white-space: nowrap; font-size: 0.85rem; color: #718096;">${updatedDisplay}</td>
                 `;
 
                 tbody.appendChild(row);
@@ -359,14 +375,33 @@
 
         function applyFiltersAndSort() {
             const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const stateFilter = document.getElementById('stateFilter').value;
             const sortBy = document.getElementById('sortBy').value;
 
             filteredJourneys = allJourneys.filter(journey => {
                 const name = (journey['Name'] || '').toLowerCase();
                 const space = (journey['Space'] || '').toLowerCase();
                 const type = (journey['Type'] || '').toLowerCase();
+                const state = (journey['State'] || '').toLowerCase();
 
-                return name.includes(searchTerm) || space.includes(searchTerm) || type.includes(searchTerm);
+                // Text search filter
+                const matchesSearch = name.includes(searchTerm) || space.includes(searchTerm) || type.includes(searchTerm);
+
+                // State filter
+                let matchesState = true;
+                if (stateFilter !== 'all') {
+                    if (stateFilter === 'published') {
+                        matchesState = state.includes('published') || state.includes('running') || state.includes('active') || state.includes('live');
+                    } else if (stateFilter === 'draft') {
+                        matchesState = state.includes('draft') || state.includes('paused');
+                    } else if (stateFilter === 'archived') {
+                        matchesState = state.includes('archived');
+                    } else if (stateFilter === 'deleted') {
+                        matchesState = state.includes('deleted');
+                    }
+                }
+
+                return matchesSearch && matchesState;
             });
 
             filteredJourneys.sort((a, b) => {
@@ -394,7 +429,12 @@
         }
 
         function exportToCSV() {
-            const headers = Object.keys(allJourneys[0]);
+            if (!filteredJourneys || filteredJourneys.length === 0) {
+                alert('No journeys to export');
+                return;
+            }
+
+            const headers = Object.keys(filteredJourneys[0]);
             const csvRows = [headers.join(',')];
 
             filteredJourneys.forEach(journey => {
@@ -410,16 +450,18 @@
             const link = document.createElement('a');
             const url = URL.createObjectURL(blob);
 
+            const customerName = document.getElementById('customerName').textContent.split(' - ')[0];
+            const filename = `${customerName.replace(/\s+/g, '_')}_Journeys_${new Date().toISOString().split('T')[0]}.csv`;
+
             link.setAttribute('href', url);
-            link.setAttribute('download', `gateway_journeys_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute('download', filename);
             link.style.visibility = 'hidden';
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-        }
 
-        document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
-        document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+            console.log(`Exported ${filteredJourneys.length} journeys to ${filename}`);
+        }
 
         loadJourneysData();
     </script>

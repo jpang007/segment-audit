@@ -10,7 +10,7 @@ import os
 import json
 import requests
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import csv
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -49,16 +49,60 @@ audit_status = {
 class GatewayAPIClient:
     """Gateway API GraphQL client"""
 
-    def __init__(self, gateway_token, workspace_slug):
+    def __init__(self, gateway_token, workspace_slug, region=None):
         self.gateway_token = gateway_token
         self.workspace_slug = workspace_slug
-        self.base_url = "https://app.segment.com/gateway-api/graphql"
+
+        # Determine region from token or explicit parameter
+        if region:
+            self.region = region
+        else:
+            # Try to detect region from JWT token
+            self.region = self._detect_region_from_token(gateway_token)
+
+        # Set base URL based on region
+        if self.region == 'eu1':
+            self.base_url = "https://eu1.app.segment.com/gateway-api/graphql"
+        else:
+            self.base_url = "https://app.segment.com/gateway-api/graphql"
+
         self.headers = {
             "Authorization": f"Bearer {gateway_token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
             "x-requested-with": "fetch"
         }
+
+        print(f"🌍 Gateway API Region: {self.region or 'us1 (default)'}")
+        print(f"🔗 Gateway API URL: {self.base_url}")
+
+    def _detect_region_from_token(self, token):
+        """Detect region from JWT token issuer claim"""
+        try:
+            import base64
+            # JWT structure: header.payload.signature
+            parts = token.split('.')
+            if len(parts) >= 2:
+                # Decode payload (add padding if needed)
+                payload = parts[1]
+                padding = 4 - len(payload) % 4
+                if padding != 4:
+                    payload += '=' * padding
+
+                decoded = base64.b64decode(payload)
+                import json
+                payload_data = json.loads(decoded)
+
+                # Check issuer claim for region
+                issuer = payload_data.get('iss', '')
+                if 'eu1.app.segment.com' in issuer:
+                    return 'eu1'
+                elif 'app.segment.com' in issuer:
+                    return 'us1'
+        except Exception as e:
+            print(f"⚠️  Could not detect region from token: {e}")
+
+        return None  # Default to US
 
     def _execute_query(self, query, variables, max_retries=3):
         """Execute a GraphQL query with retry logic for rate limiting"""
@@ -1753,10 +1797,11 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {})
 
-    def get_destination_delivery_metrics(self, destination_id, start_time, end_time, workspace_id):
-        """Get delivery metrics for a specific destination (success, failures, retries)"""
+    def get_destination_delivery_metrics(self, destination_id, start_time, end_time, workspace_id, source_id=None):
+        """Get comprehensive delivery metrics for a destination including success, failures, and filtering"""
+        # Simplified query - only get delivery metrics (not ingest/filtering)
         query = """
-        query getSuccessfullyDelivered($integrationID: String!, $workspaceID: String!, $destinationConfigId: String!, $groupBy: [String!]!, $startTime: Date!, $endTime: Date!, $granularity: Granularity!, $pagination: PaginationInput, $subscriptionId: String, $filterBy: String) {
+        query getDeliveryOverview($integrationID: String!, $workspaceID: String!, $startTime: Date!, $endTime: Date!, $granularity: Granularity!, $destinationConfigId: String!, $groupBy: [String!]!) {
           integration(id: $integrationID) {
             id
             name
@@ -1768,17 +1813,10 @@ class GatewayAPIClient:
                 granularity: $granularity
                 destinationConfigId: $destinationConfigId
                 groupBy: $groupBy
-                pagination: $pagination
-                subscriptionId: $subscriptionId
-                filterBy: $filterBy
               ) {
                 dataset {
                   total
                   totalRetryCount
-                  eventType
-                  eventName
-                  appVersion
-                  action
                   series {
                     time
                     count
@@ -1787,17 +1825,30 @@ class GatewayAPIClient:
                   }
                   __typename
                 }
-                pagination {
-                  current
-                  next
-                  totalEntries
-                  previous
+                __typename
+              }
+              failedDelivery(
+                workspaceId: $workspaceID
+                startTime: $startTime
+                endTime: $endTime
+                granularity: $granularity
+                destinationConfigId: $destinationConfigId
+                groupBy: $groupBy
+              ) {
+                dataset {
+                  total
+                  series {
+                    time
+                    count
+                    __typename
+                  }
                   __typename
                 }
                 __typename
               }
               __typename
             }
+            visibilityState(startTime: $startTime, endTime: $endTime)
             __typename
           }
         }
@@ -1810,7 +1861,7 @@ class GatewayAPIClient:
             "groupBy": [],
             "startTime": start_time,
             "endTime": end_time,
-            "granularity": "day"
+            "granularity": "hour"
         }
 
         try:
@@ -1839,6 +1890,17 @@ def start_audit():
         workspace_slug = data.get('workspace_slug', '').strip()
         customer_name = data.get('customer_name', '').strip() or workspace_slug
         fetch_definitions = data.get('fetch_definitions', False)
+        region = data.get('region')  # Can be None (auto-detect), 'us1', or 'eu1'
+        collect_options = data.get('collect_options', {
+            'sources': True,
+            'destinations': True,
+            'audiences': True,
+            'journeys': True,
+            'profiles': False,
+            'mtu': False,
+            'audit_trail': False,
+            'usage_data': False
+        })
 
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Gateway token and workspace slug are required'}), 400
@@ -1847,11 +1909,13 @@ def start_audit():
         session['gateway_token'] = gateway_token
         session['workspace_slug'] = workspace_slug
         session['customer_name'] = customer_name
+        session['region'] = region
+        session['collect_options'] = collect_options
         session.permanent = True
 
         # Start audit in background
         import threading
-        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name, fetch_definitions))
+        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name, fetch_definitions, region, collect_options))
         thread.daemon = True
         thread.start()
 
@@ -1860,9 +1924,22 @@ def start_audit():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=False):
+def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=False, region=None, collect_options=None):
     """Run the audit collection"""
     global audit_status
+
+    # Default collect options if not provided
+    if collect_options is None:
+        collect_options = {
+            'sources': True,
+            'destinations': True,
+            'audiences': True,
+            'journeys': True,
+            'profiles': False,
+            'mtu': False,
+            'audit_trail': False,
+            'usage_data': False
+        }
 
     try:
         # Reset all status fields for new audit
@@ -1879,347 +1956,424 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             file_path.unlink()
         print("Cleared old audit data files")
 
-        client = GatewayAPIClient(gateway_token, workspace_slug)
+        print(f"\n=== COLLECTION OPTIONS ===")
+        print(f"Sources: {collect_options.get('sources', False)}")
+        print(f"Destinations: {collect_options.get('destinations', False)}")
+        print(f"Audiences: {collect_options.get('audiences', False)}")
+        print(f"Journeys: {collect_options.get('journeys', False)}")
+        print(f"Profile Insights: {collect_options.get('profiles', False)}")
+        print(f"MTU Data: {collect_options.get('mtu', False)}")
+        print(f"Audit Trail: {collect_options.get('audit_trail', False)}")
+        print(f"Usage Data: {collect_options.get('usage_data', False)}")
+        print("=" * 50)
 
-        # Get spaces
+        # Calculate dynamic progress steps based on enabled options
+        # Each section gets a weight, and we'll distribute 90% of progress bar across them
+        # Reserve 5% for init and 5% for saving
+        progress_steps = []
+        if collect_options.get('sources', True):
+            progress_steps.append(('sources', 20))  # Sources can be slow
+        if collect_options.get('audiences', True):
+            progress_steps.append(('audiences', 25))  # Audiences can be very slow with definitions
+        if collect_options.get('journeys', True):
+            progress_steps.append(('journeys', 15))
+        if collect_options.get('destinations', True):
+            progress_steps.append(('destinations', 10))
+        if collect_options.get('usage_data', False):
+            progress_steps.append(('usage_data', 5))
+        if collect_options.get('audit_trail', False):
+            progress_steps.append(('audit_trail', 20))  # Can be slow with pagination
+        if collect_options.get('mtu', False):
+            progress_steps.append(('mtu', 15))
+        if collect_options.get('profiles', False):
+            progress_steps.append(('profiles', 15))
+
+        # Calculate cumulative progress percentages
+        total_weight = sum(weight for _, weight in progress_steps)
+        if total_weight > 0:
+            progress_map = {}
+            cumulative = 5  # Start after init (5%)
+            for name, weight in progress_steps:
+                # Distribute remaining 90% proportionally
+                progress_pct = int(cumulative + (weight / total_weight) * 90)
+                progress_map[name] = progress_pct
+                cumulative = progress_pct
+        else:
+            # Fallback if nothing selected (shouldn't happen due to validation)
+            progress_map = {}
+
+        print(f"Progress milestones: {progress_map}")
+
+        client = GatewayAPIClient(gateway_token, workspace_slug, region=region)
+
+        # Get spaces (always needed for audiences/journeys)
         audit_status['message'] = 'Fetching spaces...'
-        audit_status['progress'] = 10
+        audit_status['progress'] = 5
         spaces = client.get_spaces()
         print(f"Found {len(spaces)} spaces")
 
-        # Get sources
-        audit_status['message'] = 'Fetching sources...'
-        audit_status['progress'] = 30
-        sources = client.get_all_sources()
-        print(f"Found {len(sources)} sources")
-
-        # Get workspace connections
-        audit_status['message'] = 'Fetching source-destination connections...'
-        audit_status['progress'] = 50
-        connections = client.get_workspace_connections()
-
-        # Get audiences for each space
-        audit_status['message'] = 'Collecting audiences...'
-        audit_status['progress'] = 70
+        # Initialize collections
+        sources = []
+        connections = {}
         all_audiences = []
-        print(f"\n=== FETCHING AUDIENCES ===", flush=True)
-        print(f"Found {len(spaces)} spaces to query", flush=True)
-        for idx, space in enumerate(spaces):
-            space_id = space.get('id')
-            space_name = space.get('name', 'Unknown')
-            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name} (ID: {space_id})", flush=True)
-            try:
-                audiences = client.get_audiences_with_folders(space_id)
-                print(f"  -> Returned {len(audiences)} audiences", flush=True)
+        all_journeys = []
 
-                # Optionally fetch definitions for each audience
-                for aud_idx, aud in enumerate(audiences):
-                    aud['space_id'] = space_id
-                    aud['space_name'] = space_name
-                    aud_name = aud.get('name', 'Unnamed')
-                    print(f"     - {aud_name}", flush=True)
+        # Get sources (optional)
+        if collect_options.get('sources', True):
+            audit_status['message'] = 'Fetching sources...'
+            audit_status['progress'] = progress_map.get('sources', 15)
+            sources = client.get_all_sources()
+            print(f"Found {len(sources)} sources")
 
-                    if fetch_definitions:
-                        aud_id = aud.get('id', '')
-                        try:
-                            print(f"       Fetching definition for {aud_name}...", flush=True)
-                            definition_data = client.get_audience_definition(space_id, aud_id)
-                            definition = definition_data.get('definition', {})
-                            definition_type = definition.get('type', '')
-                            definition_options = definition.get('options', {})
+            # Get workspace connections
+            audit_status['message'] = 'Fetching source-destination connections...'
+            connections = client.get_workspace_connections()
+        else:
+            print("Skipping sources collection")
 
-                            # Store definition (SQL or AST)
-                            if definition_type == 'segment_sql' and definition_options:
-                                aud['definition_sql'] = definition_options.get('sql', '')
-                            elif definition_type == 'ast' and definition_options:
-                                # Store AST as JSON string for AI export
-                                aud['definition_sql'] = json.dumps(definition_options)
-                            else:
+        # Get audiences for each space (optional)
+        if collect_options.get('audiences', True):
+            audit_status['message'] = 'Collecting audiences...'
+            audit_status['progress'] = progress_map.get('audiences', 40)
+            print(f"\n=== FETCHING AUDIENCES ===", flush=True)
+            print(f"Found {len(spaces)} spaces to query", flush=True)
+            for idx, space in enumerate(spaces):
+                space_id = space.get('id')
+                space_name = space.get('name', 'Unknown')
+                print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name} (ID: {space_id})", flush=True)
+                try:
+                    audiences = client.get_audiences_with_folders(space_id)
+                    print(f"  -> Returned {len(audiences)} audiences", flush=True)
+
+                    # Optionally fetch definitions for each audience
+                    for aud_idx, aud in enumerate(audiences):
+                        aud['space_id'] = space_id
+                        aud['space_name'] = space_name
+                        aud_name = aud.get('name', 'Unnamed')
+                        print(f"     - {aud_name}", flush=True)
+
+                        if fetch_definitions:
+                            aud_id = aud.get('id', '')
+                            try:
+                                print(f"       Fetching definition for {aud_name}...", flush=True)
+                                definition_data = client.get_audience_definition(space_id, aud_id)
+                                definition = definition_data.get('definition', {})
+                                definition_type = definition.get('type', '')
+                                definition_options = definition.get('options', {})
+
+                                # Store definition (SQL or AST)
+                                if definition_type == 'segment_sql' and definition_options:
+                                    aud['definition_sql'] = definition_options.get('sql', '')
+                                elif definition_type == 'ast' and definition_options:
+                                    # Store AST as JSON string for AI export
+                                    aud['definition_sql'] = json.dumps(definition_options)
+                                else:
+                                    aud['definition_sql'] = ''
+
+                                audit_status['message'] = f'Collecting audiences... ({aud_idx + 1}/{len(audiences)} in {space_name})'
+
+                                # Rate limiting - sleep 2s between API calls to avoid Gateway API limits
+                                import time
+                                time.sleep(2)
+                            except Exception as def_error:
+                                print(f"       Failed to fetch definition: {def_error}", flush=True)
                                 aud['definition_sql'] = ''
 
-                            audit_status['message'] = f'Collecting audiences... ({aud_idx + 1}/{len(audiences)} in {space_name})'
+                    all_audiences.extend(audiences)
+                    print(f"  -> Total audiences so far: {len(all_audiences)}", flush=True)
+                except Exception as e:
+                    print(f"  -> ERROR: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+        else:
+            print("Skipping audiences collection")
 
-                            # Rate limiting - sleep 2s between API calls to avoid Gateway API limits
-                            import time
-                            time.sleep(2)
-                        except Exception as def_error:
-                            print(f"       Failed to fetch definition: {def_error}", flush=True)
-                            aud['definition_sql'] = ''
+        # Get journeys for each space (optional)
+        if collect_options.get('journeys', True):
+            audit_status['message'] = 'Collecting journeys...'
+            audit_status['progress'] = progress_map.get('journeys', 60)
+            print(f"\n=== FETCHING JOURNEYS ===")
+            for idx, space in enumerate(spaces):
+                space_id = space.get('id')
+                space_name = space.get('name', 'Unknown')
+                print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name}")
+                try:
+                    journeys = client.get_journeys(space_id)
+                    print(f"  -> Returned {len(journeys)} items (journeys + campaigns)")
+                    for journey in journeys:
+                        journey['space_id'] = space_id
+                        journey['space_name'] = space_name
+                    all_journeys.extend(journeys)
+                    print(f"  -> Total items so far: {len(all_journeys)}")
+                except Exception as e:
+                    print(f"  -> ERROR: {e}")
+                    print(f"     (This may be normal if workspace doesn't have Engage feature)")
+        else:
+            print("Skipping journeys collection")
 
-                all_audiences.extend(audiences)
-                print(f"  -> Total audiences so far: {len(all_audiences)}", flush=True)
-            except Exception as e:
-                print(f"  -> ERROR: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
-
-        # Get journeys for each space
-        audit_status['message'] = 'Collecting journeys...'
-        audit_status['progress'] = 80
-        all_journeys = []
-        print(f"\n=== FETCHING JOURNEYS ===")
-        for idx, space in enumerate(spaces):
-            space_id = space.get('id')
-            space_name = space.get('name', 'Unknown')
-            print(f"\nQuerying space {idx + 1}/{len(spaces)}: {space_name}")
-            try:
-                journeys = client.get_journeys(space_id)
-                print(f"  -> Returned {len(journeys)} items (journeys + campaigns)")
-                for journey in journeys:
-                    journey['space_id'] = space_id
-                    journey['space_name'] = space_name
-                all_journeys.extend(journeys)
-                print(f"  -> Total items so far: {len(all_journeys)}")
-            except Exception as e:
-                print(f"  -> ERROR: {e}")
-                print(f"     (This may be normal if workspace doesn't have Engage feature)")
-
-        # Get destinations with usage and data flow context
-        audit_status['message'] = 'Collecting destinations...'
-        audit_status['progress'] = 82
-        print(f"\n=== FETCHING DESTINATIONS ===")
+        # Get destinations (optional)
         destinations_data = {}
-        usage_data = {}
         data_flows = {}
-        try:
-            destinations_data = client.get_all_destinations()
-            print(f"  -> Found {len(destinations_data.get('destinations', []))} destinations")
-        except Exception as e:
-            print(f"  -> ERROR fetching destinations: {e}")
+        if collect_options.get('destinations', True):
+            audit_status['message'] = 'Collecting destinations...'
+            audit_status['progress'] = progress_map.get('destinations', 70)
+            print(f"\n=== FETCHING DESTINATIONS ===")
+            try:
+                destinations_data = client.get_all_destinations()
+                print(f"  -> Found {len(destinations_data.get('destinations', []))} destinations")
+            except Exception as e:
+                print(f"  -> ERROR fetching destinations: {e}")
 
-        try:
-            usage_data = client.get_usage_period_data()
-            billing = usage_data.get('billing', {})
-            print(f"  -> Billing plan: {billing.get('planName', 'Unknown')}")
-            mtus = billing.get('usage', {}).get('mtus', {})
-            print(f"  -> MTUs: {mtus.get('users', 0)} users + {mtus.get('anonymous', 0)} anonymous")
-        except Exception as e:
-            print(f"  -> ERROR fetching usage data: {e}")
+            try:
+                data_flows = client.get_data_flows()
+                use_cases = data_flows.get('onboardingUseCases', {}).get('data', [])
+                print(f"  -> Found {len(use_cases)} use cases")
+            except Exception as e:
+                print(f"  -> ERROR fetching data flows: {e}")
+        else:
+            print("Skipping destinations collection")
 
-        try:
-            data_flows = client.get_data_flows()
-            use_cases = data_flows.get('onboardingUseCases', {}).get('data', [])
-            print(f"  -> Found {len(use_cases)} use cases")
-        except Exception as e:
-            print(f"  -> ERROR fetching data flows: {e}")
+        # Get usage data (optional)
+        usage_data = {}
+        if collect_options.get('usage_data', False):
+            audit_status['message'] = 'Collecting usage data...'
+            audit_status['progress'] = progress_map.get('usage_data', 75)
+            print(f"\n=== FETCHING USAGE DATA ===")
+            try:
+                usage_data = client.get_usage_period_data()
+                billing = usage_data.get('billing', {})
+                print(f"  -> Billing plan: {billing.get('planName', 'Unknown')}")
+                mtus = billing.get('usage', {}).get('mtus', {})
+                print(f"  -> MTUs: {mtus.get('users', 0)} users + {mtus.get('anonymous', 0)} anonymous")
+            except Exception as e:
+                print(f"  -> ERROR fetching usage data: {e}")
+        else:
+            print("Skipping usage data collection")
 
-        # Get audit trail events for governance insights (last 90 days)
-        audit_status['message'] = 'Collecting audit trail...'
-        audit_status['progress'] = 85
-        print(f"\n=== FETCHING AUDIT TRAIL ===")
+        # Get audit trail events (optional)
         audit_events = []
-        try:
-            # Fetch events until we hit 90 days or run out
-            # Estimate: 50 pages (5000 events) should cover most workspaces for 90 days
-            max_pages = 50
-            for page in range(1, max_pages + 1):
-                if page % 10 == 0:
-                    print(f"  Page {page}/{max_pages}... ({len(audit_events)} events so far)")
+        if collect_options.get('audit_trail', False):
+            audit_status['message'] = 'Collecting audit trail...'
+            audit_status['progress'] = progress_map.get('audit_trail', 80)
+            print(f"\n=== FETCHING AUDIT TRAIL ===")
+            try:
+                # Fetch events until we hit 90 days or run out
+                # Estimate: 50 pages (5000 events) should cover most workspaces for 90 days
+                max_pages = 50
+                for page in range(1, max_pages + 1):
+                    if page % 10 == 0:
+                        print(f"  Page {page}/{max_pages}... ({len(audit_events)} events so far)")
 
-                result = client.get_audit_trail_events(page=page, per_page=100)
-                nodes = result.get('nodes', [])
+                    result = client.get_audit_trail_events(page=page, per_page=100)
+                    nodes = result.get('nodes', [])
 
-                if not nodes:
-                    break
+                    if not nodes:
+                        break
 
-                audit_events.extend(nodes)
+                    audit_events.extend(nodes)
 
-                # Check if we've reached 90 days back
-                if nodes:
-                    oldest_event = nodes[-1]
-                    event_time = oldest_event.get('timestamp')
-                    if event_time:
-                        from datetime import datetime, timedelta
-                        event_date = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
-                        ninety_days_ago = datetime.now(event_date.tzinfo) - timedelta(days=90)
+                    # Check if we've reached 90 days back
+                    if nodes:
+                        oldest_event = nodes[-1]
+                        event_time = oldest_event.get('timestamp')
+                        if event_time:
+                            event_date = datetime.fromisoformat(event_time.replace('Z', '+00:00'))
+                            ninety_days_ago = datetime.now(event_date.tzinfo) - timedelta(days=90)
 
-                        if event_date < ninety_days_ago:
-                            print(f"  -> Reached 90 days back at page {page}")
-                            break
+                            if event_date < ninety_days_ago:
+                                print(f"  -> Reached 90 days back at page {page}")
+                                break
 
-                # Stop if no more pages
-                if not result.get('pageInfo', {}).get('hasNextPage', False):
-                    print(f"  -> No more pages available")
-                    break
+                    # Stop if no more pages
+                    if not result.get('pageInfo', {}).get('hasNextPage', False):
+                        print(f"  -> No more pages available")
+                        break
 
-            print(f"  -> Collected {len(audit_events)} audit events")
-        except Exception as e:
-            print(f"  -> ERROR fetching audit trail: {e}")
-            print(f"     (Audit trail may not be available on this plan)")
+                print(f"  -> Collected {len(audit_events)} audit events")
+            except Exception as e:
+                print(f"  -> ERROR fetching audit trail: {e}")
+                print(f"     (Audit trail may not be available on this plan)")
+        else:
+            print("Skipping audit trail collection")
 
-        # Get MTU (Monthly Tracked Users) data
-        audit_status['message'] = 'Collecting MTU data...'
-        audit_status['progress'] = 87
-        print(f"\n=== FETCHING MTU DATA ===")
+        # Get MTU (Monthly Tracked Users) data (optional)
         mtu_data = {}
         usage_period_data = {}
-        try:
-            # Get comprehensive usage period data (includes contract dates, billing tier, etc.)
-            usage_period_data = client.get_usage_period_data()
+        if collect_options.get('mtu', False):
+            audit_status['message'] = 'Collecting MTU data...'
+            audit_status['progress'] = progress_map.get('mtu', 85)
+            print(f"\n=== FETCHING MTU DATA ===")
+            try:
+                # Get comprehensive usage period data (includes contract dates, billing tier, etc.)
+                usage_period_data = client.get_usage_period_data()
 
-            billing = usage_period_data.get('billing', {})
-            plan_name = billing.get('planName')
-            contract_start = billing.get('start')
-            contract_end = billing.get('end')
-            is_business = billing.get('isOnBusinessTier')
-            is_high_volume = billing.get('isOnHighVolumePlan')
+                billing = usage_period_data.get('billing', {})
+                plan_name = billing.get('planName')
+                contract_start = billing.get('start')
+                contract_end = billing.get('end')
+                is_business = billing.get('isOnBusinessTier')
+                is_high_volume = billing.get('isOnHighVolumePlan')
 
-            print(f"  -> Plan: {plan_name}")
-            print(f"  -> Contract: {contract_start} to {contract_end}")
-            print(f"  -> Business Tier: {is_business}, High Volume: {is_high_volume}")
+                print(f"  -> Plan: {plan_name}")
+                print(f"  -> Contract: {contract_start} to {contract_end}")
+                print(f"  -> Business Tier: {is_business}, High Volume: {is_high_volume}")
 
-            # Get workspace ID from workspace_connections
-            workspace_data = client.get_workspace_connections()
-            workspace_id = workspace_data.get('id')
+                # Get workspace ID from workspace_connections
+                workspace_data = client.get_workspace_connections()
+                workspace_id = workspace_data.get('id')
 
-            if workspace_id:
-                # Get last 12 months of MTU data
-                from datetime import datetime, timedelta
-                end_date = datetime.utcnow()
-                start_date = end_date - timedelta(days=365)
+                if workspace_id:
+                    # Get last 12 months of MTU data
+                    end_date = datetime.utcnow()
+                    start_date = end_date - timedelta(days=365)
 
-                mtu_data = client.get_mtu_data(
-                    workspace_id,
-                    start_date.isoformat() + 'Z',
-                    end_date.isoformat() + 'Z',
-                    is_monthly=True
-                )
-
-                # Merge usage period data into mtu_data for frontend
-                if 'billing' not in mtu_data:
-                    mtu_data['billing'] = {}
-
-                # Merge all billing info
-                mtu_data['billing'].update(billing)
-                mtu_data['entitlements'] = usage_period_data.get('entitlements', {})
-                mtu_data['historicalBilling'] = usage_period_data.get('historicalBilling', [])
-
-                quota = mtu_data.get('billing', {}).get('quota')
-                mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])
-                print(f"  -> MTU Quota: {quota if quota else 'Not set'}")
-                print(f"  -> Collected {len(mtu_months)} months of MTU data")
-
-                # Also fetch API usage data if on API plan
-                try:
-                    api_usage = client.get_api_usage(
+                    mtu_data = client.get_mtu_data(
                         workspace_id,
                         start_date.isoformat() + 'Z',
                         end_date.isoformat() + 'Z',
                         is_monthly=True
                     )
 
-                    if 'apiUsage' not in mtu_data:
-                        mtu_data['apiUsage'] = {}
+                    # Merge usage period data into mtu_data for frontend
+                    if 'billing' not in mtu_data:
+                        mtu_data['billing'] = {}
 
-                    mtu_data['apiUsage'] = api_usage.get('insights', {})
+                    # Merge all billing info
+                    mtu_data['billing'].update(billing)
+                    mtu_data['entitlements'] = usage_period_data.get('entitlements', {})
+                    mtu_data['historicalBilling'] = usage_period_data.get('historicalBilling', [])
 
-                    api_months = api_usage.get('insights', {}).get('apiCallCountsPerMonth', [])
-                    print(f"  -> Collected {len(api_months)} months of API usage data")
-                except Exception as api_err:
-                    print(f"  -> Could not fetch API usage: {api_err}")
-            else:
-                print(f"  -> Could not determine workspace ID")
-        except Exception as e:
-            print(f"  -> ERROR fetching MTU data: {e}")
-            print(f"     (MTU data may not be available on this plan)")
+                    quota = mtu_data.get('billing', {}).get('quota')
+                    mtu_months = mtu_data.get('insights', {}).get('mtuPerMonth', [])
+                    print(f"  -> MTU Quota: {quota if quota else 'Not set'}")
+                    print(f"  -> Collected {len(mtu_months)} months of MTU data")
 
-        # Get profile insights data
-        audit_status['message'] = 'Collecting profile insights...'
-        audit_status['progress'] = 90
-        print(f"\n=== FETCHING PROFILE INSIGHTS ===")
+                    # Also fetch API usage data if on API plan
+                    try:
+                        api_usage = client.get_api_usage(
+                            workspace_id,
+                            start_date.isoformat() + 'Z',
+                            end_date.isoformat() + 'Z',
+                            is_monthly=True
+                        )
 
-        # Get workspace-level personas data
+                        if 'apiUsage' not in mtu_data:
+                            mtu_data['apiUsage'] = {}
+
+                        mtu_data['apiUsage'] = api_usage.get('insights', {})
+
+                        api_months = api_usage.get('insights', {}).get('apiCallCountsPerMonth', [])
+                        print(f"  -> Collected {len(api_months)} months of API usage data")
+                    except Exception as api_err:
+                        print(f"  -> Could not fetch API usage: {api_err}")
+                else:
+                    print(f"  -> Could not determine workspace ID")
+            except Exception as e:
+                print(f"  -> ERROR fetching MTU data: {e}")
+                print(f"     (MTU data may not be available on this plan)")
+        else:
+            print("Skipping MTU data collection")
+
+        # Get profile insights data (optional)
         personas_data = {}
-        try:
-            personas_data = client.get_personas_data()
-            print(f"  -> Workspace entitlements: personas={personas_data.get('entitlements', {}).get('features', {}).get('personas')}, profiles={personas_data.get('entitlements', {}).get('features', {}).get('profiles')}")
-        except Exception as e:
-            print(f"  -> ERROR fetching personas data: {e}")
-
-        # Get identity resolution config and space sources for each space
         all_identity_configs = []
         all_space_sources = []
-        for idx, space in enumerate(spaces):
-            space_id = space.get('id')
-            space_name = space.get('name', 'Unknown')
-            print(f"\nQuerying identity config for space {idx + 1}/{len(spaces)}: {space_name}")
+        if collect_options.get('profiles', False):
+            audit_status['message'] = 'Collecting profile insights...'
+            audit_status['progress'] = progress_map.get('profiles', 90)
+            print(f"\n=== FETCHING PROFILE INSIGHTS ===")
+
+            # Get workspace-level personas data
             try:
-                configs = client.get_identity_resolution_config(space_id)
-                if configs:
-                    print(f"  -> Returned {len(configs)} external ID types")
-                    for config in configs:
-                        # Format the limit display
-                        merged_limit = config.get('mergedLimit')
-                        merged_time_range = config.get('mergedLimitTimeRange')
-                        limit_display = config.get('limit', '')
-                        seen = config.get('seen', False)
+                personas_data = client.get_personas_data()
+                print(f"  -> Workspace entitlements: personas={personas_data.get('entitlements', {}).get('features', {}).get('personas')}, profiles={personas_data.get('entitlements', {}).get('features', {}).get('profiles')}")
+            except Exception as e:
+                print(f"  -> ERROR fetching personas data: {e}")
 
-                        # If mergedLimit exists, show it with time range
-                        if merged_limit and merged_time_range:
-                            # Convert seconds to human readable format
-                            seconds = int(merged_time_range)
-                            if seconds == 86400:  # 1 day
-                                time_period = "daily"
-                            elif seconds == 604800:  # 7 days
-                                time_period = "weekly"
-                            elif seconds == 2592000:  # 30 days
-                                time_period = "monthly"
-                            elif seconds == 31536000:  # 365 days
-                                time_period = "annually"
-                            else:
-                                # Calculate days if not a standard period
-                                days = seconds // 86400
-                                time_period = f"{days} days"
+            # Get identity resolution config and space sources for each space
+            for idx, space in enumerate(spaces):
+                space_id = space.get('id')
+                space_name = space.get('name', 'Unknown')
+                print(f"\nQuerying identity config for space {idx + 1}/{len(spaces)}: {space_name}")
+                try:
+                    configs = client.get_identity_resolution_config(space_id)
+                    if configs:
+                        print(f"  -> Returned {len(configs)} external ID types")
+                        for config in configs:
+                            # Format the limit display
+                            merged_limit = config.get('mergedLimit')
+                            merged_time_range = config.get('mergedLimitTimeRange')
+                            limit_display = config.get('limit', '')
+                            seen = config.get('seen', False)
 
-                            limit_display = f"{merged_limit} {time_period}"
-                        elif merged_limit:
-                            limit_display = f"{merged_limit} ever"
+                            # If mergedLimit exists, show it with time range
+                            if merged_limit and merged_time_range:
+                                # Convert seconds to human readable format
+                                seconds = int(merged_time_range)
+                                if seconds == 86400:  # 1 day
+                                    time_period = "daily"
+                                elif seconds == 604800:  # 7 days
+                                    time_period = "weekly"
+                                elif seconds == 2592000:  # 30 days
+                                    time_period = "monthly"
+                                elif seconds == 31536000:  # 365 days
+                                    time_period = "annually"
+                                else:
+                                    # Calculate days if not a standard period
+                                    days = seconds // 86400
+                                    time_period = f"{days} days"
 
-                        all_identity_configs.append({
+                                limit_display = f"{merged_limit} {time_period}"
+                            elif merged_limit:
+                                limit_display = f"{merged_limit} ever"
+
+                            all_identity_configs.append({
+                                'space_id': space_id,
+                                'space_name': space_name,
+                                'id_type': config.get('idType', ''),
+                                'priority': config.get('priority', ''),
+                                'limit': limit_display,
+                                'seen': 'Yes' if seen else 'No'
+                            })
+                    else:
+                        print(f"  -> No identity configs returned")
+                except Exception as e:
+                    print(f"  -> ERROR fetching identity config: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                # Get sources for this space
+                try:
+                    space_sources = client.get_space_sources(space_id)
+                    print(f"  -> Returned {len(space_sources)} sources")
+                    for source in space_sources:
+                        # Extract destination names from integrations and warehouses
+                        destinations = []
+                        for integration in source.get('integrations', []):
+                            if integration.get('name'):
+                                destinations.append(integration['name'])
+                        for warehouse in source.get('warehouses', []):
+                            if warehouse.get('name'):
+                                destinations.append(warehouse['name'])
+
+                        all_space_sources.append({
                             'space_id': space_id,
                             'space_name': space_name,
-                            'id_type': config.get('idType', ''),
-                            'priority': config.get('priority', ''),
-                            'limit': limit_display,
-                            'seen': 'Yes' if seen else 'No'
+                            'source_id': source.get('id', ''),
+                            'source_name': source.get('name', ''),
+                            'source_status': source.get('status', ''),
+                            'source_type': source.get('metadata', {}).get('name', ''),
+                            'source_category': source.get('metadata', {}).get('category', ''),
+                            'destinations': ', '.join(destinations) if destinations else ''
                         })
-                else:
-                    print(f"  -> No identity configs returned")
-            except Exception as e:
-                print(f"  -> ERROR fetching identity config: {e}")
-                import traceback
-                traceback.print_exc()
-
-            # Get sources for this space
-            try:
-                space_sources = client.get_space_sources(space_id)
-                print(f"  -> Returned {len(space_sources)} sources")
-                for source in space_sources:
-                    # Extract destination names from integrations and warehouses
-                    destinations = []
-                    for integration in source.get('integrations', []):
-                        if integration.get('name'):
-                            destinations.append(integration['name'])
-                    for warehouse in source.get('warehouses', []):
-                        if warehouse.get('name'):
-                            destinations.append(warehouse['name'])
-
-                    all_space_sources.append({
-                        'space_id': space_id,
-                        'space_name': space_name,
-                        'source_id': source.get('id', ''),
-                        'source_name': source.get('name', ''),
-                        'source_status': source.get('status', ''),
-                        'source_type': source.get('metadata', {}).get('name', ''),
-                        'source_category': source.get('metadata', {}).get('category', ''),
-                        'destinations': ', '.join(destinations) if destinations else ''
-                    })
-            except Exception as e:
-                print(f"  -> ERROR fetching space sources: {e}")
+                except Exception as e:
+                    print(f"  -> ERROR fetching space sources: {e}")
+        else:
+            print("Skipping profile insights collection")
 
         # Save data
         audit_status['message'] = 'Saving audit data...'
-        audit_status['progress'] = 90
+        audit_status['progress'] = 95
 
         # Save sources CSV with traits and event count
         if sources:
@@ -2272,6 +2426,9 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         audit_status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
                         schema_data = client.get_source_schema(source.get('slug', ''))
 
+                        # Attach schema to source object for JSON export
+                        source['schema'] = schema_data
+
                         # Count total events in schema
                         for collection in schema_data.get('collections', []):
                             events = collection.get('events', [])
@@ -2291,6 +2448,7 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         time.sleep(1)
                     except Exception as e:
                         print(f"    -> Failed to fetch schema for {source.get('slug', '')}: {e}")
+                        source['schema'] = None  # Mark as failed to fetch
 
                     traits_str = ', '.join(traits_list) if traits_list else ''
 
@@ -2320,6 +2478,11 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         'Identify Traits': traits_str,
                         'Event Count': event_count
                     })
+
+            # Save sources JSON with full schema data (for Gem analysis)
+            print(f"  -> Saving sources with full schemas to gateway_sources.json")
+            with open(DATA_DIR / 'gateway_sources.json', 'w', encoding='utf-8') as f:
+                json.dump(sources, f, indent=2)
 
         # Save audiences CSV
         if all_audiences:
@@ -2523,7 +2686,17 @@ def get_audit_status():
 @app.route('/progress')
 def progress():
     """Progress page"""
-    return render_template('gateway_progress.html')
+    collect_options = session.get('collect_options', {
+        'sources': True,
+        'destinations': True,
+        'audiences': True,
+        'journeys': True,
+        'profiles': False,
+        'mtu': False,
+        'audit_trail': False,
+        'usage_data': False
+    })
+    return render_template('gateway_progress.html', collect_options=collect_options)
 
 @app.route('/dashboard')
 def dashboard():
@@ -2562,12 +2735,19 @@ def get_destination_health_metrics():
         gateway_token = session.get('gateway_token')
         workspace_slug = session.get('workspace_slug')
 
+        print(f"\n=== HEALTH METRICS REQUEST ===")
+        print(f"Session has token: {bool(gateway_token)}")
+        print(f"Workspace slug: {workspace_slug}")
+
         if not gateway_token or not workspace_slug:
+            print("ERROR: Not authenticated")
             return jsonify({'error': 'Not authenticated'}), 401
 
         data = request.json
         destination_ids = data.get('destination_ids', [])
         days_back = data.get('days_back', 7)
+
+        print(f"Fetching metrics for {len(destination_ids)} destinations")
 
         # Load destinations to get workspace ID
         destinations_file = DATA_DIR / 'gateway_destinations.json'
@@ -2586,8 +2766,7 @@ def get_destination_health_metrics():
                 # Workspace ID might be in destinations data or we need to fetch it
 
         # Calculate time range
-        from datetime import datetime, timedelta
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=days_back)
 
         start_iso = start_time.isoformat() + 'Z'
@@ -2604,49 +2783,79 @@ def get_destination_health_metrics():
 
         # Fetch metrics for each destination
         metrics_results = {}
+        print(f"Starting to fetch metrics for {len(destination_ids)} destinations...")
         for dest_id in destination_ids:
+            print(f"  Fetching metrics for {dest_id}...")
             metrics = client.get_destination_delivery_metrics(
                 dest_id,
                 start_iso,
                 end_iso,
                 workspace_id
             )
+            print(f"  Got response for {dest_id}: {bool(metrics)}")
 
             if metrics and metrics.get('deliveryOverview'):
                 delivery = metrics['deliveryOverview']
-                success_data = delivery.get('successfulDelivery', {})
-                dataset = success_data.get('dataset', [])
 
-                total_success = sum(d.get('total', 0) for d in dataset)
-                total_retries = sum(d.get('totalRetryCount', 0) for d in dataset)
+                # Extract delivery metrics - dataset is an array, get first element
+                success_delivery_dataset = delivery.get('successfulDelivery', {}).get('dataset', [])
+                success_delivery_data = success_delivery_dataset[0] if success_delivery_dataset else {}
+                total_success = success_delivery_data.get('total', 0)
+                total_retries = success_delivery_data.get('totalRetryCount', 0)
 
-                # Find last delivery time
+                failed_delivery_dataset = delivery.get('failedDelivery', {}).get('dataset', [])
+                failed_delivery_data = failed_delivery_dataset[0] if failed_delivery_dataset else {}
+                total_failed = failed_delivery_data.get('total', 0)
+
+                # Calculate health status
+                total_attempts = total_success + total_failed
+                success_rate = (total_success / total_attempts * 100) if total_attempts > 0 else 0
+
+                # Find last delivery time from successful delivery series
                 last_delivery = None
-                for ds in dataset:
-                    series = ds.get('series', [])
-                    if series:
-                        last_time = max((s.get('time') for s in series if s.get('count', 0) > 0), default=None)
-                        if last_time:
-                            last_delivery = last_time
+                series = success_delivery_data.get('series', [])
+                if series:
+                    last_time = max((s.get('time') for s in series if s.get('count', 0) > 0), default=None)
+                    if last_time:
+                        last_delivery = last_time
+
+                # Determine health status
+                if total_attempts == 0:
+                    health_status = 'no_data'
+                elif success_rate >= 95:
+                    health_status = 'healthy'
+                elif success_rate >= 80:
+                    health_status = 'warning'
+                else:
+                    health_status = 'critical'
 
                 metrics_results[dest_id] = {
-                    'success_count': total_success,
+                    'successful_delivery': total_success,
+                    'failed_delivery': total_failed,
                     'retry_count': total_retries,
+                    'success_rate': round(success_rate, 1),
                     'last_delivery': last_delivery,
-                    'health_status': 'healthy' if total_retries < total_success * 0.05 else 'warning' if total_success > 0 else 'no_data'
+                    'health_status': health_status,
+                    'visibility_state': metrics.get('visibilityState')
                 }
+                print(f"  ✓ {dest_id}: {health_status} ({success_rate:.1f}%) - {total_success} success, {total_failed} failed")
             else:
                 metrics_results[dest_id] = {
-                    'success_count': 0,
+                    'successful_delivery': 0,
+                    'failed_delivery': 0,
                     'retry_count': 0,
+                    'success_rate': 0,
                     'last_delivery': None,
-                    'health_status': 'no_data'
+                    'health_status': 'no_data',
+                    'visibility_state': None
                 }
+                print(f"  ✗ {dest_id}: No data")
 
+        print(f"Returning metrics for {len(metrics_results)} destinations")
         return jsonify({'metrics': metrics_results})
 
     except Exception as e:
-        print(f"Error fetching health metrics: {e}")
+        print(f"\n!!! ERROR fetching health metrics: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2663,9 +2872,9 @@ def profile_insights():
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
-@app.route('/mtu')
-def mtu():
-    """MTU (Monthly Tracked Users) view"""
+@app.route('/usage')
+def usage():
+    """Usage view - API calls and MTU tracking"""
     customer_name = session.get('customer_name', 'Customer')
     return render_template('gateway_mtu.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
 
@@ -2742,7 +2951,6 @@ def get_mtu_data():
                 workspace_slug = session.get('workspace_slug')
 
                 if gateway_token and workspace_slug:
-                    from datetime import datetime, timedelta
                     client = GatewayAPIClient(gateway_token, workspace_slug)
 
                     # Get last 12 months of API usage
@@ -3488,7 +3696,6 @@ def get_health_check_data():
         client = GatewayAPIClient(gateway_token, workspace_slug)
 
         # Get last 12 months of data
-        from datetime import datetime, timedelta
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=365)
 
@@ -3657,6 +3864,51 @@ def reset():
     """Reset and start new audit"""
     session.clear()
     return redirect('/')
+
+@app.route('/api/generate-health-check-ppt', methods=['POST'])
+def generate_health_check_ppt_route():
+    """Generate PowerPoint directly from audit data"""
+    try:
+        from ppt_generator_api import generate_ppt_from_data
+        import io
+
+        # Get customer name from session or request
+        customer_name = session.get('customer_name', request.json.get('customer_name', 'Customer'))
+
+        # Load workspace data
+        sources_file = DATA_DIR / 'gateway_sources.json'
+        destinations_file = DATA_DIR / 'gateway_destinations.json'
+        usage_file = DATA_DIR / 'gateway_usage_data.json'
+        audit_trail_file = DATA_DIR / 'gateway_audit_trail.json'
+
+        workspace_data = {
+            'workspace_info': {
+                'name': customer_name
+            },
+            'sources': json.load(open(sources_file)) if sources_file.exists() else [],
+            'destinations': json.load(open(destinations_file)).get('destinations', []) if destinations_file.exists() else [],
+            'usage': json.load(open(usage_file)) if usage_file.exists() else {},
+            'audit_trail': json.load(open(audit_trail_file)) if audit_trail_file.exists() else []
+        }
+
+        # Generate PowerPoint
+        ppt_bytes = generate_ppt_from_data(workspace_data)
+
+        # Send as file
+        filename = f"Health_Check_{customer_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pptx"
+
+        return send_file(
+            io.BytesIO(ppt_bytes),
+            mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        print(f"Error generating PowerPoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("="*80)

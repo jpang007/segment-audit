@@ -354,6 +354,7 @@ class ExportManager:
             gateway_files = [
                 'gateway_audiences.csv',
                 'gateway_sources.csv',
+                'gateway_journeys.csv',
                 'gateway_profile_insights.csv',
                 'gateway_space_sources.csv',
                 'gateway_summary.json',
@@ -386,13 +387,25 @@ class ExportManager:
                 except Exception as e:
                     print(f"Warning: Could not add sources JSON: {e}")
 
-            # ===== GEM ANALYSIS FILE (formatted for Gemini Gem) =====
+            # ===== GEM ANALYSIS FILES (formatted for Gemini Gems) =====
 
+            # General SA audit analysis file
             try:
                 gem_data = self._generate_gem_analysis_file()
                 zip_file.writestr('for_gem_analysis/workspace_audit_data.json', gem_data)
             except Exception as e:
                 print(f"Warning: Could not generate Gem analysis file: {e}")
+
+            # Technical Health Check PowerPoint file
+            try:
+                thc_data = self._generate_health_check_gem_file()
+                zip_file.writestr('for_gem_analysis/technical_health_check_data.json', thc_data)
+
+                # Add Health Check specific README
+                thc_readme = self._generate_health_check_readme()
+                zip_file.writestr('for_gem_analysis/HEALTH_CHECK_README.txt', thc_readme)
+            except Exception as e:
+                print(f"Warning: Could not generate Health Check Gem file: {e}")
 
             # ===== DOCUMENTATION =====
 
@@ -417,6 +430,7 @@ class ExportManager:
         sources_file = self.data_dir / 'gateway_sources.json'
         destinations_file = self.data_dir / 'gateway_destinations.json'
         audiences_file = self.data_dir / 'gateway_audiences.csv'
+        journeys_file = self.data_dir / 'gateway_journeys.csv'
         mtu_file = self.data_dir / 'gateway_mtu.json'
         audit_trail_file = self.data_dir / 'gateway_audit_trail.json'
         profile_insights_file = self.data_dir / 'gateway_profile_insights.csv'
@@ -426,6 +440,7 @@ class ExportManager:
             "sources": [],
             "destinations": [],
             "audiences": [],
+            "journeys": [],
             "mtu_data": {},
             "audit_trail_summary": {},
             "profile_insights": [],
@@ -453,6 +468,12 @@ class ExportManager:
                 reader = csv.DictReader(f)
                 gem_data["audiences"] = list(reader)
 
+        # Load journeys from CSV
+        if journeys_file.exists():
+            with open(journeys_file, 'r') as f:
+                reader = csv.DictReader(f)
+                gem_data["journeys"] = list(reader)
+
         # Load MTU data
         if mtu_file.exists():
             with open(mtu_file) as f:
@@ -476,6 +497,220 @@ class ExportManager:
 
         return json.dumps(gem_data, indent=2)
 
+    def _generate_health_check_gem_file(self) -> str:
+        """
+        Generate a JSON file specifically formatted for Technical Health Check PowerPoint Gem
+        Optimized structure for generating PowerPoint slides
+        """
+        sources_file = self.data_dir / 'gateway_sources.json'
+        destinations_file = self.data_dir / 'gateway_destinations.json'
+        usage_file = self.data_dir / 'gateway_usage_data.json'
+        audit_trail_file = self.data_dir / 'gateway_audit_trail.json'
+        summary_file = self.data_dir / 'gateway_summary.json'
+
+        health_check_data = {
+            "_readme": "This file is optimized for the Technical Health Check PowerPoint Generator Gem. Upload to Gemini Gem and ask: 'Generate PowerPoint Health Check content for this Segment workspace.'",
+            "workspace_info": {
+                "name": "Unknown Customer",
+                "slug": "",
+                "plan": ""
+            },
+            "sources": [],
+            "destinations": [],
+            "usage": {},
+            "audit_trail": []
+        }
+
+        # Load summary for workspace info
+        if summary_file.exists():
+            with open(summary_file) as f:
+                summary = json.load(f)
+                health_check_data["workspace_info"]["name"] = summary.get("workspace_name", "Unknown Customer")
+                health_check_data["workspace_info"]["slug"] = summary.get("workspace_slug", "")
+
+        # Load sources with schema data
+        if sources_file.exists():
+            with open(sources_file) as f:
+                sources = json.load(f)
+                # Simplify source data for Health Check Gem
+                health_check_data["sources"] = [
+                    {
+                        "name": s["name"],
+                        "slug": s["slug"],
+                        "status": s["status"],
+                        "metadata": s.get("metadata", {}),
+                        "schema": s.get("schema", {}),
+                        "integrations": [
+                            {
+                                "name": integ.get("name", ""),
+                                "enabled": integ.get("enabled", False)
+                            }
+                            for integ in s.get("integrations", [])
+                        ]
+                    }
+                    for s in sources
+                ]
+
+        # Load destinations
+        if destinations_file.exists():
+            with open(destinations_file) as f:
+                destinations_data = json.load(f)
+                # Handle both dict with 'destinations' key and direct list
+                if isinstance(destinations_data, dict):
+                    destinations = destinations_data.get("destinations", [])
+                else:
+                    destinations = destinations_data
+
+                health_check_data["destinations"] = [
+                    {
+                        "name": d["name"],
+                        "metadata": d.get("metadata", {}),
+                        "enabled": d.get("enabled", True)
+                    }
+                    for d in destinations
+                ]
+
+        # Load usage data
+        if usage_file.exists():
+            with open(usage_file) as f:
+                usage = json.load(f)
+                health_check_data["usage"] = {
+                    "billing": {
+                        "planName": usage.get("billing", {}).get("planName", ""),
+                        "quota": usage.get("billing", {}).get("quota", {}),
+                        "mtuStrategy": usage.get("billing", {}).get("mtuStrategy", "")
+                    },
+                    "mtus": usage.get("billing", {}).get("usage", {}).get("mtus", {})
+                }
+                health_check_data["workspace_info"]["plan"] = usage.get("billing", {}).get("planName", "")
+
+        # Load recent audit trail (last 100 events for team activity)
+        if audit_trail_file.exists():
+            with open(audit_trail_file) as f:
+                audit_data = json.load(f)
+                # Include last 100 events for team analysis
+                health_check_data["audit_trail"] = audit_data[:100] if len(audit_data) > 100 else audit_data
+
+        return json.dumps(health_check_data, indent=2)
+
+    def _generate_health_check_readme(self) -> str:
+        """Generate README for Technical Health Check file"""
+        return """⭐ TECHNICAL HEALTH CHECK - POWERPOINT GENERATOR ⭐
+=======================================================
+
+This file (technical_health_check_data.json) is specifically formatted for
+generating customer-facing Technical Health Check PowerPoint presentations.
+
+📊 WHAT THIS FILE CONTAINS:
+--------------------------
+- Workspace information (name, plan, slug)
+- All sources with event schemas and volumes
+- All destinations with categories
+- MTU usage and quota data
+- Recent workspace activity (last 100 events)
+
+🎯 HOW TO USE:
+-------------
+
+STEP 1: Create the Gemini Gem (One-time setup)
+   1. Go to https://aistudio.google.com/
+   2. Create new Gem
+   3. Name it: "Segment Technical Health Check - PowerPoint Generator"
+   4. Copy instructions from: GEMINI_GEM_HEALTH_CHECK_PPT.md
+      (Available in dashboard repo or ask your admin)
+   5. Set temperature to 0.3
+   6. Save the Gem
+
+STEP 2: Generate PowerPoint Content
+   1. Open your Health Check Gem in Google AI Studio
+   2. Paste the contents of technical_health_check_data.json
+   3. Add this prompt:
+
+      "Generate PowerPoint Health Check content for this Segment workspace.
+
+      Customer context: [Add business context, e.g., E-commerce, B2B SaaS]
+      Focus areas: [Optional: Event quality, Activation gaps, etc.]"
+
+   4. Wait ~30 seconds for Gem to analyze
+
+STEP 3: Get Structured Output
+   The Gem will return JSON with slide-ready content:
+   - Slide 2: Data Limits (MTU usage, quotas)
+   - Slide 3: Events & Props (top events, unique events)
+   - Slide 4: Syntax Validation (naming issues)
+   - Slide 5: Source Variety (sources by library)
+   - Slide 6: Source Volume (event volumes)
+   - Slide 7: Destination Variety (destinations by category)
+   - Slide 8: Connections (source→destination mapping)
+   - Slide 9: Team Activity (active users, workspace events)
+   - Slide 11: Summary (health ratings)
+   - Slide 12: Conclusions (findings and recommendations)
+
+STEP 4: Populate PowerPoint
+   1. Open PowerPoint template: "[T] Health Check for _________.pptx"
+   2. Copy slide content from Gem output into template
+   3. For charts: Use the data arrays to create visualizations
+   4. Save as: "Health Check - [Customer Name] - [Date].pptx"
+
+📈 WHAT CHARTS YOU CAN BUILD:
+----------------------------
+✅ Event volume by source (horizontal bar chart)
+✅ Unique events per source (bar chart)
+✅ Syntax validation issues (list with counts)
+✅ Sources by library type (bar chart)
+✅ Destinations by category (bar chart)
+✅ MTU usage vs quota (percentage + numbers)
+✅ Active workspace users (count + activity breakdown)
+✅ Source→Destination connections (count)
+
+⏱️ TIME ESTIMATE:
+----------------
+- First time (with Gem setup): ~45 minutes
+- Subsequent health checks: ~5-10 minutes
+
+💡 TIPS FOR BEST RESULTS:
+------------------------
+1. Always provide customer context (industry, use case)
+2. Mention specific focus areas (e.g., "data quality", "activation gaps")
+3. If Gem output needs refinement, ask follow-up questions
+4. Save Gem outputs for reference/comparison over time
+
+📝 EXAMPLE PROMPT:
+-----------------
+"Generate PowerPoint Health Check content for this Segment workspace.
+
+Customer context: Mission Lane is a fintech company focused on credit cards.
+Primary channels are web and mobile app (iOS, Android). They use Segment for
+event tracking, audience building, and warehouse syncing.
+
+Focus areas: Event naming consistency, activation opportunities"
+
+🔗 RELATED FILES:
+----------------
+- workspace_audit_data.json: For SA internal recommendations (different Gem)
+- processed/sources_with_destinations.csv: Quick source review
+- raw_data/gateway_sources.json: Full source details with schemas
+
+❓ TROUBLESHOOTING:
+------------------
+Q: Gem output isn't valid JSON?
+A: Ask: "Return ONLY valid JSON, no markdown code blocks"
+
+Q: Need more detail on a specific section?
+A: Ask: "Provide more detail on slide X syntax validation"
+
+Q: Want different chart formats?
+A: Update GEMINI_GEM_HEALTH_CHECK_PPT.md instructions and recreate Gem
+
+Q: Missing historical trend data?
+A: This audit captures current state only. For trends, run audits quarterly.
+
+📧 QUESTIONS?
+------------
+Contact your Segment Customer Success team or check the dashboard repo
+for GEMINI_GEM_HEALTH_CHECK_PPT.md and HEALTH_CHECK_GEM_WORKFLOW.md
+"""
+
     def _generate_file_manifest(self) -> str:
         """Generate a manifest explaining all files in the ZIP"""
         return """Segment Workspace Audit - File Manifest
@@ -495,12 +730,13 @@ This ZIP contains a complete export of your Segment workspace audit data.
 /raw_data/
     Complete raw data from Segment Gateway API:
     - gateway_sources.csv: All sources (basic info)
-    - gateway_sources.json: All sources with full schemas
+    - gateway_sources.json: All sources with FULL EVENT SCHEMAS (track, identify, page, screen)
     - gateway_audiences.csv: All audiences and their properties
+    - gateway_journeys.csv: All journeys and campaigns with destinations
     - gateway_destinations.json: All destinations and configs
     - gateway_mtu.json: MTU/API usage data with billing info
-    - gateway_audit_trail.json: Workspace activity logs
-    - gateway_usage_data.json: Usage metrics
+    - gateway_audit_trail.json: Workspace activity logs (last 30 days)
+    - gateway_usage_data.json: Usage metrics and billing
     - gateway_data_flows.json: Onboarding use cases
     - gateway_profile_insights.csv: Identity resolution configs
     - gateway_space_sources.csv: Sources by Engage space
@@ -509,28 +745,39 @@ This ZIP contains a complete export of your Segment workspace audit data.
 
 /for_gem_analysis/
     Ready for AI analysis:
-    - workspace_audit_data.json: Formatted for Gemini Gem analysis
-      → Upload this file to your Segment SA Auditor Gem for recommendations
+    - workspace_audit_data.json: Formatted for SA Workspace Auditor Gem
+      → Upload this file to your "Segment SA Auditor" Gem for recommendations
+
+    - technical_health_check_data.json: ⭐ FOR POWERPOINT HEALTH CHECK ⭐
+      → Upload this file to your "Technical Health Check PowerPoint Generator" Gem
+      → Generates slide-ready content for customer-facing health check presentations
+      → Ask: "Generate PowerPoint Health Check content for this workspace"
 
 📖 QUICK START GUIDE:
 --------------------
 
-1. AI RECOMMENDATIONS:
-   - Upload: for_gem_analysis/workspace_audit_data.json
-   - To your Gemini Gem (Segment SA Auditor or Use Case Builder)
-   - Get detailed SA-quality recommendations
+1. TECHNICAL HEALTH CHECK (PowerPoint):
+   ⭐ Upload: for_gem_analysis/technical_health_check_data.json
+   - To your "Technical Health Check PowerPoint Generator" Gem
+   - Get slide-ready content for customer presentations
+   - Copy results into PowerPoint template
 
-2. SOURCE ANALYSIS:
+2. AI RECOMMENDATIONS (Internal SA Analysis):
+   - Upload: for_gem_analysis/workspace_audit_data.json
+   - To your "Segment SA Auditor" Gem
+   - Get detailed SA-quality recommendations and action plans
+
+3. SOURCE ANALYSIS:
    - Open: processed/sources_with_destinations.csv
    - Check for disabled production sources
    - Verify all sources have destinations
 
-3. SOURCE ANALYSIS:
+4. AUDIENCE ANALYSIS:
    - Open: processed/audiences_with_destinations.csv
    - Find audiences with 0 destinations
    - Identify high-user-count audiences to activate
 
-4. DEEP DIVE:
+5. DEEP DIVE:
    - Use raw_data/ files for detailed investigation
    - gateway_sources.json has full event schemas
    - gateway_audit_trail.json shows recent activity
@@ -539,10 +786,11 @@ This ZIP contains a complete export of your Segment workspace audit data.
 🎯 RECOMMENDED ORDER:
 --------------------
 
-1st → for_gem_analysis/ (AI analysis via Gemini Gem)
-2nd → processed/sources_with_destinations.csv (data health)
-3rd → processed/audiences_with_destinations.csv (activation gaps)
-4th → raw_data/ (detailed investigation)
+1st → for_gem_analysis/technical_health_check_data.json (PowerPoint content)
+2nd → for_gem_analysis/workspace_audit_data.json (SA recommendations)
+3rd → processed/sources_with_destinations.csv (data health)
+4th → processed/audiences_with_destinations.csv (activation gaps)
+5th → raw_data/ (detailed investigation)
 
 📊 DATA FRESHNESS:
 -----------------
