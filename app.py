@@ -417,6 +417,14 @@ class GatewayAPIClient:
 
             print(f"    Page {page_num}: Found {len(items)} items at top level")
 
+            # Debug: Check what types we're getting at top level
+            if items:
+                types_found = {}
+                for item in items:
+                    typename = item.get('__typename', 'Unknown')
+                    types_found[typename] = types_found.get(typename, 0) + 1
+                print(f"    Types at top level: {types_found}")
+
             for item in items:
                 typename = item.get('__typename', '')
 
@@ -430,7 +438,7 @@ class GatewayAPIClient:
                             'name': folder_name,
                             'count': folder_count
                         })
-                elif typename in ['Audience', 'RealtimeAudience']:
+                elif typename in ['Audience', 'RealtimeAudience', 'RetlAudience']:
                     audience_id = item.get('audienceId')
                     if audience_id:
                         destinations = item.get('destinations', []) or []
@@ -443,7 +451,8 @@ class GatewayAPIClient:
                             'collection': item.get('collection', ''),
                             'status': item.get('status', ''),
                             'destinations': [d.get('name', '') for d in destinations if d.get('name')],
-                            'destination_count': len(destinations)
+                            'destination_count': len(destinations),
+                            'type': typename  # Track the audience type
                         }
 
             # Check for more pages
@@ -478,8 +487,17 @@ class GatewayAPIClient:
 
                     print(f"      Folder page {folder_page}: {len(items)} items")
 
+                    # Debug: Check what types we're getting
+                    if items:
+                        types_found = {}
+                        for item in items:
+                            typename = item.get('__typename', 'Unknown')
+                            types_found[typename] = types_found.get(typename, 0) + 1
+                        print(f"      Types found: {types_found}")
+
                     for item in items:
-                        if item.get('__typename') in ['Audience', 'RealtimeAudience']:
+                        typename = item.get('__typename', '')
+                        if typename in ['Audience', 'RealtimeAudience', 'RetlAudience']:
                             audience_id = item.get('audienceId')
                             if audience_id:
                                 destinations = item.get('destinations', []) or []
@@ -493,7 +511,8 @@ class GatewayAPIClient:
                                     'status': item.get('status', ''),
                                     'destinations': [d.get('name', '') for d in destinations if d.get('name')],
                                     'destination_count': len(destinations),
-                                    'folder': folder['name']
+                                    'folder': folder['name'],
+                                    'type': typename  # Track the audience type
                                 }
 
                     # Check for more pages in folder
