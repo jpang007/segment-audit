@@ -6,6 +6,12 @@
     <title>{{ customer_name }} - Destinations</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body class="dashboard-page">
     <div class="container">
@@ -71,10 +77,21 @@
             </div>
 
             <!-- Destinations Table -->
-            <!-- Destinations Table -->
             <div class="chart-section">
+                <!-- Health Metrics Loading Status -->
+                <div id="healthLoadingBanner" style="display: none; background: #edf2f7; padding: 12px 20px; border-radius: 8px; margin-bottom: 15px; border-left: 4px solid #667eea;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="animation: spin 1s linear infinite; display: inline-block; font-size: 1.2rem;">⟳</span>
+                        <span style="color: #2d3748; font-weight: 500;">Loading health metrics...</span>
+                        <span style="color: #718096; font-size: 0.9rem;">This may take a few seconds</span>
+                    </div>
+                </div>
+
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="margin: 0;">📍 All Destinations</h2>
+                    <div>
+                        <h2 style="margin: 0;">📍 All Destinations</h2>
+                        <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #718096;">Delivery metrics show last 7 days</p>
+                    </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
                         <input
                             type="text"
@@ -96,17 +113,20 @@
                     </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table>
+                <div class="table-responsive" style="overflow-x: auto;">
+                    <table style="min-width: 1400px; table-layout: fixed;">
                         <thead>
                             <tr>
-                                <th style="width: 100px; text-align: center;">Status</th>
-                                <th>Name</th>
-                                <th style="width: 120px;">Type</th>
-                                <th id="healthHeader" style="width: 120px; text-align: center; display: none;">Health</th>
-                                <th style="width: 200px;">Connected Sources</th>
+                                <th style="width: 90px; text-align: center;">Status</th>
+                                <th style="width: 220px;">Name</th>
+                                <th style="width: 100px; text-align: center;">Type</th>
+                                <th id="healthHeader" style="width: 110px; text-align: center;">Health<br><span style="font-size: 0.7rem; font-weight: 400; color: #718096;">(7d)</span></th>
+                                <th id="successHeader" style="width: 120px; text-align: right;">✓ Success<br><span style="font-size: 0.7rem; font-weight: 400; color: #718096;">(7d)</span></th>
+                                <th id="failedHeader" style="width: 110px; text-align: right;">✗ Failed<br><span style="font-size: 0.7rem; font-weight: 400; color: #718096;">(7d)</span></th>
+                                <th id="retriesHeader" style="width: 100px; text-align: right;">🔄 Retries<br><span style="font-size: 0.7rem; font-weight: 400; color: #718096;">(7d)</span></th>
+                                <th style="width: 180px;">Source</th>
                                 <th style="width: 200px;">Categories</th>
-                                <th style="width: 150px;">Created</th>
+                                <th style="width: 110px;">Created</th>
                             </tr>
                         </thead>
                         <tbody id="destinationsTableBody">
@@ -146,6 +166,15 @@
         let healthMetricsLoading = false;
         let currentPage = 1;
         const pageSize = 20;
+
+        // Format large numbers with abbreviations (K, M, B)
+        function formatNumber(num) {
+            if (num === 0) return '0';
+            if (num < 1000) return num.toLocaleString();
+            if (num < 1000000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+            if (num < 1000000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+            return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+        }
 
         function toggleNavDropdown() {
             const menu = document.getElementById('navDropdownMenu');
@@ -287,21 +316,28 @@
                     ? '<span style="background: #667eea; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Integration</span>'
                     : '<span style="background: #764ba2; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">Warehouse</span>';
 
-                // Health badge (if metrics loaded)
+                // Health badge and metrics (if metrics loaded)
                 let healthBadge = '';
-                if (healthMetrics && healthMetrics[dest.id]) {
+                let successCell = '';
+                let failedCell = '';
+                let retriesCell = '';
+
+                // Show loading spinner if metrics are being fetched
+                if (healthMetricsLoading) {
+                    healthBadge = '<span style="color: #a0aec0; animation: spin 1s linear infinite; display: inline-block;">⟳</span>';
+                    successCell = '<span style="color: #cbd5e0;">⋯</span>';
+                    failedCell = '<span style="color: #cbd5e0;">⋯</span>';
+                    retriesCell = '<span style="color: #cbd5e0;">⋯</span>';
+                } else if (healthMetrics && healthMetrics[dest.id]) {
                     const metrics = healthMetrics[dest.id];
                     const status = metrics.health_status;
                     const successRate = metrics.success_rate || 0;
                     const lastDelivery = metrics.last_delivery ? new Date(metrics.last_delivery).toLocaleDateString() : 'Never';
 
-                    // Build detailed tooltip
+                    // Build detailed tooltip for health badge
                     const tooltipLines = [
                         `Success Rate: ${successRate}%`,
-                        `Successful: ${(metrics.successful_delivery || 0).toLocaleString()}`,
-                        `Failed: ${(metrics.failed_delivery || 0).toLocaleString()}`,
-                        `Retries: ${(metrics.retry_count || 0).toLocaleString()}`,
-                        `Last: ${lastDelivery}`
+                        `Last Delivery: ${lastDelivery}`
                     ];
                     const tooltip = tooltipLines.join('&#10;');
 
@@ -314,6 +350,27 @@
                     } else {
                         healthBadge = `<span style="background: #a0aec0; color: white; padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">No Data</span>`;
                     }
+
+                    // Individual metric cells with abbreviated numbers and full tooltips
+                    const successDelivery = metrics.successful_delivery || 0;
+                    const failedDelivery = metrics.failed_delivery || 0;
+                    const retries = metrics.retry_count || 0;
+
+                    const successFormatted = formatNumber(successDelivery);
+                    const failedFormatted = formatNumber(failedDelivery);
+                    const retriesFormatted = formatNumber(retries);
+
+                    successCell = `<span style="color: #48bb78; font-weight: 600; cursor: help;" title="${successDelivery.toLocaleString()}">${successFormatted}</span>`;
+                    failedCell = failedDelivery > 0
+                        ? `<span style="color: #f56565; font-weight: 600; cursor: help;" title="${failedDelivery.toLocaleString()}">${failedFormatted}</span>`
+                        : `<span style="color: #a0aec0;">0</span>`;
+                    retriesCell = retries > 0
+                        ? `<span style="color: #ed8936; font-weight: 600; cursor: help;" title="${retries.toLocaleString()}">${retriesFormatted}</span>`
+                        : `<span style="color: #a0aec0;">0</span>`;
+                } else {
+                    successCell = '<span style="color: #a0aec0;">-</span>';
+                    failedCell = '<span style="color: #a0aec0;">-</span>';
+                    retriesCell = '<span style="color: #a0aec0;">-</span>';
                 }
 
                 // Connected sources
@@ -340,7 +397,10 @@
                     <td style="text-align: center;">${statusBadge}</td>
                     <td>${nameDisplay}</td>
                     <td>${typeBadge}</td>
-                    ${healthMetrics ? `<td style="text-align: center;">${healthBadge}</td>` : ''}
+                    <td style="text-align: center;">${healthBadge || '<span style="color: #cbd5e0;">⋯</span>'}</td>
+                    <td style="text-align: right; font-size: 0.9rem;">${successCell}</td>
+                    <td style="text-align: right; font-size: 0.9rem;">${failedCell}</td>
+                    <td style="text-align: right; font-size: 0.9rem;">${retriesCell}</td>
                     <td><span style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">${sourceName}</span></td>
                     <td style="font-size: 0.85rem; color: #718096; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${categoriesTitle}">${categoriesDisplay}</td>
                     <td style="font-size: 0.85rem; color: #718096;">${createdAt}</td>
@@ -353,15 +413,26 @@
         }
 
         async function loadHealthMetrics() {
-            if (healthMetricsLoading) return;
+            if (healthMetricsLoading) {
+                console.log('Health metrics already loading, skipping...');
+                return;
+            }
 
             healthMetricsLoading = true;
+
+            // Show loading banner
+            const banner = document.getElementById('healthLoadingBanner');
+            if (banner) banner.style.display = 'block';
+
+            // Render table to show loading spinners
+            renderTable();
 
             try {
                 // Get all destination IDs
                 const destinationIds = allDestinations.map(d => d.id);
 
-                console.log('Loading health metrics for', destinationIds.length, 'destinations...');
+                console.log('🔄 Starting to load health metrics for', destinationIds.length, 'destinations...');
+                console.log('This may take a few seconds...');
 
                 const response = await fetch('/api/destination-health-metrics', {
                     method: 'POST',
@@ -376,8 +447,20 @@
 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    console.warn('Health metrics not available:', errorData.error || response.statusText);
+                    console.error('❌ Health metrics API returned error:', response.status);
+                    console.error('   Error:', errorData.error || response.statusText);
+
+                    if (response.status === 401) {
+                        console.error('   💡 Solution: Run a new audit from the home page to refresh your session');
+                        console.error('   Your browser session has expired. Go to http://localhost:5003 and run a new audit.');
+                    }
+
                     healthMetricsLoading = false;
+
+                    // Hide loading banner
+                    const banner = document.getElementById('healthLoadingBanner');
+                    if (banner) banner.style.display = 'none';
+
                     return; // Silently fail if not authenticated or error
                 }
 
@@ -386,10 +469,11 @@
 
                 console.log('Health metrics loaded for', Object.keys(healthMetrics).length, 'destinations');
 
-                // Show health column
-                document.getElementById('healthHeader').style.display = 'table-cell';
-
                 healthMetricsLoading = false;
+
+                // Hide loading banner
+                const banner = document.getElementById('healthLoadingBanner');
+                if (banner) banner.style.display = 'none';
 
                 // Re-render table with health data
                 renderTable();
@@ -397,6 +481,10 @@
             } catch (error) {
                 console.error('Error loading health metrics:', error);
                 healthMetricsLoading = false;
+
+                // Hide loading banner
+                const banner = document.getElementById('healthLoadingBanner');
+                if (banner) banner.style.display = 'none';
             }
         }
 

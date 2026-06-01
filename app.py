@@ -52,6 +52,8 @@ class GatewayAPIClient:
     def __init__(self, gateway_token, workspace_slug, region=None):
         self.gateway_token = gateway_token
         self.workspace_slug = workspace_slug
+        self.last_request_time = 0
+        self.min_request_interval = 1.0  # Minimum 1 second between requests
 
         # Determine region from token or explicit parameter
         if region:
@@ -75,6 +77,7 @@ class GatewayAPIClient:
 
         print(f"🌍 Gateway API Region: {self.region or 'us1 (default)'}")
         print(f"🔗 Gateway API URL: {self.base_url}")
+        print(f"⏱️  Rate limiting: {self.min_request_interval}s between requests")
 
     def _detect_region_from_token(self, token):
         """Detect region from JWT token issuer claim"""
@@ -110,8 +113,16 @@ class GatewayAPIClient:
 
         for attempt in range(max_retries):
             try:
+                # Rate limiting: ensure minimum time between requests
+                current_time = time.time()
+                time_since_last_request = current_time - self.last_request_time
+                if time_since_last_request < self.min_request_interval:
+                    sleep_time = self.min_request_interval - time_since_last_request
+                    time.sleep(sleep_time)
+
                 payload = {"query": query, "variables": variables}
                 response = requests.post(self.base_url, headers=self.headers, json=payload, timeout=30)
+                self.last_request_time = time.time()
 
                 data = response.json()
 
@@ -136,6 +147,18 @@ class GatewayAPIClient:
                 if 'errors' in data:
                     errors = data['errors']
                     error_msg = errors[0].get('message', str(errors)) if errors else 'Unknown error'
+
+                    # Check if this is a rate limit error in GraphQL errors
+                    if 'rate limit' in error_msg.lower():
+                        if attempt < max_retries - 1:
+                            wait_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                            print(f"\n⚠️  Rate limited (GraphQL). Waiting {wait_time}s before retry {attempt + 1}/{max_retries}...", flush=True)
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            print(f"\n❌ Rate limit exceeded after {max_retries} attempts", flush=True)
+                            raise Exception(f"Gateway API rate limit exceeded: {error_msg}")
+
                     print(f"\n=== GraphQL ERROR ===", flush=True)
                     print(f"Message: {error_msg}", flush=True)
                     print(f"Full errors: {json.dumps(errors, indent=2)}", flush=True)
@@ -1816,9 +1839,9 @@ class GatewayAPIClient:
         data = self._execute_query(query, variables)
         return data.get('workspace', {})
 
-    def get_destination_delivery_metrics(self, destination_id, start_time, end_time, workspace_id, source_id=None):
+    def get_destination_delivery_metrics(self, destination_config_id, workspace_id, start_time, end_time, source_id, destination_metadata_id):
         """Get comprehensive delivery metrics for a destination including success, failures, and filtering"""
-        # Simplified query - only get delivery metrics (not ingest/filtering)
+        # Simplified query - don't declare unused variables
         query = """
         query getDeliveryOverview($integrationID: String!, $workspaceID: String!, $startTime: Date!, $endTime: Date!, $granularity: Granularity!, $destinationConfigId: String!, $groupBy: [String!]!) {
           integration(id: $integrationID) {
@@ -1874,20 +1897,23 @@ class GatewayAPIClient:
         """
 
         variables = {
-            "integrationID": destination_id,
+            "integrationID": destination_config_id,
             "workspaceID": workspace_id,
-            "destinationConfigId": destination_id,
+            "destinationConfigId": destination_config_id,
             "groupBy": [],
             "startTime": start_time,
             "endTime": end_time,
             "granularity": "hour"
         }
 
+        # Note: sourceId and destinationId are not used in this simplified query
+        # They would be needed for more detailed queries with filteredAtSource, filteredAtDestination, etc.
+
         try:
             data = self._execute_query(query, variables)
             return data.get('integration', {})
         except Exception as e:
-            print(f"Error fetching delivery metrics for {destination_id}: {e}")
+            print(f"Error fetching delivery metrics for {destination_config_id}: {e}")
             return None
 
 
@@ -2064,6 +2090,11 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     audiences = client.get_audiences_with_folders(space_id)
                     print(f"  -> Returned {len(audiences)} audiences", flush=True)
 
+                    # Brief delay between spaces to avoid rate limits
+                    if idx < len(spaces) - 1:  # Don't sleep after the last one
+                        import time
+                        time.sleep(0.5)
+
                     # Optionally fetch definitions for each audience
                     for aud_idx, aud in enumerate(audiences):
                         aud['space_id'] = space_id
@@ -2124,6 +2155,11 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                         journey['space_name'] = space_name
                     all_journeys.extend(journeys)
                     print(f"  -> Total items so far: {len(all_journeys)}")
+
+                    # Brief delay between spaces to avoid rate limits
+                    if idx < len(spaces) - 1:
+                        import time
+                        time.sleep(0.5)
                 except Exception as e:
                     print(f"  -> ERROR: {e}")
                     print(f"     (This may be normal if workspace doesn't have Engage feature)")
@@ -2185,6 +2221,10 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
                     result = client.get_audit_trail_events(page=page, per_page=100)
                     nodes = result.get('nodes', [])
+
+                    # Brief delay between pages to avoid rate limits
+                    import time
+                    time.sleep(0.3)
 
                     if not nodes:
                         break
@@ -2751,6 +2791,7 @@ def audit_trail():
 def get_destination_health_metrics():
     """Fetch delivery health metrics for destinations on-demand"""
     try:
+        # Try to get from session first
         gateway_token = session.get('gateway_token')
         workspace_slug = session.get('workspace_slug')
 
@@ -2758,9 +2799,16 @@ def get_destination_health_metrics():
         print(f"Session has token: {bool(gateway_token)}")
         print(f"Workspace slug: {workspace_slug}")
 
+        # If not in session, try to get from request (frontend can send it)
         if not gateway_token or not workspace_slug:
-            print("ERROR: Not authenticated")
-            return jsonify({'error': 'Not authenticated'}), 401
+            # Check if summary file exists with credentials
+            summary_file = DATA_DIR / 'gateway_summary.json'
+            if summary_file.exists():
+                print("No session - checking for stored credentials in summary...")
+                return jsonify({'error': 'Session expired. Please run a new audit to refresh credentials.'}), 401
+            else:
+                print("ERROR: Not authenticated and no audit data found")
+                return jsonify({'error': 'Not authenticated. Please run an audit first.'}), 401
 
         data = request.json
         destination_ids = data.get('destination_ids', [])
@@ -2776,20 +2824,22 @@ def get_destination_health_metrics():
         with open(destinations_file, 'r') as f:
             destinations_data = json.load(f)
 
-        # Get workspace ID from summary or destinations data
-        summary_file = DATA_DIR / 'gateway_summary.json'
-        workspace_id = None
-        if summary_file.exists():
-            with open(summary_file, 'r') as f:
-                summary = json.load(f)
-                # Workspace ID might be in destinations data or we need to fetch it
+        # Build destination lookup map with source and metadata IDs
+        destinations_lookup = {}
+        for dest in destinations_data.get('destinations', []):
+            dest_id = dest.get('id')
+            if dest_id:
+                destinations_lookup[dest_id] = {
+                    'source_id': dest.get('source', {}).get('id'),
+                    'metadata_id': dest.get('metadata', {}).get('id')
+                }
 
         # Calculate time range
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=days_back)
 
-        start_iso = start_time.isoformat() + 'Z'
-        end_iso = end_time.isoformat() + 'Z'
+        start_iso = start_time.isoformat().replace('+00:00', 'Z')
+        end_iso = end_time.isoformat().replace('+00:00', 'Z')
 
         client = GatewayAPIClient(gateway_token, workspace_slug)
 
@@ -2804,27 +2854,66 @@ def get_destination_health_metrics():
         metrics_results = {}
         print(f"Starting to fetch metrics for {len(destination_ids)} destinations...")
         for dest_id in destination_ids:
+            dest_info = destinations_lookup.get(dest_id, {})
+            source_id = dest_info.get('source_id')
+            metadata_id = dest_info.get('metadata_id')
+
             print(f"  Fetching metrics for {dest_id}...")
+            print(f"    Source ID: {source_id}, Metadata ID: {metadata_id}")
+
+            # Skip if missing required IDs
+            if not source_id or not metadata_id:
+                print(f"    ⚠️  Skipping - missing source_id or metadata_id")
+                metrics_results[dest_id] = {
+                    'successful_delivery': 0,
+                    'failed_delivery': 0,
+                    'retry_count': 0,
+                    'success_rate': 0,
+                    'last_delivery': None,
+                    'health_status': 'no_data',
+                    'visibility_state': None
+                }
+                continue
+
             metrics = client.get_destination_delivery_metrics(
                 dest_id,
+                workspace_id,
                 start_iso,
                 end_iso,
-                workspace_id
+                source_id,
+                metadata_id
             )
             print(f"  Got response for {dest_id}: {bool(metrics)}")
 
             if metrics and metrics.get('deliveryOverview'):
+                print(f"    Has deliveryOverview data")
                 delivery = metrics['deliveryOverview']
 
-                # Extract delivery metrics - dataset is an array, get first element
-                success_delivery_dataset = delivery.get('successfulDelivery', {}).get('dataset', [])
-                success_delivery_data = success_delivery_dataset[0] if success_delivery_dataset else {}
+                # Extract delivery metrics - dataset is a single object (not array)
+                success_delivery = delivery.get('successfulDelivery', {})
+                success_delivery_dataset = success_delivery.get('dataset', {})
+
+                # Handle both array and object response formats
+                if isinstance(success_delivery_dataset, list):
+                    success_delivery_data = success_delivery_dataset[0] if success_delivery_dataset else {}
+                else:
+                    success_delivery_data = success_delivery_dataset
+
                 total_success = success_delivery_data.get('total', 0)
                 total_retries = success_delivery_data.get('totalRetryCount', 0)
 
-                failed_delivery_dataset = delivery.get('failedDelivery', {}).get('dataset', [])
-                failed_delivery_data = failed_delivery_dataset[0] if failed_delivery_dataset else {}
+                failed_delivery = delivery.get('failedDelivery', {})
+                failed_delivery_dataset = failed_delivery.get('dataset', {})
+
+                # Handle both array and object response formats
+                if isinstance(failed_delivery_dataset, list):
+                    failed_delivery_data = failed_delivery_dataset[0] if failed_delivery_dataset else {}
+                else:
+                    failed_delivery_data = failed_delivery_dataset
+
                 total_failed = failed_delivery_data.get('total', 0)
+
+                print(f"    Success: {total_success}, Failed: {total_failed}, Retries: {total_retries}")
 
                 # Calculate health status
                 total_attempts = total_success + total_failed
@@ -2859,6 +2948,9 @@ def get_destination_health_metrics():
                 }
                 print(f"  ✓ {dest_id}: {health_status} ({success_rate:.1f}%) - {total_success} success, {total_failed} failed")
             else:
+                print(f"  ✗ {dest_id}: No deliveryOverview in response")
+                if metrics:
+                    print(f"     Response keys: {list(metrics.keys())}")
                 metrics_results[dest_id] = {
                     'successful_delivery': 0,
                     'failed_delivery': 0,
@@ -2868,7 +2960,6 @@ def get_destination_health_metrics():
                     'health_status': 'no_data',
                     'visibility_state': None
                 }
-                print(f"  ✗ {dest_id}: No data")
 
         print(f"Returning metrics for {len(metrics_results)} destinations")
         return jsonify({'metrics': metrics_results})
