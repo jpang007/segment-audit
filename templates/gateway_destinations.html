@@ -93,6 +93,15 @@
                         <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #718096;"><strong>Delivery metrics show last 7 days</strong></p>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
+                        <select id="sortSelect" onchange="handleSortChange()" style="padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.9rem; background: #f7fafc;">
+                            <option value="">Sort by...</option>
+                            <option value="failed-desc">Most Failed ↓</option>
+                            <option value="failed-asc">Least Failed ↑</option>
+                            <option value="success-desc">Most Success ↓</option>
+                            <option value="success-asc">Least Success ↑</option>
+                            <option value="retries-desc">Most Retries ↓</option>
+                            <option value="retries-asc">Least Retries ↑</option>
+                        </select>
                         <input
                             type="text"
                             id="searchInput"
@@ -120,10 +129,18 @@
                                 <th style="width: 85px; text-align: center;">Status</th>
                                 <th style="width: 200px;">Name</th>
                                 <th style="width: 90px; text-align: center;">Type</th>
-                                <th id="healthHeader" style="width: 95px; text-align: center;">Health</th>
-                                <th id="successHeader" style="width: 100px; text-align: right;">✓ Success</th>
-                                <th id="failedHeader" style="width: 90px; text-align: right;">✗ Failed</th>
-                                <th id="retriesHeader" style="width: 90px; text-align: right;">🔄 Retries</th>
+                                <th id="healthHeader" style="width: 95px; text-align: center; cursor: pointer; user-select: none;" onclick="sortDestinations('health')" title="Click to sort by success rate">
+                                    Health <span id="healthSort" style="font-size: 0.7rem; color: #a0aec0;"></span>
+                                </th>
+                                <th id="successHeader" style="width: 100px; text-align: right; cursor: pointer; user-select: none;" onclick="sortDestinations('success')" title="Click to sort by successful deliveries">
+                                    ✓ Success <span id="successSort" style="font-size: 0.7rem; color: #a0aec0;"></span>
+                                </th>
+                                <th id="failedHeader" style="width: 90px; text-align: right; cursor: pointer; user-select: none;" onclick="sortDestinations('failed')" title="Click to sort by failed deliveries">
+                                    ✗ Failed <span id="failedSort" style="font-size: 0.7rem; color: #a0aec0;"></span>
+                                </th>
+                                <th id="retriesHeader" style="width: 90px; text-align: right; cursor: pointer; user-select: none;" onclick="sortDestinations('retries')" title="Click to sort by retries">
+                                    🔄 Retries <span id="retriesSort" style="font-size: 0.7rem; color: #a0aec0;"></span>
+                                </th>
                                 <th style="width: 160px;">Source</th>
                                 <th style="width: 180px;">Categories</th>
                                 <th style="width: 100px;">Created</th>
@@ -166,6 +183,8 @@
         let healthMetricsLoading = false;
         let currentPage = 1;
         const pageSize = 20;
+        let sortColumn = null;
+        let sortDirection = 'desc'; // 'asc' or 'desc'
 
         // Format large numbers with abbreviations (K, M, B)
         function formatNumber(num) {
@@ -174,6 +193,65 @@
             if (num < 1000000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
             if (num < 1000000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
             return (num / 1000000000).toFixed(1).replace(/\.0$/, '') + 'B';
+        }
+
+        // Sort destinations by column
+        function sortDestinations(column) {
+            // Toggle direction if clicking same column
+            if (sortColumn === column) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumn = column;
+                sortDirection = 'desc'; // Default to descending (highest first)
+            }
+
+            filteredDestinations.sort((a, b) => {
+                let aVal, bVal;
+
+                // Get comparison values based on column
+                if (column === 'failed') {
+                    aVal = healthMetrics && healthMetrics[a.id] ? healthMetrics[a.id].failed_delivery || 0 : 0;
+                    bVal = healthMetrics && healthMetrics[b.id] ? healthMetrics[b.id].failed_delivery || 0 : 0;
+                } else if (column === 'success') {
+                    aVal = healthMetrics && healthMetrics[a.id] ? healthMetrics[a.id].successful_delivery || 0 : 0;
+                    bVal = healthMetrics && healthMetrics[b.id] ? healthMetrics[b.id].successful_delivery || 0 : 0;
+                } else if (column === 'retries') {
+                    aVal = healthMetrics && healthMetrics[a.id] ? healthMetrics[a.id].retry_count || 0 : 0;
+                    bVal = healthMetrics && healthMetrics[b.id] ? healthMetrics[b.id].retry_count || 0 : 0;
+                } else if (column === 'health') {
+                    // Sort by success rate (higher is better)
+                    aVal = healthMetrics && healthMetrics[a.id] ? healthMetrics[a.id].success_rate || 0 : 0;
+                    bVal = healthMetrics && healthMetrics[b.id] ? healthMetrics[b.id].success_rate || 0 : 0;
+                } else if (column === 'failure_rate') {
+                    // Calculate failure rate
+                    const aMetrics = healthMetrics && healthMetrics[a.id] ? healthMetrics[a.id] : null;
+                    const bMetrics = healthMetrics && healthMetrics[b.id] ? healthMetrics[b.id] : null;
+
+                    if (aMetrics) {
+                        const aTotal = (aMetrics.successful_delivery || 0) + (aMetrics.failed_delivery || 0);
+                        aVal = aTotal > 0 ? ((aMetrics.failed_delivery || 0) / aTotal * 100) : 0;
+                    } else {
+                        aVal = 0;
+                    }
+
+                    if (bMetrics) {
+                        const bTotal = (bMetrics.successful_delivery || 0) + (bMetrics.failed_delivery || 0);
+                        bVal = bTotal > 0 ? ((bMetrics.failed_delivery || 0) / bTotal * 100) : 0;
+                    } else {
+                        bVal = 0;
+                    }
+                }
+
+                // Apply sort direction
+                if (sortDirection === 'asc') {
+                    return aVal - bVal;
+                } else {
+                    return bVal - aVal;
+                }
+            });
+
+            currentPage = 1; // Reset to first page
+            renderTable();
         }
 
         function toggleNavDropdown() {
@@ -272,6 +350,19 @@
             // Use cases removed
         }
 
+        function handleSortChange() {
+            const sortSelect = document.getElementById('sortSelect');
+            const value = sortSelect.value;
+
+            if (!value) return;
+
+            const [column, direction] = value.split('-');
+            sortColumn = column;
+            sortDirection = direction;
+
+            sortDestinations(column);
+        }
+
         function filterDestinations() {
             const search = document.getElementById('searchInput').value.toLowerCase();
             const typeFilter = document.getElementById('typeFilter').value;
@@ -295,9 +386,37 @@
             renderTable();
         }
 
+        function updateSortIndicators() {
+            // Clear all sort indicators
+            ['healthSort', 'successSort', 'failedSort', 'retriesSort'].forEach(id => {
+                const elem = document.getElementById(id);
+                if (elem) elem.textContent = '';
+            });
+
+            // Set current sort indicator
+            if (sortColumn) {
+                const indicatorMap = {
+                    'health': 'healthSort',
+                    'success': 'successSort',
+                    'failed': 'failedSort',
+                    'retries': 'retriesSort',
+                    'failure_rate': 'failedSort'
+                };
+
+                const indicatorId = indicatorMap[sortColumn];
+                const indicator = document.getElementById(indicatorId);
+                if (indicator) {
+                    indicator.textContent = sortDirection === 'asc' ? '▲' : '▼';
+                    indicator.style.color = '#667eea';
+                }
+            }
+        }
+
         function renderTable() {
             const tbody = document.getElementById('destinationsTableBody');
             tbody.innerHTML = '';
+
+            updateSortIndicators();
 
             const start = (currentPage - 1) * pageSize;
             const end = start + pageSize;

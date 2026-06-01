@@ -1956,6 +1956,7 @@ def start_audit():
         session['customer_name'] = customer_name
         session['region'] = region
         session['collect_options'] = collect_options
+        session['fetch_definitions'] = fetch_definitions
         session.permanent = True
 
         # Start audit in background
@@ -2720,7 +2721,18 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             'audiences_count': len(all_audiences),
             'journeys_count': len([j for j in all_journeys if j.get('__typename') == 'Journey']),
             'campaigns_count': len([j for j in all_journeys if j.get('__typename') == 'Campaign']),
-            'spaces_count': len(spaces)
+            'spaces_count': len(spaces),
+            'collection_options': {
+                'sources': collect_options.get('sources', False),
+                'destinations': collect_options.get('destinations', False),
+                'audiences': collect_options.get('audiences', False),
+                'journeys': collect_options.get('journeys', False),
+                'profiles': collect_options.get('profiles', False),
+                'mtu': collect_options.get('mtu', False),
+                'audit_trail': collect_options.get('audit_trail', False),
+                'usage_data': collect_options.get('usage_data', False),
+                'fetch_definitions': fetch_definitions
+            }
         }
 
         with open(DATA_DIR / 'gateway_summary.json', 'w') as f:

@@ -16,6 +16,31 @@ class ExportManager:
 
     def __init__(self, audit_data_dir: str = './audit_data'):
         self.data_dir = Path(audit_data_dir)
+        self.collection_options = self._load_collection_options()
+
+    def _load_collection_options(self) -> Dict[str, bool]:
+        """Load collection options from gateway_summary.json"""
+        summary_file = self.data_dir / 'gateway_summary.json'
+        if summary_file.exists():
+            try:
+                with open(summary_file, 'r') as f:
+                    summary = json.load(f)
+                    return summary.get('collection_options', {})
+            except Exception as e:
+                print(f"Could not load collection options: {e}")
+
+        # Default: assume everything was collected (for backwards compatibility)
+        return {
+            'sources': True,
+            'destinations': True,
+            'audiences': True,
+            'journeys': True,
+            'profiles': True,
+            'mtu': True,
+            'audit_trail': True,
+            'usage_data': True,
+            'fetch_definitions': False
+        }
 
     def export_sources_with_destinations_csv(self) -> str:
         """
@@ -35,52 +60,67 @@ class ExportManager:
             'Warehouses Connected',
             'Warehouse Names',
             '7-Day Event Volume',
-            'Top Events'
+            'Top 10 Events (with counts)'
         ])
 
-        # Load sources data from Gateway API ONLY
-        sources_file = self.data_dir / 'gateway_sources.csv'
+        # Load sources JSON with full schema data
+        sources_json_file = self.data_dir / 'gateway_sources.json'
 
-        if not sources_file.exists():
-            return "No Gateway API sources data found (gateway_sources.csv missing)"
+        if not sources_json_file.exists():
+            return "No Gateway API sources data found (gateway_sources.json missing)"
 
-        # Event volumes not available in Gateway API yet
-        event_volumes = {}
+        with open(sources_json_file, 'r', encoding='utf-8') as f:
+            sources = json.load(f)
 
-        # Read sources
-        with open(sources_file, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                # Gateway API column names
-                source_name = row.get('Name', '')
-                source_id = row.get('ID', '')
-                source_type = row.get('Type', '')
-                status = row.get('Status', '')
-                enabled = 'true' if status == 'ENABLED' else 'false'
+        # Process each source
+        for source in sources:
+            source_name = source.get('name', '')
+            source_id = source.get('id', '')
+            source_type = source.get('metadata', {}).get('name', '')
+            status = source.get('status', '')
+            enabled = 'true' if status == 'ENABLED' else 'false'
 
-                # Get destinations (Gateway API format)
-                dest_names = row.get('Connected Destinations', '')
-                dest_count = len(dest_names.split(',')) if dest_names and dest_names.strip() else 0
+            # Get integrations (destinations)
+            integrations = source.get('integrations', [])
+            dest_names = ', '.join([integ.get('name', '') for integ in integrations]) if integrations else ''
+            dest_count = len(integrations)
 
-                # Get warehouses (Gateway API format)
-                wh_names = row.get('Connected Warehouses', '')
-                wh_count = len(wh_names.split(',')) if wh_names and wh_names.strip() else 0
+            # Get warehouses
+            warehouses = source.get('warehouses', [])
+            wh_names = ', '.join([wh.get('name', '') for wh in warehouses]) if warehouses else ''
+            wh_count = len(warehouses)
 
-                # Event volumes not available in Gateway API yet
-                volume = ''
+            # Calculate total event volume and get top events
+            schema = source.get('schema', {})
+            events = schema.get('events', [])
 
-                writer.writerow([
-                    source_name,
-                    source_id,
-                    source_type,
-                    enabled,
-                    dest_count,
-                    dest_names,
-                    wh_count,
-                    wh_names,
-                    volume,
-                    ''  # Top events - would need event schema data
-                ])
+            total_volume = 0
+            event_list = []
+
+            for event in events:
+                event_name = event.get('name', '')
+                counts = event.get('counts', {})
+                allowed = counts.get('allowed', 0)
+                total_volume += allowed
+                event_list.append((event_name, allowed))
+
+            # Sort by volume and get top 10
+            event_list.sort(key=lambda x: x[1], reverse=True)
+            top_10 = event_list[:10]
+            top_events_str = '; '.join([f"{name} ({vol:,})" for name, vol in top_10])
+
+            writer.writerow([
+                source_name,
+                source_id,
+                source_type,
+                enabled,
+                dest_count,
+                dest_names,
+                wh_count,
+                wh_names,
+                f"{total_volume:,}",
+                top_events_str
+            ])
 
         return output.getvalue()
 
@@ -253,7 +293,73 @@ class ExportManager:
 
     def export_top_events_csv(self) -> str:
         """
-        Export top events by volume
+        Export top events by volume from Gateway API sources data
+        """
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Header
+        writer.writerow([
+            'Source Name',
+            'Event Name',
+            'Event Type',
+            '7-Day Volume',
+            'Denied',
+            'Total Events'
+        ])
+
+        # Load sources JSON with schema data
+        sources_file = self.data_dir / 'gateway_sources.json'
+        if not sources_file.exists():
+            return "No Gateway API sources data found (gateway_sources.json missing)"
+
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            sources = json.load(f)
+
+        # Collect all events across all sources with their volumes
+        event_data = []
+        for source in sources:
+            source_name = source.get('name', 'Unknown')
+            schema = source.get('schema', {})
+            events = schema.get('events', [])
+
+            for event in events:
+                event_name = event.get('name', '')
+                event_type = event.get('type', '')
+                counts = event.get('counts', {})
+                allowed = counts.get('allowed', 0)
+                denied = counts.get('denied', 0)
+                total = allowed + denied
+
+                event_data.append({
+                    'source_name': source_name,
+                    'event_name': event_name,
+                    'event_type': event_type,
+                    'allowed': allowed,
+                    'denied': denied,
+                    'total': total
+                })
+
+        # Sort by total volume (descending)
+        event_data.sort(key=lambda x: x['total'], reverse=True)
+
+        # Write top events
+        for event in event_data[:100]:  # Top 100 events
+            writer.writerow([
+                event['source_name'],
+                event['event_name'],
+                event['event_type'],
+                event['allowed'],
+                event['denied'],
+                event['total']
+            ])
+
+        return output.getvalue()
+
+    def export_top_events_csv_old_format(self) -> str:
+        """
+        Export top events in old format (aggregated across sources)
+        DEPRECATED: Use export_top_events_csv() for source-level detail
         """
         output = io.StringIO()
         writer = csv.writer(output)
@@ -320,33 +426,37 @@ class ExportManager:
 
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             # ===== PROCESSED EXPORTS (Analysis-ready CSVs) =====
+            # Only include exports for data that was actually collected
 
-            # Sources with destinations
-            try:
-                zip_file.writestr(
-                    'processed/sources_with_destinations.csv',
-                    self.export_sources_with_destinations_csv()
-                )
-            except Exception as e:
-                print(f"Warning: Could not export sources_with_destinations: {e}")
+            # Sources with destinations (only if sources were collected)
+            if self.collection_options.get('sources', True):
+                try:
+                    zip_file.writestr(
+                        'processed/sources_with_destinations.csv',
+                        self.export_sources_with_destinations_csv()
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not export sources_with_destinations: {e}")
 
-            # Audiences with destinations
-            try:
-                zip_file.writestr(
-                    'processed/audiences_with_destinations.csv',
-                    self.export_audiences_with_destinations_csv()
-                )
-            except Exception as e:
-                print(f"Warning: Could not export audiences_with_destinations: {e}")
+            # Audiences with destinations (only if audiences were collected)
+            if self.collection_options.get('audiences', True):
+                try:
+                    zip_file.writestr(
+                        'processed/audiences_with_destinations.csv',
+                        self.export_audiences_with_destinations_csv()
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not export audiences_with_destinations: {e}")
 
-            # Top events
-            try:
-                zip_file.writestr(
-                    'processed/top_events.csv',
-                    self.export_top_events_csv()
-                )
-            except Exception as e:
-                print(f"Warning: Could not export top_events: {e}")
+            # Top events (only if sources were collected - needs event schema)
+            if self.collection_options.get('sources', True):
+                try:
+                    zip_file.writestr(
+                        'processed/top_events.csv',
+                        self.export_top_events_csv()
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not export top_events: {e}")
 
             # ===== RAW DATA FILES (All Gateway API data) =====
 
@@ -822,6 +932,38 @@ Generated by Segment Audit Dashboard
         else:
             print("⚠️  WARNING: gateway_summary.json not found")
 
+        # Build collection summary
+        collection_opts = summary_data.get('collection_options', {})
+        collected_items = []
+        if collection_opts.get('sources', True):
+            collected_items.append('✓ Sources & Event Schemas')
+        if collection_opts.get('destinations', True):
+            collected_items.append('✓ Destinations & Data Flows')
+        if collection_opts.get('audiences', True):
+            collected_items.append('✓ Audiences' + (' (with definitions)' if collection_opts.get('fetch_definitions', False) else ''))
+        if collection_opts.get('journeys', True):
+            collected_items.append('✓ Journeys & Campaigns')
+        if collection_opts.get('profiles', True):
+            collected_items.append('✓ Profile Insights & Identity Resolution')
+        if collection_opts.get('mtu', True):
+            collected_items.append('✓ MTU Data & Usage Metrics')
+        if collection_opts.get('audit_trail', True):
+            collected_items.append('✓ Audit Trail (Governance Logs)')
+        if collection_opts.get('usage_data', True):
+            collected_items.append('✓ Billing & API Usage Data')
+
+        collection_summary = '\n   '.join(collected_items) if collected_items else '   (No items collected)'
+
+        # Build processed files list
+        processed_files = []
+        if collection_opts.get('sources', True):
+            processed_files.append('✓ sources_with_destinations.csv - Source connectivity & top events')
+            processed_files.append('✓ top_events.csv - Event volume analysis by source')
+        if collection_opts.get('audiences', True):
+            processed_files.append('✓ audiences_with_destinations.csv - Activation gap analysis')
+
+        processed_summary = '\n   '.join(processed_files) if processed_files else '   (No processed files - no data collected)'
+
         text = f"""SEGMENT WORKSPACE AUDIT - COMPLETE EXPORT
 ==========================================
 
@@ -832,6 +974,10 @@ WORKSPACE INFORMATION:
 Customer: {summary_data.get('customer_name', 'Unknown')}
 Workspace: {summary_data.get('workspace_slug', 'Unknown')}
 Audit Date: {summary_data.get('audit_date', 'Unknown')}
+
+DATA COLLECTED IN THIS AUDIT:
+-----------------------------
+   {collection_summary}
 
 WORKSPACE METRICS:
 -----------------
@@ -846,16 +992,14 @@ WHAT'S INCLUDED:
 ---------------
 
 📂 /processed/ - Analysis-Ready Files
-   ✓ sources_with_destinations.csv - Source connectivity audit
-   ✓ audiences_with_destinations.csv - Activation gap analysis
-   ✓ top_events.csv - Event usage patterns
+   {processed_summary}
 
 📂 /raw_data/ - Complete Workspace Data
-   ✓ All Gateway API JSON/CSV exports
-   ✓ Full source schemas with event definitions
-   ✓ MTU/API usage and billing data
-   ✓ Audit trail activity logs
-   ✓ Identity resolution configurations
+   ✓ All Gateway API JSON/CSV exports for collected data
+   ✓ Full source schemas with event definitions (if sources collected)
+   ✓ MTU/API usage data (if collected)
+   ✓ Audit trail activity logs (if collected)
+   ✓ Identity resolution configs (if profile insights collected)
 
 📂 /for_gem_analysis/ - AI-Ready Format
    ✓ workspace_audit_data.json
