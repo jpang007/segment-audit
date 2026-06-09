@@ -3688,13 +3688,14 @@ def export_sources_excel_v2():
                     total_allowed = sum(e['allowed'] for e in all_events)
                     total_blocked = sum(e['denied'] for e in all_events)
 
-                    # Add events to master sheet (filter out zero-volume events)
+                    # Add events to master sheet (filter to only allowed events)
                     for event in all_events:
                         allowed = event['allowed']
                         blocked = event['denied']
 
-                        # Skip events with no volume (neither allowed nor blocked)
-                        if allowed == 0 and blocked == 0:
+                        # Skip events with no allowed volume (only show events that are successfully flowing)
+                        # This filters out both zero-volume and blocked-only events
+                        if allowed == 0:
                             continue
 
                         event_type = event['type']
@@ -3732,8 +3733,8 @@ def export_sources_excel_v2():
                                     blocked = stats.get('denied', 0)
                                     traits_count += 1
 
-                                    # Skip traits with no volume (neither allowed nor blocked)
-                                    if allowed == 0 and blocked == 0:
+                                    # Skip traits with no allowed volume (only show traits that are successfully flowing)
+                                    if allowed == 0:
                                         continue
 
                                     # Add trait to master
