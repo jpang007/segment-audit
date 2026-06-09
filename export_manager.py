@@ -91,23 +91,26 @@ class ExportManager:
             wh_count = len(warehouses)
 
             # Calculate total event volume and get top events
-            schema = source.get('schema', {})
-            events = schema.get('events', [])
+            schema = source.get('schema')
+            events = schema.get('events', []) if schema else []
 
             total_volume = 0
             event_list = []
 
-            for event in events:
-                event_name = event.get('name', '')
-                counts = event.get('counts', {})
-                allowed = counts.get('allowed', 0)
-                total_volume += allowed
-                event_list.append((event_name, allowed))
+            if events:
+                for event in events:
+                    event_name = event.get('name', '')
+                    counts = event.get('counts', {})
+                    allowed = counts.get('allowed', 0)
+                    total_volume += allowed
+                    event_list.append((event_name, allowed))
 
-            # Sort by volume and get top 10
-            event_list.sort(key=lambda x: x[1], reverse=True)
-            top_10 = event_list[:10]
-            top_events_str = '; '.join([f"{name} ({vol:,})" for name, vol in top_10])
+                # Sort by volume and get top 10
+                event_list.sort(key=lambda x: x[1], reverse=True)
+                top_10 = event_list[:10]
+                top_events_str = '; '.join([f"{name} ({vol:,})" for name, vol in top_10])
+            else:
+                top_events_str = 'No event data'
 
             writer.writerow([
                 source_name,
@@ -320,8 +323,8 @@ class ExportManager:
         event_data = []
         for source in sources:
             source_name = source.get('name', 'Unknown')
-            schema = source.get('schema', {})
-            events = schema.get('events', [])
+            schema = source.get('schema')
+            events = schema.get('events', []) if schema else []
 
             for event in events:
                 event_name = event.get('name', '')
