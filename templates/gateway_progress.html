@@ -6,44 +6,6 @@
     <title>Gateway Audit Progress</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        .progress-detail {
-            margin-top: 35px;
-            padding: 25px;
-            background: #f7fafc;
-            border-radius: 12px;
-            border: 2px solid #e2e8f0;
-        }
-        .progress-detail h3 {
-            margin: 0 0 15px 0;
-            color: #2d3748;
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
-        .progress-detail ul {
-            margin: 0;
-            padding-left: 25px;
-            color: #2d3748;
-            line-height: 2;
-        }
-        .progress-detail li {
-            margin: 8px 0;
-            font-size: 0.95rem;
-            font-weight: 500;
-        }
-        .checkmark {
-            color: #667eea;
-            font-weight: bold;
-            margin-right: 8px;
-            font-size: 1.1rem;
-        }
-        .checkmark.done {
-            color: #48bb78;
-        }
-        .status-message {
-            color: #2d3748;
-            font-weight: 600;
-            font-size: 1.05rem;
-        }
         .progress-bar-container {
             background: #e2e8f0;
             border-radius: 10px;
@@ -54,7 +16,7 @@
         .progress-bar {
             height: 100%;
             background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            transition: width 0.3s ease;
+            transition: width 0.4s ease;
             box-shadow: 0 2px 4px rgba(102, 126, 234, 0.4);
         }
         .progress-text {
@@ -62,6 +24,81 @@
             font-weight: 700;
             font-size: 1.2rem;
             margin-top: 12px;
+            text-align: center;
+        }
+        .status-message {
+            color: #718096;
+            font-size: 0.9rem;
+            text-align: center;
+            margin-top: 8px;
+            min-height: 1.4em;
+            font-style: italic;
+        }
+
+        /* Module list */
+        .modules-panel {
+            margin-top: 30px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .modules-panel-header {
+            background: #f7fafc;
+            padding: 14px 20px;
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 0.95rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .module-row {
+            display: flex;
+            align-items: center;
+            padding: 13px 20px;
+            border-bottom: 1px solid #f0f4f8;
+            gap: 14px;
+            transition: background 0.2s;
+        }
+        .module-row:last-child { border-bottom: none; }
+        .module-row.state-pending  { opacity: 0.45; }
+        .module-row.state-active   { background: #fefcf3; }
+        .module-row.state-done     { background: #f0fff4; }
+        .module-row.state-skipped  { opacity: 0.3; }
+
+        .module-icon {
+            font-size: 1.2rem;
+            width: 26px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+        .module-label {
+            flex: 1;
+            font-size: 0.95rem;
+            font-weight: 500;
+            color: #2d3748;
+        }
+        .module-count {
+            font-size: 0.85rem;
+            color: #718096;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .module-count.active { color: #d69e2e; font-weight: 600; }
+        .module-count.done   { color: #38a169; font-weight: 600; }
+
+        /* inline mini progress bar for active modules */
+        .mini-bar-wrap {
+            width: 80px;
+            height: 6px;
+            background: #e2e8f0;
+            border-radius: 3px;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .mini-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.4s ease;
+            border-radius: 3px;
         }
     </style>
 </head>
@@ -70,52 +107,115 @@
         <div style="text-align: center; margin-bottom: 35px;">
             <div style="font-size: 3.5rem; margin-bottom: 15px;">🔬</div>
             <h1 style="margin: 0; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">Gateway API Audit</h1>
-            <p class="subtitle" style="color: white; margin-top: 8px; text-shadow: 0 1px 2px rgba(0,0,0,0.2);">Collecting workspace data via Gateway API</p>
+            <p class="subtitle" style="color: rgba(255,255,255,0.85); margin-top: 8px;">Collecting workspace data via Gateway API</p>
         </div>
 
-        <div class="progress-container" style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 700px; margin: 0 auto;">
+        <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 680px; margin: 0 auto;">
+
+            <!-- Overall progress bar -->
             <div class="progress-bar-container">
-                <div class="progress-bar" id="progressBar"></div>
+                <div class="progress-bar" id="progressBar" style="width: 0%"></div>
             </div>
-            <p class="progress-text" id="progressText" style="text-align: center;">0%</p>
+            <p class="progress-text" id="progressText">0%</p>
+            <p class="status-message" id="statusMessage">Initializing Gateway API client...</p>
 
-            <div class="status-message" id="statusMessage" style="text-align: center; margin-top: 20px;">
-                Initializing Gateway API client...
+            <!-- Per-module status list -->
+            <div class="modules-panel">
+                <div class="modules-panel-header">📋 Collection Progress</div>
+
+                <!-- Each row has: icon, label, optional mini-bar, count/badge -->
+                <div class="module-row state-pending" id="mod_spaces">
+                    <span class="module-icon">🗂️</span>
+                    <span class="module-label">Workspace Spaces</span>
+                    <span class="module-count" id="cnt_spaces">Pending</span>
+                </div>
+
+                {% if collect_options.sources %}
+                <div class="module-row state-pending" id="mod_sources">
+                    <span class="module-icon">🔌</span>
+                    <span class="module-label">Sources</span>
+                    <span class="module-count" id="cnt_sources">Pending</span>
+                </div>
+                <div class="module-row state-pending" id="mod_schemas">
+                    <span class="module-icon">🧬</span>
+                    <span class="module-label">Source Schemas</span>
+                    <div class="mini-bar-wrap" id="schema_bar_wrap" style="display:none">
+                        <div class="mini-bar" id="schema_mini_bar" style="width:0%"></div>
+                    </div>
+                    <span class="module-count" id="cnt_schemas">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.audiences %}
+                <div class="module-row state-pending" id="mod_audiences">
+                    <span class="module-icon">👥</span>
+                    <span class="module-label">Audiences</span>
+                    <div class="mini-bar-wrap" id="aud_bar_wrap" style="display:none">
+                        <div class="mini-bar" id="aud_mini_bar" style="width:0%"></div>
+                    </div>
+                    <span class="module-count" id="cnt_audiences">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.journeys %}
+                <div class="module-row state-pending" id="mod_journeys">
+                    <span class="module-icon">🚀</span>
+                    <span class="module-label">Journeys</span>
+                    <span class="module-count" id="cnt_journeys">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.destinations %}
+                <div class="module-row state-pending" id="mod_destinations">
+                    <span class="module-icon">📍</span>
+                    <span class="module-label">Destinations</span>
+                    <span class="module-count" id="cnt_destinations">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.usage_data %}
+                <div class="module-row state-pending" id="mod_usage_data">
+                    <span class="module-icon">💳</span>
+                    <span class="module-label">Usage Data</span>
+                    <span class="module-count" id="cnt_usage_data">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.audit_trail %}
+                <div class="module-row state-pending" id="mod_audit_trail">
+                    <span class="module-icon">📋</span>
+                    <span class="module-label">Audit Trail</span>
+                    <span class="module-count" id="cnt_audit_trail">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.mtu %}
+                <div class="module-row state-pending" id="mod_mtu">
+                    <span class="module-icon">📊</span>
+                    <span class="module-label">MTU Data</span>
+                    <span class="module-count" id="cnt_mtu">Pending</span>
+                </div>
+                {% endif %}
+
+                {% if collect_options.profiles %}
+                <div class="module-row state-pending" id="mod_profiles">
+                    <span class="module-icon">🔍</span>
+                    <span class="module-label">Profile Insights</span>
+                    <div class="mini-bar-wrap" id="prof_bar_wrap" style="display:none">
+                        <div class="mini-bar" id="prof_mini_bar" style="width:0%"></div>
+                    </div>
+                    <span class="module-count" id="cnt_profiles">Pending</span>
+                </div>
+                {% endif %}
+
+                <div class="module-row state-pending" id="mod_save">
+                    <span class="module-icon">💾</span>
+                    <span class="module-label">Saving Data</span>
+                    <span class="module-count" id="cnt_save">Pending</span>
+                </div>
             </div>
 
-            <div class="progress-detail">
-                <h3>📋 Collection Progress</h3>
-                <ul>
-                    <li><span class="checkmark" id="check_spaces">□</span> Workspace Spaces (5%)</li>
-                    {% if collect_options.sources %}
-                    <li><span class="checkmark" id="check_sources">□</span> 🔌 Sources & Connections</li>
-                    {% endif %}
-                    {% if collect_options.audiences %}
-                    <li><span class="checkmark" id="check_audiences">□</span> 👥 Audiences</li>
-                    {% endif %}
-                    {% if collect_options.journeys %}
-                    <li><span class="checkmark" id="check_journeys">□</span> 🚀 Journeys</li>
-                    {% endif %}
-                    {% if collect_options.destinations %}
-                    <li><span class="checkmark" id="check_destinations">□</span> 📍 Destinations</li>
-                    {% endif %}
-                    {% if collect_options.usage_data %}
-                    <li><span class="checkmark" id="check_usage">□</span> 💳 Usage Data</li>
-                    {% endif %}
-                    {% if collect_options.audit_trail %}
-                    <li><span class="checkmark" id="check_audit">□</span> 📋 Audit Trail</li>
-                    {% endif %}
-                    {% if collect_options.mtu %}
-                    <li><span class="checkmark" id="check_mtu">□</span> 📊 MTU Data</li>
-                    {% endif %}
-                    {% if collect_options.profiles %}
-                    <li><span class="checkmark" id="check_profiles">□</span> 🔍 Profile Insights</li>
-                    {% endif %}
-                    <li><span class="checkmark" id="check_save">□</span> 💾 Saving Data (95%)</li>
-                </ul>
-            </div>
-
-            <div id="error" class="error" style="display: none; margin-top: 30px;"></div>
+            <div id="error" style="display: none; margin-top: 30px;"></div>
         </div>
     </div>
 
@@ -123,130 +223,132 @@
         let pollInterval;
         let redirectTimeout;
 
+        const ICON_PENDING  = '⬜';
+        const ICON_ACTIVE   = '⏳';
+        const ICON_DONE     = '✅';
+
+        function fmtCount(mod) {
+            if (!mod) return '';
+            if (mod.state === 'done') {
+                if (mod.done !== null && mod.done !== undefined) return mod.done + ' collected';
+                return 'Done';
+            }
+            if (mod.state === 'active') {
+                if (mod.done !== null && mod.done !== undefined && mod.total) {
+                    return mod.done + ' / ' + mod.total;
+                }
+                return 'In progress...';
+            }
+            return 'Pending';
+        }
+
+        function applyModule(key, mod, miniBarId, miniBarWrapId) {
+            const row  = document.getElementById('mod_' + key);
+            const cnt  = document.getElementById('cnt_' + key);
+            if (!row || !mod) return;
+
+            // Remove all state classes, add new one
+            row.classList.remove('state-pending', 'state-active', 'state-done', 'state-skipped');
+            row.classList.add('state-' + mod.state);
+
+            // Update icon (first span child is the icon)
+            const icon = row.querySelector('.module-icon');
+            if (icon) {
+                if (mod.state === 'done')   icon.textContent = '✅';
+                else if (mod.state === 'active') icon.textContent = '⏳';
+            }
+
+            // Count text
+            if (cnt) {
+                cnt.textContent = fmtCount(mod);
+                cnt.className = 'module-count ' + (mod.state === 'done' ? 'done' : mod.state === 'active' ? 'active' : '');
+            }
+
+            // Mini progress bar
+            if (miniBarId && miniBarWrapId && mod.total && mod.total > 0) {
+                const pct = Math.round((mod.done || 0) / mod.total * 100);
+                const bar = document.getElementById(miniBarId);
+                const wrap = document.getElementById(miniBarWrapId);
+                if (bar && wrap) {
+                    wrap.style.display = (mod.state === 'active') ? 'block' : 'none';
+                    bar.style.width = pct + '%';
+                }
+            }
+        }
+
         async function checkStatus() {
             try {
                 const response = await fetch('/audit-status');
                 const status = await response.json();
 
-                const progressBar = document.getElementById('progressBar');
-                const progressText = document.getElementById('progressText');
-                const statusMessage = document.getElementById('statusMessage');
-                const errorDiv = document.getElementById('error');
+                // Overall bar
+                document.getElementById('progressBar').style.width = status.progress + '%';
+                document.getElementById('progressText').textContent = status.progress + '%';
+                document.getElementById('statusMessage').textContent = status.message || '';
 
-                progressBar.style.width = status.progress + '%';
-                progressText.textContent = status.progress + '%';
-                statusMessage.textContent = status.message;
+                const m = status.modules || {};
 
-                // Update checkmarks based on message content
-                const message = status.message.toLowerCase();
+                // Apply each module
+                applyModule('spaces',      m.spaces,      null, null);
+                applyModule('sources',     m.sources,     null, null);
+                applyModule('schemas',     m.schemas,     'schema_mini_bar', 'schema_bar_wrap');
+                applyModule('audiences',   m.audiences,   'aud_mini_bar',    'aud_bar_wrap');
+                applyModule('journeys',    m.journeys,    null, null);
+                applyModule('destinations',m.destinations,null, null);
+                applyModule('usage_data',  m.usage_data,  null, null);
+                applyModule('audit_trail', m.audit_trail, null, null);
+                applyModule('mtu',         m.mtu,         null, null);
+                applyModule('profiles',    m.profiles,    'prof_mini_bar',   'prof_bar_wrap');
 
-                // Always check spaces first
-                const checkSpaces = document.getElementById('check_spaces');
-                if (checkSpaces && status.progress >= 5) {
-                    checkSpaces.textContent = '✓';
-                    checkSpaces.classList.add('done');
-                }
-
-                // Check based on current activity
-                const checks = {
-                    'sources': document.getElementById('check_sources'),
-                    'audiences': document.getElementById('check_audiences'),
-                    'journeys': document.getElementById('check_journeys'),
-                    'destinations': document.getElementById('check_destinations'),
-                    'usage': document.getElementById('check_usage'),
-                    'audit': document.getElementById('check_audit'),
-                    'mtu': document.getElementById('check_mtu'),
-                    'profiles': document.getElementById('check_profiles'),
-                    'save': document.getElementById('check_save')
-                };
-
-                // Mark items as done based on message
-                if (message.includes('source') && checks.sources && status.progress > 5) {
-                    checks.sources.textContent = '✓';
-                    checks.sources.classList.add('done');
-                }
-                if (message.includes('audience') && checks.audiences) {
-                    if (status.progress > 40 || message.includes('journeys') || message.includes('destination') || message.includes('saving')) {
-                        checks.audiences.textContent = '✓';
-                        checks.audiences.classList.add('done');
+                // Save row
+                if (status.progress >= 95) {
+                    const saveRow = document.getElementById('mod_save');
+                    const saveCnt = document.getElementById('cnt_save');
+                    if (saveRow) {
+                        saveRow.classList.remove('state-pending','state-active','state-done');
+                        saveRow.classList.add(status.complete ? 'state-done' : 'state-active');
+                        const icon = saveRow.querySelector('.module-icon');
+                        if (icon) icon.textContent = status.complete ? '✅' : '⏳';
                     }
-                }
-                if (message.includes('journeys') && checks.journeys) {
-                    if (status.progress > 60 || message.includes('destination') || message.includes('saving')) {
-                        checks.journeys.textContent = '✓';
-                        checks.journeys.classList.add('done');
+                    if (saveCnt) {
+                        saveCnt.textContent = status.complete ? 'Done' : 'Writing files...';
+                        saveCnt.className = 'module-count ' + (status.complete ? 'done' : 'active');
                     }
-                }
-                if (message.includes('destination') && checks.destinations) {
-                    if (status.progress > 70 || message.includes('usage') || message.includes('audit') || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
-                        checks.destinations.textContent = '✓';
-                        checks.destinations.classList.add('done');
-                    }
-                }
-                if (message.includes('usage') && checks.usage) {
-                    if (status.progress > 75 || message.includes('audit') || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
-                        checks.usage.textContent = '✓';
-                        checks.usage.classList.add('done');
-                    }
-                }
-                if (message.includes('audit trail') && checks.audit) {
-                    if (status.progress > 80 || message.includes('mtu') || message.includes('profile') || message.includes('saving')) {
-                        checks.audit.textContent = '✓';
-                        checks.audit.classList.add('done');
-                    }
-                }
-                if (message.includes('mtu') && checks.mtu) {
-                    if (status.progress > 85 || message.includes('profile') || message.includes('saving')) {
-                        checks.mtu.textContent = '✓';
-                        checks.mtu.classList.add('done');
-                    }
-                }
-                if (message.includes('profile') && checks.profiles) {
-                    if (status.progress > 90 || message.includes('saving')) {
-                        checks.profiles.textContent = '✓';
-                        checks.profiles.classList.add('done');
-                    }
-                }
-                if (message.includes('saving') && checks.save && status.progress >= 95) {
-                    checks.save.textContent = '✓';
-                    checks.save.classList.add('done');
                 }
 
+                // Error state
                 if (status.error) {
-                    errorDiv.innerHTML = `
-                        <strong style="color: #e53e3e; font-size: 1.1rem;">Error:</strong> <span style="color: #2d3748; font-weight: 500;">${status.error}</span>
-                        <div style="margin-top: 20px; text-align: center;">
-                            <button onclick="window.location.href='/reset'" class="btn btn-secondary">
-                                ← Try Again
-                            </button>
-                        </div>
-                    `;
-                    errorDiv.style.display = 'block';
-                    statusMessage.style.color = '#e53e3e';
+                    document.getElementById('error').innerHTML = `
+                        <div style="background:#fff5f5; border:1px solid #feb2b2; border-radius:8px; padding:20px;">
+                            <strong style="color:#c53030;">Error:</strong>
+                            <span style="color:#2d3748; margin-left:6px;">${status.error}</span>
+                            <div style="margin-top:16px; text-align:center;">
+                                <button onclick="window.location.href='/reset'" class="btn btn-secondary">← Try Again</button>
+                            </div>
+                        </div>`;
+                    document.getElementById('error').style.display = 'block';
                     clearInterval(pollInterval);
-                } else if (status.complete) {
-                    progressBar.style.width = '100%';
-                    progressText.textContent = '100%';
-                    progressText.style.color = '#48bb78';
-                    statusMessage.innerHTML = '<span style="color: #48bb78; font-weight: 700; font-size: 1.1rem;">✅ Audit Complete! Redirecting to dashboard...</span>';
-
-                    clearInterval(pollInterval);
-
-                    // Auto-redirect to dashboard after 1.5 seconds
-                    redirectTimeout = setTimeout(() => {
-                        window.location.href = '/dashboard';
-                    }, 1500);
+                    return;
                 }
-            } catch (error) {
-                console.error('Error checking status:', error);
+
+                if (status.complete) {
+                    document.getElementById('progressBar').style.width = '100%';
+                    document.getElementById('progressText').textContent = '100%';
+                    document.getElementById('progressText').style.color = '#38a169';
+                    document.getElementById('statusMessage').innerHTML =
+                        '<span style="color:#38a169; font-weight:700; font-style:normal;">✅ Audit complete — redirecting to dashboard...</span>';
+                    clearInterval(pollInterval);
+                    redirectTimeout = setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
+                }
+
+            } catch (e) {
+                console.error('Status poll error:', e);
             }
         }
 
-        // Start polling
         checkStatus();
         pollInterval = setInterval(checkStatus, 1000);
 
-        // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
             if (pollInterval) clearInterval(pollInterval);
             if (redirectTimeout) clearTimeout(redirectTimeout);

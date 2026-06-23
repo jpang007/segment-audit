@@ -1998,9 +1998,15 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         'progress': 0,
         'message': 'Initializing Gateway API client...',
         'error': None,
-        'complete': False
+        'complete': False,
+        # Per-module counts for granular progress display
+        'modules': {}
     }
     status = audit_status_store[audit_id]
+
+    def set_module(key, state, done=None, total=None):
+        """Update a single module's status in-place."""
+        status['modules'][key] = {'state': state, 'done': done, 'total': total}
 
     try:
 
@@ -2057,7 +2063,9 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         # Get spaces (always needed for audiences/journeys)
         status['message'] = 'Fetching spaces...'
         status['progress'] = 5
+        set_module('spaces', 'active')
         spaces = client.get_spaces()
+        set_module('spaces', 'done', done=len(spaces), total=len(spaces))
         print(f"Found {len(spaces)} spaces")
 
         # Initialize collections
@@ -2070,7 +2078,9 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('sources', True):
             status['message'] = 'Fetching sources...'
             status['progress'] = progress_map.get('sources', 15)
+            set_module('sources', 'active')
             sources = client.get_all_sources()
+            set_module('sources', 'done', done=len(sources), total=len(sources))
             print(f"Found {len(sources)} sources")
 
             # Get workspace connections
@@ -2083,6 +2093,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('audiences', True):
             status['message'] = 'Collecting audiences...'
             status['progress'] = progress_map.get('audiences', 40)
+            set_module('audiences', 'active', done=0, total=len(spaces))
             print(f"\n=== FETCHING AUDIENCES ===", flush=True)
             print(f"Found {len(spaces)} spaces to query", flush=True)
             for idx, space in enumerate(spaces):
@@ -2133,11 +2144,13 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                                 aud['definition_sql'] = ''
 
                     all_audiences.extend(audiences)
+                    set_module('audiences', 'active', done=idx + 1, total=len(spaces))
                     print(f"  -> Total audiences so far: {len(all_audiences)}", flush=True)
                 except Exception as e:
                     print(f"  -> ERROR: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
+            set_module('audiences', 'done', done=len(all_audiences), total=len(all_audiences))
         else:
             print("Skipping audiences collection")
 
@@ -2145,6 +2158,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('journeys', True):
             status['message'] = 'Collecting journeys...'
             status['progress'] = progress_map.get('journeys', 60)
+            set_module('journeys', 'active', done=0, total=len(spaces))
             print(f"\n=== FETCHING JOURNEYS ===")
             for idx, space in enumerate(spaces):
                 space_id = space.get('id')
@@ -2157,6 +2171,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         journey['space_id'] = space_id
                         journey['space_name'] = space_name
                     all_journeys.extend(journeys)
+                    set_module('journeys', 'active', done=idx + 1, total=len(spaces))
                     print(f"  -> Total items so far: {len(all_journeys)}")
 
                     # Brief delay between spaces to avoid rate limits
@@ -2166,6 +2181,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                 except Exception as e:
                     print(f"  -> ERROR: {e}")
                     print(f"     (This may be normal if workspace doesn't have Engage feature)")
+            set_module('journeys', 'done', done=len(all_journeys), total=len(all_journeys))
         else:
             print("Skipping journeys collection")
 
@@ -2175,10 +2191,13 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('destinations', True):
             status['message'] = 'Collecting destinations...'
             status['progress'] = progress_map.get('destinations', 70)
+            set_module('destinations', 'active')
             print(f"\n=== FETCHING DESTINATIONS ===")
             try:
                 destinations_data = client.get_all_destinations()
-                print(f"  -> Found {len(destinations_data.get('destinations', []))} destinations")
+                dest_count = len(destinations_data.get('destinations', []))
+                set_module('destinations', 'done', done=dest_count, total=dest_count)
+                print(f"  -> Found {dest_count} destinations")
             except Exception as e:
                 print(f"  -> ERROR fetching destinations: {e}")
 
@@ -2196,6 +2215,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('usage_data', False):
             status['message'] = 'Collecting usage data...'
             status['progress'] = progress_map.get('usage_data', 75)
+            set_module('usage_data', 'active')
             print(f"\n=== FETCHING USAGE DATA ===")
             try:
                 usage_data = client.get_usage_period_data()
@@ -2203,6 +2223,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                 print(f"  -> Billing plan: {billing.get('planName', 'Unknown')}")
                 mtus = billing.get('usage', {}).get('mtus', {})
                 print(f"  -> MTUs: {mtus.get('users', 0)} users + {mtus.get('anonymous', 0)} anonymous")
+                set_module('usage_data', 'done')
             except Exception as e:
                 print(f"  -> ERROR fetching usage data: {e}")
         else:
@@ -2213,6 +2234,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('audit_trail', False):
             status['message'] = 'Collecting audit trail...'
             status['progress'] = progress_map.get('audit_trail', 80)
+            set_module('audit_trail', 'active')
             print(f"\n=== FETCHING AUDIT TRAIL ===")
             try:
                 # Fetch events until we hit 90 days or run out
@@ -2251,6 +2273,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         print(f"  -> No more pages available")
                         break
 
+                set_module('audit_trail', 'done', done=len(audit_events), total=len(audit_events))
                 print(f"  -> Collected {len(audit_events)} audit events")
             except Exception as e:
                 print(f"  -> ERROR fetching audit trail: {e}")
@@ -2264,6 +2287,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('mtu', False):
             status['message'] = 'Collecting MTU data...'
             status['progress'] = progress_map.get('mtu', 85)
+            set_module('mtu', 'active')
             print(f"\n=== FETCHING MTU DATA ===")
             try:
                 # Get comprehensive usage period data (includes contract dates, billing tier, etc.)
@@ -2333,6 +2357,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
             except Exception as e:
                 print(f"  -> ERROR fetching MTU data: {e}")
                 print(f"     (MTU data may not be available on this plan)")
+            set_module('mtu', 'done')
         else:
             print("Skipping MTU data collection")
 
@@ -2343,6 +2368,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if collect_options.get('profiles', False):
             status['message'] = 'Collecting profile insights...'
             status['progress'] = progress_map.get('profiles', 90)
+            set_module('profiles', 'active', done=0, total=len(spaces))
             print(f"\n=== FETCHING PROFILE INSIGHTS ===")
 
             # Get workspace-level personas data
@@ -2430,6 +2456,8 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         })
                 except Exception as e:
                     print(f"  -> ERROR fetching space sources: {e}")
+                set_module('profiles', 'active', done=idx + 1, total=len(spaces))
+            set_module('profiles', 'done', done=len(spaces), total=len(spaces))
         else:
             print("Skipping profile insights collection")
 
@@ -2486,6 +2514,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                     event_count = 0
                     try:
                         status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
+                        set_module('schemas', 'active', done=idx, total=len(sources))
                         schema_data = client.get_source_schema(source.get('slug', ''))
 
                         # Attach schema to source object for JSON export
@@ -2541,6 +2570,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         'Event Count': event_count
                     })
 
+            set_module('schemas', 'done', done=len(sources), total=len(sources))
             # Save sources JSON with full schema data (for Gem analysis)
             print(f"  -> Saving sources with full schemas to gateway_sources.json")
             with open(DATA_DIR / 'gateway_sources.json', 'w', encoding='utf-8') as f:
