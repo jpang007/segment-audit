@@ -12,6 +12,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import csv
+from uuid import uuid4
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import io
@@ -34,17 +35,17 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 ENABLE_EXPERIMENTAL_FEATURES = os.getenv('ENABLE_EXPERIMENTAL_FEATURES', 'false').lower() == 'true'
 
 # Configuration
-DATA_DIR = Path('./audit_data')
-DATA_DIR.mkdir(exist_ok=True)
+BASE_DATA_DIR = Path('./audit_data')
+BASE_DATA_DIR.mkdir(exist_ok=True)
 
-# Global status for audit progress
-audit_status = {
-    'running': False,
-    'progress': 0,
-    'message': 'Ready',
-    'complete': False,
-    'error': None
-}
+def get_data_dir(audit_id):
+    """Return the per-audit data directory, creating it if needed."""
+    path = BASE_DATA_DIR / audit_id
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+# Per-audit status store: { audit_id: { running, progress, message, complete, error } }
+audit_status_store = {}
 
 class GatewayAPIClient:
     """Gateway API GraphQL client"""
@@ -1950,7 +1951,11 @@ def start_audit():
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Gateway token and workspace slug are required'}), 400
 
+        # Generate a unique audit ID scoped to this run
+        audit_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{workspace_slug}_{uuid4().hex[:6]}"
+
         # Store in session
+        session['audit_id'] = audit_id
         session['gateway_token'] = gateway_token
         session['workspace_slug'] = workspace_slug
         session['customer_name'] = customer_name
@@ -1961,18 +1966,18 @@ def start_audit():
 
         # Start audit in background
         import threading
-        thread = threading.Thread(target=run_audit, args=(gateway_token, workspace_slug, customer_name, fetch_definitions, region, collect_options))
+        thread = threading.Thread(target=run_audit, args=(audit_id, gateway_token, workspace_slug, customer_name, fetch_definitions, region, collect_options))
         thread.daemon = True
         thread.start()
 
-        return jsonify({'status': 'started'})
+        return jsonify({'status': 'started', 'audit_id': audit_id})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=False, region=None, collect_options=None):
+def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_definitions=False, region=None, collect_options=None):
     """Run the audit collection"""
-    global audit_status
+    DATA_DIR = get_data_dir(audit_id)
 
     # Default collect options if not provided
     if collect_options is None:
@@ -1987,20 +1992,17 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             'usage_data': False
         }
 
-    try:
-        # Reset all status fields for new audit
-        audit_status['running'] = True
-        audit_status['progress'] = 0
-        audit_status['message'] = 'Initializing Gateway API client...'
-        audit_status['error'] = None
-        audit_status['complete'] = False
+    # Initialise per-audit status entry
+    audit_status_store[audit_id] = {
+        'running': True,
+        'progress': 0,
+        'message': 'Initializing Gateway API client...',
+        'error': None,
+        'complete': False
+    }
+    status = audit_status_store[audit_id]
 
-        # Clear old audit data files
-        for file_path in DATA_DIR.glob('gateway_*.csv'):
-            file_path.unlink()
-        for file_path in DATA_DIR.glob('gateway_*.json'):
-            file_path.unlink()
-        print("Cleared old audit data files")
+    try:
 
         print(f"\n=== COLLECTION OPTIONS ===")
         print(f"Sources: {collect_options.get('sources', False)}")
@@ -2053,8 +2055,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         client = GatewayAPIClient(gateway_token, workspace_slug, region=region)
 
         # Get spaces (always needed for audiences/journeys)
-        audit_status['message'] = 'Fetching spaces...'
-        audit_status['progress'] = 5
+        status['message'] = 'Fetching spaces...'
+        status['progress'] = 5
         spaces = client.get_spaces()
         print(f"Found {len(spaces)} spaces")
 
@@ -2066,21 +2068,21 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         # Get sources (optional)
         if collect_options.get('sources', True):
-            audit_status['message'] = 'Fetching sources...'
-            audit_status['progress'] = progress_map.get('sources', 15)
+            status['message'] = 'Fetching sources...'
+            status['progress'] = progress_map.get('sources', 15)
             sources = client.get_all_sources()
             print(f"Found {len(sources)} sources")
 
             # Get workspace connections
-            audit_status['message'] = 'Fetching source-destination connections...'
+            status['message'] = 'Fetching source-destination connections...'
             connections = client.get_workspace_connections()
         else:
             print("Skipping sources collection")
 
         # Get audiences for each space (optional)
         if collect_options.get('audiences', True):
-            audit_status['message'] = 'Collecting audiences...'
-            audit_status['progress'] = progress_map.get('audiences', 40)
+            status['message'] = 'Collecting audiences...'
+            status['progress'] = progress_map.get('audiences', 40)
             print(f"\n=== FETCHING AUDIENCES ===", flush=True)
             print(f"Found {len(spaces)} spaces to query", flush=True)
             for idx, space in enumerate(spaces):
@@ -2121,7 +2123,7 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                                 else:
                                     aud['definition_sql'] = ''
 
-                                audit_status['message'] = f'Collecting audiences... ({aud_idx + 1}/{len(audiences)} in {space_name})'
+                                status['message'] = f'Collecting audiences... ({aud_idx + 1}/{len(audiences)} in {space_name})'
 
                                 # Rate limiting - sleep 2s between API calls to avoid Gateway API limits
                                 import time
@@ -2141,8 +2143,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
 
         # Get journeys for each space (optional)
         if collect_options.get('journeys', True):
-            audit_status['message'] = 'Collecting journeys...'
-            audit_status['progress'] = progress_map.get('journeys', 60)
+            status['message'] = 'Collecting journeys...'
+            status['progress'] = progress_map.get('journeys', 60)
             print(f"\n=== FETCHING JOURNEYS ===")
             for idx, space in enumerate(spaces):
                 space_id = space.get('id')
@@ -2171,8 +2173,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         destinations_data = {}
         data_flows = {}
         if collect_options.get('destinations', True):
-            audit_status['message'] = 'Collecting destinations...'
-            audit_status['progress'] = progress_map.get('destinations', 70)
+            status['message'] = 'Collecting destinations...'
+            status['progress'] = progress_map.get('destinations', 70)
             print(f"\n=== FETCHING DESTINATIONS ===")
             try:
                 destinations_data = client.get_all_destinations()
@@ -2192,8 +2194,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         # Get usage data (optional)
         usage_data = {}
         if collect_options.get('usage_data', False):
-            audit_status['message'] = 'Collecting usage data...'
-            audit_status['progress'] = progress_map.get('usage_data', 75)
+            status['message'] = 'Collecting usage data...'
+            status['progress'] = progress_map.get('usage_data', 75)
             print(f"\n=== FETCHING USAGE DATA ===")
             try:
                 usage_data = client.get_usage_period_data()
@@ -2209,8 +2211,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         # Get audit trail events (optional)
         audit_events = []
         if collect_options.get('audit_trail', False):
-            audit_status['message'] = 'Collecting audit trail...'
-            audit_status['progress'] = progress_map.get('audit_trail', 80)
+            status['message'] = 'Collecting audit trail...'
+            status['progress'] = progress_map.get('audit_trail', 80)
             print(f"\n=== FETCHING AUDIT TRAIL ===")
             try:
                 # Fetch events until we hit 90 days or run out
@@ -2260,8 +2262,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         mtu_data = {}
         usage_period_data = {}
         if collect_options.get('mtu', False):
-            audit_status['message'] = 'Collecting MTU data...'
-            audit_status['progress'] = progress_map.get('mtu', 85)
+            status['message'] = 'Collecting MTU data...'
+            status['progress'] = progress_map.get('mtu', 85)
             print(f"\n=== FETCHING MTU DATA ===")
             try:
                 # Get comprehensive usage period data (includes contract dates, billing tier, etc.)
@@ -2339,8 +2341,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         all_identity_configs = []
         all_space_sources = []
         if collect_options.get('profiles', False):
-            audit_status['message'] = 'Collecting profile insights...'
-            audit_status['progress'] = progress_map.get('profiles', 90)
+            status['message'] = 'Collecting profile insights...'
+            status['progress'] = progress_map.get('profiles', 90)
             print(f"\n=== FETCHING PROFILE INSIGHTS ===")
 
             # Get workspace-level personas data
@@ -2432,8 +2434,8 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
             print("Skipping profile insights collection")
 
         # Save data
-        audit_status['message'] = 'Saving audit data...'
-        audit_status['progress'] = 95
+        status['message'] = 'Saving audit data...'
+        status['progress'] = 95
 
         # Save sources CSV with traits and event count
         if sources:
@@ -2483,7 +2485,7 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
                     traits_list = []
                     event_count = 0
                     try:
-                        audit_status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
+                        status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
                         schema_data = client.get_source_schema(source.get('slug', ''))
 
                         # Attach schema to source object for JSON export
@@ -2738,21 +2740,31 @@ def run_audit(gateway_token, workspace_slug, customer_name, fetch_definitions=Fa
         with open(DATA_DIR / 'gateway_summary.json', 'w') as f:
             json.dump(summary, f, indent=2)
 
-        audit_status['complete'] = True
-        audit_status['progress'] = 100
-        audit_status['message'] = 'Audit complete!'
+        status['complete'] = True
+        status['progress'] = 100
+        status['message'] = 'Audit complete!'
 
     except Exception as e:
-        audit_status['error'] = str(e)
-        audit_status['message'] = f'Error: {str(e)}'
+        status['error'] = str(e)
+        status['message'] = f'Error: {str(e)}'
         print(f"Audit error: {e}")
     finally:
-        audit_status['running'] = False
+        status['running'] = False
 
 @app.route('/audit-status')
 def get_audit_status():
-    """Get current audit status"""
-    return jsonify(audit_status)
+    """Get current audit status for the session's audit"""
+    audit_id = session.get('audit_id')
+    if not audit_id or audit_id not in audit_status_store:
+        return jsonify({'running': False, 'progress': 0, 'message': 'No audit in progress', 'complete': False, 'error': None})
+    return jsonify(audit_status_store[audit_id])
+
+def get_session_data_dir():
+    """Return the DATA_DIR for the current session's audit, or None if no audit_id in session."""
+    audit_id = session.get('audit_id')
+    if not audit_id:
+        return None
+    return get_data_dir(audit_id)
 
 @app.route('/progress')
 def progress():
@@ -2813,14 +2825,11 @@ def get_destination_health_metrics():
 
         # If not in session, try to get from request (frontend can send it)
         if not gateway_token or not workspace_slug:
-            # Check if summary file exists with credentials
-            summary_file = DATA_DIR / 'gateway_summary.json'
-            if summary_file.exists():
-                print("No session - checking for stored credentials in summary...")
-                return jsonify({'error': 'Session expired. Please run a new audit to refresh credentials.'}), 401
-            else:
-                print("ERROR: Not authenticated and no audit data found")
-                return jsonify({'error': 'Not authenticated. Please run an audit first.'}), 401
+            return jsonify({'error': 'Session expired. Please run a new audit to refresh credentials.'}), 401
+
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
         data = request.json
         destination_ids = data.get('destination_ids', [])
@@ -3004,6 +3013,9 @@ def usage():
 def get_audit_trail_data():
     """Get audit trail data for visualization"""
     try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
         audit_file = DATA_DIR / 'gateway_audit_trail.json'
 
         if not audit_file.exists():
@@ -3024,6 +3036,9 @@ def get_audit_trail_data():
 def get_mtu_data():
     """Get MTU and usage data for visualization"""
     try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
         mtu_file = DATA_DIR / 'gateway_mtu.json'
         usage_file = DATA_DIR / 'gateway_usage_data.json'
 
@@ -3109,6 +3124,9 @@ def export_profile_insights_excel():
     """Export profile insights data to Excel with multiple sheets"""
     try:
         workspace_slug = session.get('workspace_slug', 'workspace')
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
         # Load all profile insights CSVs
         identity_configs_file = DATA_DIR / 'gateway_profile_insights.csv'
@@ -3253,6 +3271,9 @@ def export_profile_insights_excel():
 @app.route('/audit_data/<path:filename>')
 def serve_data(filename):
     """Serve audit data files"""
+    DATA_DIR = get_session_data_dir()
+    if not DATA_DIR:
+        return 'No audit session found', 401
     file_path = DATA_DIR / filename
     if file_path.exists():
         from flask import send_file
@@ -3304,6 +3325,10 @@ def export_sources_excel():
 
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Session expired. Please run a new audit.'}), 401
+
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
         # Load sources data
         sources_file = DATA_DIR / 'gateway_sources.csv'
@@ -3572,6 +3597,10 @@ def export_sources_excel_v2():
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Session expired'}), 401
 
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+
         # Load sources
         sources_file = DATA_DIR / 'gateway_sources.csv'
         if not sources_file.exists():
@@ -3813,6 +3842,10 @@ def get_health_check_data():
         if not gateway_token or not workspace_slug:
             return jsonify({'error': 'Not authenticated'}), 401
 
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+
         # Get workspace ID from summary
         summary_file = DATA_DIR / 'gateway_summary.json'
         if not summary_file.exists():
@@ -3935,6 +3968,9 @@ def export_sources_destinations_csv():
     try:
         from export_manager import ExportManager
 
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
         exporter = ExportManager(str(DATA_DIR))
         csv_data = exporter.export_sources_with_destinations_csv()
 
@@ -3953,6 +3989,9 @@ def export_audiences_destinations_csv():
     try:
         from export_manager import ExportManager
 
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
         exporter = ExportManager(str(DATA_DIR))
         csv_data = exporter.export_audiences_with_destinations_csv()
 
@@ -3971,6 +4010,9 @@ def export_all_audit_data():
     try:
         from export_manager import ExportManager
 
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
         # Export all as ZIP
         exporter = ExportManager(str(DATA_DIR))
         zip_data = exporter.export_all_as_zip()
@@ -4006,6 +4048,10 @@ def generate_health_check_ppt_route():
 
         # Get customer name from session or request
         customer_name = session.get('customer_name', request.json.get('customer_name', 'Customer'))
+
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
         # Load workspace data
         sources_file = DATA_DIR / 'gateway_sources.json'
@@ -4048,7 +4094,7 @@ if __name__ == '__main__':
     print("="*80)
     print()
     print("🚀 Starting server...")
-    print(f"📁 Data directory: {DATA_DIR}")
+    print(f"📁 Data directory: {BASE_DATA_DIR}")
     print()
     print("📊 Dashboard URL: http://localhost:5003")
     print()
