@@ -197,6 +197,14 @@
                 </div>
                 {% endif %}
 
+                {% if collect_options.retl %}
+                <div class="module-row state-pending" id="mod_retl">
+                    <span class="module-icon">🔁</span>
+                    <span class="module-label">Reverse ETL Models</span>
+                    <span class="module-count" id="cnt_retl">Pending</span>
+                </div>
+                {% endif %}
+
                 {% if collect_options.profiles %}
                 <div class="module-row state-pending" id="mod_profiles">
                     <span class="module-icon">🔍</span>
@@ -296,6 +304,7 @@
                 applyModule('journeys',    m.journeys,    null, null);
                 applyModule('destinations',m.destinations,null, null);
                 applyModule('usage_data',  m.usage_data,  null, null);
+                applyModule('retl',        m.retl,        null, null);
                 applyModule('audit_trail', m.audit_trail, null, null);
                 applyModule('mtu',         m.mtu,         null, null);
                 applyModule('profiles',    m.profiles,    'prof_mini_bar',   'prof_bar_wrap');

@@ -1,0 +1,42 @@
+{% set co = collect_options or {} %}
+{% set active_style = "display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;" %}
+{% set link_style = "display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" %}
+{% set last_link_style = "display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" %}
+{% set hover_attrs = "onmouseover=\"this.style.background='#f7fafc'\" onmouseout=\"this.style.background='white'\"" %}
+
+{# Build the ordered list of visible nav items #}
+{% set pages = [
+    ('dashboard',       '📊 Dashboard',        '/dashboard',        true),
+    ('sources',         '🔌 Sources',          '/sources',          co.get('sources', true)),
+    ('destinations',    '📍 Destinations',     '/destinations',     co.get('destinations', true)),
+    ('audiences',       '👥 Audiences',        '/audiences',        co.get('audiences', true)),
+    ('journeys',        '🚀 Journeys',         '/journeys',         co.get('journeys', true)),
+    ('retl',            '🔁 Reverse ETL',      '/reverse-etl',      co.get('retl', false)),
+    ('warehouses',      '🏭 Warehouses',       '/warehouses',       co.get('warehouses', false)),
+    ('profiles',        '🔍 Profile Insights', '/profile-insights', co.get('profiles', false)),
+    ('audit_trail',     '📋 Audit Trail',      '/audit-trail',      co.get('audit_trail', false)),
+    ('mtu',             '📊 Usage',            '/usage',            co.get('mtu', false)),
+] %}
+
+{# Collect visible pages to know which is last (for border-bottom removal) #}
+{% set visible = [] %}
+{% for key, label, url, show in pages %}
+  {% if show %}{% set _ = visible.append((key, label, url)) %}{% endif %}
+{% endfor %}
+
+<div class="nav-dropdown" style="position: relative; display: inline-block;">
+    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; gap: 8px;">
+        {% for key, label, url in visible %}{% if key == current_page %}<span>{{ label }}</span>{% endif %}{% endfor %}
+        <span style="font-size: 0.7rem;">▼</span>
+    </button>
+    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 200px; z-index: 1000;">
+        {% for key, label, url in visible %}
+            {% set is_last = loop.last %}
+            {% if key == current_page %}
+                <a href="{{ url }}" style="{{ active_style }}{% if is_last %}border-bottom: none;{% endif %}">{{ label }}</a>
+            {% else %}
+                <a href="{{ url }}" style="{{ link_style }}{% if is_last %}border-bottom: none;{% endif %}" {{ hover_attrs | safe }}>{{ label }}</a>
+            {% endif %}
+        {% endfor %}
+    </div>
+</div>

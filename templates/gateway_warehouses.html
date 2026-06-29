@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Warehouses</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .wh-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .wh-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 12px 14px; text-align: left;
+            font-weight: 600; font-size: 0.85rem; white-space: nowrap;
+        }
+        .wh-table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .wh-table tr:hover td { background: #f7fafc; }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 12px;
+            font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+        }
+        .badge-enabled  { background: #c6f6d5; color: #276749; }
+        .badge-disabled { background: #fed7d7; color: #9b2335; }
+        .badge-success  { background: #c6f6d5; color: #276749; }
+        .badge-running  { background: #bee3f8; color: #2b6cb0; }
+        .badge-failed   { background: #fed7d7; color: #9b2335; }
+        .badge-queued   { background: #fefcbf; color: #744210; }
+        .badge-unknown  { background: #e2e8f0; color: #4a5568; }
+
+        .summary-chips { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+        .chip {
+            background: white; border: 1px solid #e2e8f0; border-radius: 8px;
+            padding: 12px 20px; text-align: center; min-width: 120px;
+        }
+        .chip-value { font-size: 1.6rem; font-weight: 700; color: #667eea; }
+        .chip-label { font-size: 0.78rem; color: #718096; margin-top: 2px; }
+
+        .search-row {
+            display: flex; gap: 12px; align-items: center;
+            margin-bottom: 18px; flex-wrap: wrap;
+        }
+        .search-row input, .search-row select {
+            padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px;
+            font-size: 0.9rem; color: #2d3748;
+        }
+        .search-row input { flex: 1; min-width: 200px; }
+
+        .toggle-btn {
+            background: none; border: 1px solid #cbd5e0; border-radius: 4px;
+            padding: 3px 10px; font-size: 0.8rem; cursor: pointer; color: #667eea;
+            white-space: nowrap; margin-bottom: 4px;
+        }
+        .toggle-btn:hover { background: #ebf4ff; }
+
+        .inner-table {
+            width: 100%; border-collapse: collapse; font-size: 0.8rem;
+            border: 1px solid #e2e8f0; margin-top: 6px;
+        }
+        .inner-table th {
+            background: #edf2f7; color: #4a5568; padding: 5px 10px;
+            text-align: left; font-weight: 600; font-size: 0.77rem;
+        }
+        .inner-table td { padding: 5px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        .inner-table tr:last-child td { border-bottom: none; }
+
+        .schema-section { margin-top: 10px; }
+        .schema-section-title {
+            font-size: 0.82rem; font-weight: 600; color: #4a5568;
+            margin: 8px 0 4px; display: flex; align-items: center; gap: 6px;
+        }
+
+        .coll-block { margin-bottom: 10px; }
+        .coll-name {
+            font-size: 0.82rem; font-weight: 600; color: #2d3748;
+            background: #edf2f7; padding: 4px 10px; border-radius: 4px;
+            margin-bottom: 4px; display: inline-block;
+        }
+
+        .duration-bar-bg {
+            background: #e2e8f0; border-radius: 4px; height: 6px;
+            width: 70px; display: inline-block; vertical-align: middle;
+        }
+        .duration-bar-fill { background: #667eea; border-radius: 4px; height: 6px; }
+
+        .no-schema { color: #a0aec0; font-style: italic; font-size: 0.8rem; }
+    </style>
+</head>
+<body class="dashboard-page">
+<div class="container">
+
+    <div class="header">
+        <div>
+            <h1>{{ customer_name }} - Warehouses</h1>
+            <p class="subtitle">Warehouse sync status, connected sources, and schemas</p>
+        </div>
+        <div class="header-actions">
+            {% include '_nav.html' %}
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">← New Audit</button>
+        </div>
+    </div>
+
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Loading warehouse data...</p>
+    </div>
+
+    <div id="noData" class="loading" style="display: none;">
+        <div style="text-align: center; padding: 60px 20px;">
+            <div style="font-size: 4rem; margin-bottom: 20px;">🏭</div>
+            <h2 style="color: #2d3748; margin-bottom: 10px;">No Warehouse Data</h2>
+            <p style="color: #718096; margin-bottom: 8px;">No warehouses were found, or the audit was not run with the Warehouses option enabled.</p>
+            <button onclick="window.location.href='/reset'" class="btn btn-primary" style="margin-top: 16px;">🚀 Start New Audit</button>
+        </div>
+    </div>
+
+    <div id="content" style="display: none;">
+
+        <div class="summary-chips">
+            <div class="chip"><div class="chip-value" id="totalWarehouses">—</div><div class="chip-label">Warehouses</div></div>
+            <div class="chip"><div class="chip-value" id="enabledWarehouses">—</div><div class="chip-label">Enabled</div></div>
+            <div class="chip"><div class="chip-value" id="totalSources">—</div><div class="chip-label">Connected Sources</div></div>
+            <div class="chip"><div class="chip-value" id="totalCollections">—</div><div class="chip-label">Collections</div></div>
+            <div class="chip"><div class="chip-value" id="totalEvents">—</div><div class="chip-label">Events</div></div>
+            <div class="chip"><div class="chip-value" id="totalProps">—</div><div class="chip-label">Properties</div></div>
+        </div>
+
+        <div class="chart-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>All Warehouses</h2>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="searchInput" placeholder="🔍 Search warehouse, source..." oninput="filterTable()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 260px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                    <select id="filterEnabled" onchange="filterTable()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                        <option value="">All Status</option>
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                    <button onclick="exportSchemas()" class="btn btn-secondary btn-sm" id="exportBtn" style="display:none;">⬇️ Export Schemas</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 22%">Warehouse</th>
+                            <th style="width: 8%">Status</th>
+                            <th style="width: 8%">Enabled</th>
+                            <th style="width: 10%">Type</th>
+                            <th style="width: 52%">Sources & Schemas</th>
+                        </tr>
+                    </thead>
+                    <tbody id="whTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+let allWarehouses = [];
+
+async function loadData() {
+    try {
+        const res = await fetch('/api/warehouse-data');
+        const data = await res.json();
+        allWarehouses = data.warehouses || [];
+
+        document.getElementById('loading').style.display = 'none';
+
+        if (!allWarehouses.length) {
+            document.getElementById('noData').style.display = 'block';
+            return;
+        }
+
+        const enabled = allWarehouses.filter(w => w.enabled).length;
+        const allSchemas = allWarehouses.flatMap(w => w.sourceSchemas || []);
+        const allColls = allSchemas.flatMap(s => s.collections || []);
+        const totalEvents = allColls.reduce((n, c) => n + (c.events || []).length, 0);
+        const totalProps = allColls.reduce((n, c) => n + (c.objectProperties || []).length, 0);
+        const allSrcOverview = allWarehouses.flatMap(w => w.sourceOverview || []);
+
+        document.getElementById('totalWarehouses').textContent = allWarehouses.length;
+        document.getElementById('enabledWarehouses').textContent = enabled;
+        document.getElementById('totalSources').textContent = allSrcOverview.length;
+        document.getElementById('totalCollections').textContent = allColls.length;
+        document.getElementById('totalEvents').textContent = totalEvents;
+        document.getElementById('totalProps').textContent = totalProps;
+
+        if (allSchemas.length > 0) document.getElementById('exportBtn').style.display = '';
+
+        document.getElementById('content').style.display = 'block';
+        renderTable(allWarehouses);
+    } catch(e) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('noData').style.display = 'block';
+        console.error(e);
+    }
+}
+
+function statusBadge(status) {
+    const s = (status || '').toLowerCase();
+    const cls = s === 'success' ? 'badge-success' : s === 'running' ? 'badge-running'
+              : s === 'failed' ? 'badge-failed' : s === 'queued' ? 'badge-queued' : 'badge-unknown';
+    return `<span class="badge ${cls}">${escHtml(status || '—')}</span>`;
+}
+
+function fmtMs(ms) {
+    if (!ms) return '—';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60), r = s % 60;
+    return r ? `${m}m ${r}s` : `${m}m`;
+}
+
+function fmtDate(ts) {
+    if (!ts) return '—';
+    const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
+    return isNaN(d) ? String(ts) : d.toLocaleString();
+}
+
+function renderTable(warehouses) {
+    const tbody = document.getElementById('whTableBody');
+    tbody.innerHTML = '';
+    let visible = 0;
+
+    warehouses.forEach((w, i) => {
+        const metaName = w.metadata?.name || '—';
+        const ovId = `ov_${i}`;
+        const schId = `sch_${i}`;
+        const sources = w.sourceOverview || [];
+        const schemas = w.sourceSchemas || [];
+
+        const tr = document.createElement('tr');
+        tr.dataset.enabled = String(w.enabled);
+        tr.dataset.search = [
+            w.name, w.id,
+            ...sources.map(s => s.slug),
+            ...schemas.flatMap(s => [s.sourceName, s.sourceSlug,
+                ...s.collections.flatMap(c => [c.name,
+                    ...c.events.map(e => e.name),
+                    ...c.objectProperties.map(p => p.key)
+                ])
+            ])
+        ].join(' ').toLowerCase();
+
+        tr.innerHTML = `
+            <td>
+                <div style="font-weight:600;color:#2d3748;">${escHtml(w.name || w.id)}</div>
+                <div style="font-size:0.75rem;color:#a0aec0;margin-top:2px;">${escHtml(w.id)}</div>
+            </td>
+            <td>${statusBadge(w.status)}</td>
+            <td><span class="badge ${w.enabled ? 'badge-enabled' : 'badge-disabled'}">${w.enabled ? 'Enabled' : 'Disabled'}</span></td>
+            <td style="color:#4a5568;font-size:0.85rem;">${escHtml(metaName)}</td>
+            <td>
+                ${sources.length > 0 ? `
+                <button class="toggle-btn" onclick="toggle('${ovId}',this,'sync status','sync statuses')">▶ ${sources.length} sync status${sources.length!==1?'es':''}</button>
+                <div id="${ovId}" style="display:none;">
+                    ${buildSyncTable(sources)}
+                </div>` : '<span class="no-schema">No connected sources</span>'}
+
+                ${schemas.length > 0 ? `
+                <button class="toggle-btn" onclick="toggle('${schId}',this,'schema','schemas')" style="margin-top:4px;">▶ ${schemas.length} schema${schemas.length!==1?'s':''}</button>
+                <div id="${schId}" style="display:none;">
+                    ${buildSchemaPanel(schemas)}
+                </div>` : '<span class="no-schema" style="display:block;margin-top:4px;">No schema data (re-run audit with Warehouses enabled)</span>'}
+            </td>
+        `;
+        tbody.appendChild(tr);
+        visible++;
+    });
+}
+
+function buildSyncTable(sources) {
+    const maxDur = Math.max(...sources.map(s => s.medianDuration || 0), 1);
+    const rows = sources.map(s => {
+        const pct = Math.round(((s.medianDuration || 0) / maxDur) * 100);
+        return `<tr>
+            <td style="font-weight:500;color:#2d3748;">${escHtml(s.slug)}</td>
+            <td>${statusBadge(s.status)}</td>
+            <td style="color:#718096;">${escHtml(s.phase || '—')}</td>
+            <td>${fmtDate(s.lastSuccessfulRun?.createdAt)}</td>
+            <td><span style="font-size:0.77rem;color:#4a5568;">${fmtMs(s.medianDuration)}</span>
+                <div class="duration-bar-bg"><div class="duration-bar-fill" style="width:${pct}%"></div></div></td>
+            <td style="color:#4a5568;">${s.synced != null ? s.synced.toLocaleString() : '—'}</td>
+        </tr>`;
+    }).join('');
+    return `<table class="inner-table" style="margin-top:6px;">
+        <thead><tr><th>Source</th><th>Status</th><th>Phase</th><th>Last Success</th><th>Median Duration</th><th>Synced</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function buildSchemaPanel(schemas) {
+    return schemas.map(s => {
+        const totalEvents = s.collections.reduce((n,c) => n+(c.events||[]).length, 0);
+        const totalProps = s.collections.reduce((n,c) => n+(c.objectProperties||[]).length, 0);
+        const colls = s.collections.map((c, ci) => {
+            const blockId = `coll_${s.sourceSlug}_${ci}`;
+            const evCount = (c.events||[]).length, prCount = (c.objectProperties||[]).length;
+            if (evCount === 0 && prCount === 0) {
+                return `<div class="coll-block">
+                    <span class="coll-name">${escHtml(c.name)}</span>
+                    <span class="no-schema" style="margin-left:8px;">empty</span>
+                </div>`;
+            }
+            const evRows = (c.events||[]).map(e => `<tr>
+                <td>${escHtml(e.name)}</td>
+                <td>event</td>
+                <td><span class="badge ${e.enabled?'badge-enabled':'badge-disabled'}" style="font-size:0.72rem;">${e.enabled?'on':'off'}</span></td>
+                <td>${e.archived?'<span style="color:#e53e3e;font-size:0.75rem;">archived</span>':'—'}</td>
+                <td style="color:#a0aec0;">—</td>
+                <td>${fmtDate(e.createdAt)}</td>
+            </tr>`).join('');
+            const prRows = (c.objectProperties||[]).map(p => `<tr>
+                <td>${escHtml(p.key)}</td>
+                <td>property</td>
+                <td><span class="badge ${p.enabled?'badge-enabled':'badge-disabled'}" style="font-size:0.72rem;">${p.enabled?'on':'off'}</span></td>
+                <td>${p.archived?'<span style="color:#e53e3e;font-size:0.75rem;">archived</span>':'—'}</td>
+                <td style="color:#4a5568;font-size:0.77rem;">${escHtml(p.type||'—')}</td>
+                <td>${fmtDate(p.lastSeenAt||p.createdAt)}</td>
+            </tr>`).join('');
+            return `<div class="coll-block">
+                <button class="toggle-btn" onclick="toggle('${blockId}',this,'${evCount} event${evCount!==1?'s':''} / ${prCount} prop${prCount!==1?'s':''}','${evCount} event${evCount!==1?'s':''} / ${prCount} prop${prCount!==1?'s':''}',true)" style="font-size:0.77rem;">
+                    ▶ <strong>${escHtml(c.name)}</strong> — ${evCount} event${evCount!==1?'s':''}, ${prCount} prop${prCount!==1?'s':''}
+                </button>
+                <div id="${blockId}" style="display:none;">
+                    <table class="inner-table">
+                        <thead><tr><th>Name / Key</th><th>Type</th><th>Enabled</th><th>Archived</th><th>Data Type</th><th>Last Seen / Created</th></tr></thead>
+                        <tbody>${evRows}${prRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<div class="schema-section">
+            <div class="schema-section-title">
+                📋 <strong>${escHtml(s.sourceName)}</strong>
+                <span style="font-weight:400;color:#718096;font-size:0.78rem;">(${s.sourceSlug}) — ${s.collections.length} collections, ${totalEvents} events, ${totalProps} props</span>
+            </div>
+            ${colls}
+        </div>`;
+    }).join('<hr style="border:none;border-top:1px solid #e2e8f0;margin:8px 0;">');
+}
+
+function toggle(id, btn, labelShow, labelHide, fixedLabel) {
+    const el = document.getElementById(id);
+    const visible = el.style.display !== 'none';
+    el.style.display = visible ? 'none' : 'block';
+    if (fixedLabel) {
+        btn.innerHTML = btn.innerHTML.replace(/^[▶▼]/, visible ? '▶' : '▼');
+    } else {
+        btn.textContent = (visible ? '▶ ' : '▼ ') + (visible ? labelShow : labelHide);
+    }
+}
+
+function filterTable() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const enabledF = document.getElementById('filterEnabled').value;
+    const rows = document.querySelectorAll('#whTableBody tr');
+    let visible = 0;
+    rows.forEach(tr => {
+        const ok = (enabledF === '' || tr.dataset.enabled === enabledF)
+                && (!search || (tr.dataset.search||'').includes(search));
+        tr.style.display = ok ? '' : 'none';
+        if (ok) visible++;
+    });
+}
+
+function exportSchemas() { window.location.href = '/api/export-warehouse-schemas-csv'; }
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleNavDropdown() {
+    const m = document.getElementById('navDropdownMenu');
+    m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+    const d = document.querySelector('.nav-dropdown');
+    const m = document.getElementById('navDropdownMenu');
+    if (d && !d.contains(e.target)) m.style.display = 'none';
+});
+
+loadData();
+</script>
+</body>
+</html>

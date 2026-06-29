@@ -14,25 +14,8 @@
                 <p class="subtitle" id="reportDate">Loading...</p>
             </div>
             <div class="header-actions">
-                <div class="nav-dropdown" style="position: relative; display: inline-block; margin-right: 10px;">
-                    <button id="navDropdownBtn" onclick="toggleNavDropdown()" class="btn btn-secondary btn-sm" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                        <span>🔍 Profile Insights</span>
-                        <span style="font-size: 0.7rem;">▼</span>
-                    </button>
-                    <div id="navDropdownMenu" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 5px; background: white; border: 2px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); min-width: 180px; z-index: 1000;">
-                        <a href="/dashboard" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Dashboard</a>
-                        <a href="/sources" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🔌 Sources</a>
-                        <a href="/destinations" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📍 Destinations</a>
-                        <a href="/audiences" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">👥 Audiences</a>
-                        <a href="/journeys" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">🚀 Journeys</a>
-                        <a href="/profile-insights" style="display: block; padding: 10px 15px; color: #667eea; font-weight: 600; text-decoration: none; border-bottom: 1px solid #e2e8f0; background: #f7fafc;">🔍 Profile Insights</a>
-                        <a href="/audit-trail" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; border-bottom: 1px solid #e2e8f0; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📋 Audit Trail</a>
-                        <a href="/usage" style="display: block; padding: 10px 15px; color: #2d3748; text-decoration: none; transition: background 0.2s;" onmouseover="this.style.background='#f7fafc'" onmouseout="this.style.background='white'">📊 Usage</a>
-                        {% if enable_experimental %}
-                        {% endif %}
-                    </div>
-                </div>
-                <button onclick="exportAllToExcel()" class="btn btn-primary btn-sm" id="exportAllBtn" style="margin-right: 10px;">
+                {% include '_nav.html' %}
+                <button onclick="exportAllToExcel()" class="btn btn-secondary btn-sm" id="exportAllBtn">
                     📥 Export All to Excel
                 </button>
                 <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
@@ -167,6 +150,7 @@
                 </div>
                 <div id="debuggersPaginationControls" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;"></div>
             </div>
+
         </div>
 
         <div id="error" class="error" style="display: none;"></div>

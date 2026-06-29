@@ -1181,6 +1181,214 @@ class GatewayAPIClient:
             'spaces': workspace.get('spaces', [])
         }
 
+    def get_warehouses(self):
+        """Get all warehouses with container info, source sync overview, and source schemas"""
+        container_query = """
+        query getWarehouseContainerData($warehouseId: ID!, $workspaceSlug: Slug!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            shouldShowHealth: flagon(family: "app", name: "warehouse-health")
+            __typename
+          }
+          warehouse(id: $warehouseId) {
+            id
+            settings {
+              name
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        overview_query = """
+        query getWarehouseOverviewData($workspaceSlug: Slug!, $warehouseId: ID!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            slug
+            hasSentData
+            __typename
+          }
+          warehouse(id: $warehouseId) {
+            id
+            enabled
+            sourceOverview {
+              id
+              slug
+              disabled
+              nextSync
+              lastRun {
+                id
+                createdAt
+                __typename
+              }
+              lastSuccessfulRun {
+                id
+                createdAt
+                __typename
+              }
+              synced
+              status
+              currentDuration
+              medianDuration
+              phase
+              metadata {
+                category
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        schema_query = """
+        query ($workspaceSlug: Slug!, $sourceSlug: String!) {
+          workspace(slug: $workspaceSlug) {
+            source(slug: $sourceSlug) {
+              id
+              name
+              slug
+              schema {
+                id
+                collections {
+                  id
+                  name
+                  events {
+                    id
+                    name
+                    enabled
+                    archived
+                    createdAt
+                    isPlanned
+                    __typename
+                  }
+                  objectProperties {
+                    id
+                    key
+                    type
+                    enabled
+                    archived
+                    lastSeenAt
+                    createdAt
+                    isPlanned
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        # First get all warehouses from the destinations endpoint so we have their IDs
+        destinations_data = self.get_all_destinations()
+        warehouse_items = [
+            d for d in destinations_data.get('destinations', [])
+            if d.get('__typename') == 'Warehouse'
+        ]
+
+        warehouses = []
+        for wh in warehouse_items:
+            wh_id = wh.get('id')
+            if not wh_id:
+                continue
+
+            entry = {
+                'id': wh_id,
+                'name': wh.get('name', ''),
+                'enabled': wh.get('enabled', False),
+                'status': wh.get('warehouseStatus', ''),
+                'createdAt': wh.get('createdAt', ''),
+                'metadata': wh.get('metadata', {}),
+                'sourceOverview': [],
+                'shouldShowHealth': False,
+                'sourceSchemas': [],
+            }
+
+            try:
+                container_data = self._execute_query(container_query, {
+                    'warehouseId': wh_id,
+                    'workspaceSlug': self.workspace_slug
+                })
+                entry['shouldShowHealth'] = container_data.get('workspace', {}).get('shouldShowHealth', False)
+                settings = container_data.get('warehouse', {}).get('settings', {})
+                if settings.get('name'):
+                    entry['name'] = settings['name']
+            except Exception as e:
+                print(f"  -> Could not fetch container data for warehouse {wh_id}: {e}")
+
+            try:
+                overview_data = self._execute_query(overview_query, {
+                    'workspaceSlug': self.workspace_slug,
+                    'warehouseId': wh_id
+                })
+                entry['sourceOverview'] = overview_data.get('warehouse', {}).get('sourceOverview', []) or []
+            except Exception as e:
+                print(f"  -> Could not fetch overview data for warehouse {wh_id}: {e}")
+
+            # Fetch schema for each connected source
+            for src in entry['sourceOverview']:
+                slug = src.get('slug', '')
+                if not slug:
+                    continue
+                try:
+                    schema_data = self._execute_query(schema_query, {
+                        'workspaceSlug': self.workspace_slug,
+                        'sourceSlug': slug
+                    })
+                    src_node = schema_data.get('workspace', {}).get('source', {}) or {}
+                    collections = src_node.get('schema', {}).get('collections', []) or []
+                    entry['sourceSchemas'].append({
+                        'sourceId': src.get('id', ''),
+                        'sourceName': src_node.get('name', slug),
+                        'sourceSlug': slug,
+                        'collections': collections,
+                    })
+                    event_count = sum(len(c.get('events', [])) for c in collections)
+                    prop_count = sum(len(c.get('objectProperties', [])) for c in collections)
+                    print(f"     Schema {slug}: {len(collections)} collections, {event_count} events, {prop_count} props")
+                except Exception as e:
+                    print(f"  -> Could not fetch schema for source {slug}: {e}")
+
+            warehouses.append(entry)
+            print(f"  -> Warehouse: {entry['name']} ({len(entry['sourceOverview'])} sources, {len(entry['sourceSchemas'])} schemas fetched)")
+
+        return warehouses
+
+    def get_retl_models_by_source(self, source_id):
+        """Get all Reverse ETL models for a given source ID, including SQL query"""
+        query = """
+        query reverseETLModelsBySourceId($sourceId: ID!) {
+          reverseETLModelsBySourceId(sourceId: $sourceId) {
+            id
+            name
+            enabled
+            type
+            description
+            query
+            queryIdentifierColumn
+            queryTimestampColumn
+            schedule
+            createdAt
+            updatedAt
+            integrations {
+              id
+              name
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+        data = self._execute_query(query, {"sourceId": source_id})
+        return data.get('reverseETLModelsBySourceId') or []
+
     def get_usage_period_data(self):
         """Get workspace billing, usage, and entitlements data"""
         query = """
@@ -2210,6 +2418,52 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         else:
             print("Skipping destinations collection")
 
+        # Collect Reverse ETL models from warehouse sources (optional)
+        all_retl_models = []
+        if collect_options.get('retl', False) and sources:
+            warehouse_sources = [
+                s for s in sources
+                if s.get('metadata', {}).get('category', '').lower() == 'warehouse'
+            ]
+            if warehouse_sources:
+                status['message'] = f'Collecting Reverse ETL models ({len(warehouse_sources)} warehouse sources)...'
+                set_module('retl', 'active', done=0, total=len(warehouse_sources))
+                print(f"\n=== FETCHING REVERSE ETL MODELS ({len(warehouse_sources)} warehouse sources) ===")
+                import time as _time
+                for idx, src in enumerate(warehouse_sources):
+                    try:
+                        models = client.get_retl_models_by_source(src['id'])
+                        for m in models:
+                            m['source_name'] = src.get('name', '')
+                            m['source_slug'] = src.get('slug', '')
+                            m['source_type'] = src.get('metadata', {}).get('name', '')
+                        all_retl_models.extend(models)
+                        print(f"  -> {src['name']}: {len(models)} models")
+                        set_module('retl', 'active', done=idx + 1, total=len(warehouse_sources))
+                        _time.sleep(1)
+                    except Exception as e:
+                        print(f"  -> ERROR fetching rETL for {src['name']}: {e}")
+                set_module('retl', 'done', done=len(all_retl_models), total=len(all_retl_models))
+                print(f"  -> Total rETL models: {len(all_retl_models)}")
+            else:
+                print("No warehouse sources found, skipping rETL collection")
+
+        # Collect warehouse details (optional)
+        all_warehouses = []
+        if collect_options.get('warehouses', False):
+            status['message'] = 'Collecting warehouse details...'
+            set_module('warehouses', 'active')
+            print(f"\n=== FETCHING WAREHOUSES ===")
+            try:
+                all_warehouses = client.get_warehouses()
+                set_module('warehouses', 'done', done=len(all_warehouses), total=len(all_warehouses))
+                print(f"  -> Found {len(all_warehouses)} warehouses")
+            except Exception as e:
+                set_module('warehouses', 'done', done=0, total=0)
+                print(f"  -> ERROR fetching warehouses: {e}")
+        else:
+            print("Skipping warehouse collection")
+
         # Get usage data (optional)
         usage_data = {}
         if collect_options.get('usage_data', False):
@@ -2735,6 +2989,16 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
 
         print(f"Saved MTU data")
 
+        # Save Reverse ETL models
+        with open(DATA_DIR / 'gateway_retl_models.json', 'w') as f:
+            json.dump(all_retl_models, f, indent=2)
+        print(f"Saved {len(all_retl_models)} rETL models")
+
+        # Save warehouse data
+        with open(DATA_DIR / 'gateway_warehouses.json', 'w') as f:
+            json.dump(all_warehouses, f, indent=2)
+        print(f"Saved {len(all_warehouses)} warehouses")
+
         # Save summary
         destinations_list = destinations_data.get('destinations', [])
 
@@ -2815,31 +3079,31 @@ def progress():
 def dashboard():
     """Main dashboard with both sources and audiences"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_dashboard.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_dashboard.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='dashboard')
 
 @app.route('/sources')
 def sources():
     """Sources view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_sources.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_sources.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='sources')
 
 @app.route('/audiences')
 def audiences():
     """Audiences view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_audiences.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_audiences.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='audiences')
 
 @app.route('/destinations')
 def destinations():
     """Destinations view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_destinations.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_destinations.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='destinations')
 
 @app.route('/audit-trail')
 def audit_trail():
     """Audit trail view - governance and activity analysis"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_audit_trail.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_audit_trail.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='audit_trail')
 
 @app.route('/api/destination-health-metrics', methods=['POST'])
 def get_destination_health_metrics():
@@ -3025,19 +3289,197 @@ def get_destination_health_metrics():
 def journeys():
     """Journeys view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_journeys.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_journeys.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='journeys')
+
+@app.route('/reverse-etl')
+def reverse_etl():
+    """Reverse ETL models view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('gateway_retl.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='retl')
+
+@app.route('/api/retl-data')
+def get_retl_data():
+    """Return rETL models JSON"""
+    try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        retl_file = DATA_DIR / 'gateway_retl_models.json'
+        if not retl_file.exists():
+            return jsonify({'models': []})
+        with open(retl_file, 'r') as f:
+            models = json.load(f)
+        return jsonify({'models': models})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-retl-csv')
+def export_retl_csv():
+    """Export Reverse ETL models and SQL queries as CSV"""
+    try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        retl_file = DATA_DIR / 'gateway_retl_models.json'
+        if not retl_file.exists():
+            return jsonify({'error': 'No rETL data available. Please run an audit first.'}), 404
+        with open(retl_file, 'r') as f:
+            models = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = ['model_name', 'source_name', 'source_type', 'enabled', 'type',
+                      'destinations', 'queryIdentifierColumn', 'queryTimestampColumn',
+                      'schedule', 'description', 'query', 'model_id', 'createdAt', 'updatedAt']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for m in models:
+            dests = ', '.join(i.get('name', '') for i in (m.get('integrations') or []))
+            schedule = m.get('schedule')
+            writer.writerow({
+                'model_name': m.get('name', ''),
+                'source_name': m.get('source_name', ''),
+                'source_type': m.get('source_type', ''),
+                'enabled': m.get('enabled', ''),
+                'type': m.get('type', ''),
+                'destinations': dests,
+                'queryIdentifierColumn': m.get('queryIdentifierColumn', ''),
+                'queryTimestampColumn': m.get('queryTimestampColumn', ''),
+                'schedule': json.dumps(schedule) if schedule else '',
+                'description': m.get('description', '') or '',
+                'query': m.get('query', '') or '',
+                'model_id': m.get('id', ''),
+                'createdAt': m.get('createdAt', ''),
+                'updatedAt': m.get('updatedAt', ''),
+            })
+
+        workspace_slug = session.get('workspace_slug', 'workspace')
+        from flask import Response
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={workspace_slug}_retl_models.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/warehouses')
+def warehouses():
+    """Warehouses view"""
+    customer_name = session.get('customer_name', 'Customer')
+    return render_template('gateway_warehouses.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='warehouses')
+
+@app.route('/api/warehouse-data')
+def get_warehouse_data():
+    """Return warehouse JSON"""
+    try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        wh_file = DATA_DIR / 'gateway_warehouses.json'
+        if not wh_file.exists():
+            return jsonify({'warehouses': []})
+        with open(wh_file, 'r') as f:
+            warehouses_data = json.load(f)
+        return jsonify({'warehouses': warehouses_data})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-warehouse-schemas-csv')
+def export_warehouse_schemas_csv():
+    """Export all warehouse source schemas as a flat CSV"""
+    try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        wh_file = DATA_DIR / 'gateway_warehouses.json'
+        if not wh_file.exists():
+            return jsonify({'error': 'No warehouse data. Please run an audit with Warehouses enabled.'}), 404
+        with open(wh_file, 'r') as f:
+            warehouses_data = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = [
+            'warehouse_name', 'warehouse_id', 'warehouse_type',
+            'source_name', 'source_slug', 'source_id',
+            'collection_name', 'row_type',
+            'name_or_key', 'data_type', 'enabled', 'archived',
+            'last_seen_at', 'created_at', 'is_planned'
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for wh in warehouses_data:
+            wh_name = wh.get('name', wh.get('id', ''))
+            wh_id = wh.get('id', '')
+            wh_type = wh.get('metadata', {}).get('name', '') if wh.get('metadata') else ''
+
+            for schema in wh.get('sourceSchemas', []):
+                src_name = schema.get('sourceName', '')
+                src_slug = schema.get('sourceSlug', '')
+                src_id = schema.get('sourceId', '')
+
+                for coll in schema.get('collections', []):
+                    coll_name = coll.get('name', '')
+
+                    for event in coll.get('events', []):
+                        writer.writerow({
+                            'warehouse_name': wh_name,
+                            'warehouse_id': wh_id,
+                            'warehouse_type': wh_type,
+                            'source_name': src_name,
+                            'source_slug': src_slug,
+                            'source_id': src_id,
+                            'collection_name': coll_name,
+                            'row_type': 'event',
+                            'name_or_key': event.get('name', ''),
+                            'data_type': '',
+                            'enabled': event.get('enabled', ''),
+                            'archived': event.get('archived', ''),
+                            'last_seen_at': '',
+                            'created_at': event.get('createdAt', ''),
+                            'is_planned': event.get('isPlanned', ''),
+                        })
+
+                    for prop in coll.get('objectProperties', []):
+                        writer.writerow({
+                            'warehouse_name': wh_name,
+                            'warehouse_id': wh_id,
+                            'warehouse_type': wh_type,
+                            'source_name': src_name,
+                            'source_slug': src_slug,
+                            'source_id': src_id,
+                            'collection_name': coll_name,
+                            'row_type': 'property',
+                            'name_or_key': prop.get('key', ''),
+                            'data_type': prop.get('type', ''),
+                            'enabled': prop.get('enabled', ''),
+                            'archived': prop.get('archived', ''),
+                            'last_seen_at': prop.get('lastSeenAt', ''),
+                            'created_at': prop.get('createdAt', ''),
+                            'is_planned': prop.get('isPlanned', ''),
+                        })
+
+        workspace_slug = session.get('workspace_slug', 'workspace')
+        from flask import Response
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={workspace_slug}_warehouse_schemas.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/profile-insights')
 def profile_insights():
     """Profile Insights view"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_profile_insights.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='profiles')
 
 @app.route('/usage')
 def usage():
     """Usage view - API calls and MTU tracking"""
     customer_name = session.get('customer_name', 'Customer')
-    return render_template('gateway_mtu.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES)
+    return render_template('gateway_mtu.html', customer_name=customer_name, enable_experimental=ENABLE_EXPERIMENTAL_FEATURES, collect_options=session.get('collect_options', {}), current_page='mtu')
 
 @app.route('/api/audit-trail-data')
 def get_audit_trail_data():
@@ -3060,6 +3502,45 @@ def get_audit_trail_data():
         print(f"Error loading audit trail: {e}")
         import traceback
         traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-audit-trail-csv')
+def export_audit_trail_csv():
+    """Export audit trail events as CSV"""
+    try:
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        audit_file = DATA_DIR / 'gateway_audit_trail.json'
+        if not audit_file.exists():
+            return jsonify({'error': 'No audit trail data. Please run an audit with Audit Trail enabled.'}), 404
+        with open(audit_file, 'r') as f:
+            audit_events = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = ['timestamp', 'event_type', 'resource_type', 'resource_name', 'user', 'user_email']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for e in audit_events:
+            subject = e.get('subject', {}) or {}
+            user_obj = subject.get('user', {}) or {}
+            writer.writerow({
+                'timestamp': e.get('timestamp', ''),
+                'event_type': e.get('type', ''),
+                'resource_type': (e.get('resource', {}) or {}).get('type', ''),
+                'resource_name': (e.get('resource', {}) or {}).get('name', ''),
+                'user': user_obj.get('name', subject.get('token', {}).get('description', '')),
+                'user_email': user_obj.get('email', ''),
+            })
+
+        workspace_slug = session.get('workspace_slug', 'workspace')
+        from flask import Response
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={workspace_slug}_audit_trail.csv'}
+        )
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/mtu-data')

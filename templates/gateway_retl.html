@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ customer_name }} - Reverse ETL</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .retl-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .retl-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 12px 14px; text-align: left;
+            font-weight: 600; font-size: 0.85rem; white-space: nowrap;
+        }
+        .retl-table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .retl-table tr:hover td { background: #f7fafc; }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 12px;
+            font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+        }
+        .badge-enabled  { background: #c6f6d5; color: #276749; }
+        .badge-disabled { background: #fed7d7; color: #9b2335; }
+
+        .sql-toggle {
+            background: none; border: 1px solid #cbd5e0; border-radius: 4px;
+            padding: 3px 10px; font-size: 0.8rem; cursor: pointer; color: #667eea;
+            white-space: nowrap;
+        }
+        .sql-toggle:hover { background: #ebf4ff; }
+
+        .sql-block {
+            display: none; margin-top: 8px;
+            background: #1a202c; color: #e2e8f0;
+            padding: 14px; border-radius: 6px;
+            font-family: 'Courier New', monospace; font-size: 0.8rem;
+            white-space: pre-wrap; word-break: break-word;
+            max-height: 320px; overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        .search-row {
+            display: flex; gap: 12px; align-items: center;
+            margin-bottom: 18px; flex-wrap: wrap;
+        }
+        .search-row input, .search-row select {
+            padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px;
+            font-size: 0.9rem; color: #2d3748;
+        }
+        .search-row input { flex: 1; min-width: 200px; }
+
+        .summary-chips {
+            display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;
+        }
+        .chip {
+            background: white; border: 1px solid #e2e8f0; border-radius: 8px;
+            padding: 12px 20px; text-align: center; min-width: 120px;
+        }
+        .chip-value { font-size: 1.6rem; font-weight: 700; color: #667eea; }
+        .chip-label { font-size: 0.78rem; color: #718096; margin-top: 2px; }
+
+        .dest-list { font-size: 0.82rem; color: #4a5568; }
+        .dest-list span {
+            display: inline-block; background: #edf2f7; border-radius: 4px;
+            padding: 1px 6px; margin: 1px 2px; white-space: nowrap;
+        }
+        .no-query { color: #a0aec0; font-style: italic; font-size: 0.82rem; }
+    </style>
+</head>
+<body class="dashboard-page">
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <div>
+            <h1 id="customerName">{{ customer_name }} - Reverse ETL</h1>
+            <p class="subtitle">SQL models syncing warehouse data into Segment destinations</p>
+        </div>
+        <div class="header-actions">
+            {% include '_nav.html' %}
+            <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">← New Audit</button>
+        </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <p>Loading Reverse ETL data...</p>
+    </div>
+
+    <!-- No data -->
+    <div id="noData" class="loading" style="display: none;">
+        <div style="text-align: center; padding: 60px 20px;">
+            <div style="font-size: 4rem; margin-bottom: 20px;">🔁</div>
+            <h2 style="color: #2d3748; margin-bottom: 10px;">No Reverse ETL Data</h2>
+            <p style="color: #718096; margin-bottom: 8px;">No warehouse sources with rETL models were found in this workspace,<br>or the audit has not been run yet.</p>
+            <button onclick="window.location.href='/reset'" class="btn btn-primary" style="margin-top: 16px;">🚀 Start New Audit</button>
+        </div>
+    </div>
+
+    <!-- Main content -->
+    <div id="content" style="display: none;">
+
+        <!-- Summary chips -->
+        <div class="summary-chips">
+            <div class="chip">
+                <div class="chip-value" id="totalModels">—</div>
+                <div class="chip-label">Total Models</div>
+            </div>
+            <div class="chip">
+                <div class="chip-value" id="enabledModels">—</div>
+                <div class="chip-label">Enabled</div>
+            </div>
+            <div class="chip">
+                <div class="chip-value" id="disabledModels">—</div>
+                <div class="chip-label">Disabled</div>
+            </div>
+            <div class="chip">
+                <div class="chip-value" id="sourceCount">—</div>
+                <div class="chip-label">Warehouse Sources</div>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="chart-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>All Models</h2>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="searchInput" placeholder="🔍 Search model name, SQL..." oninput="filterTable()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 260px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                    <select id="filterSource" onchange="filterTable()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                        <option value="">All Sources</option>
+                    </select>
+                    <select id="filterEnabled" onchange="filterTable()" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
+                        <option value="">All Status</option>
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                    <button onclick="exportCSV()" class="btn btn-secondary btn-sm">⬇️ Export CSV</button>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 22%">Model Name</th>
+                            <th style="width: 14%">Source</th>
+                            <th style="width: 8%">Status</th>
+                            <th style="width: 8%">Type</th>
+                            <th style="width: 22%">Destinations</th>
+                            <th style="width: 26%">SQL Query</th>
+                        </tr>
+                    </thead>
+                    <tbody id="retlTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- /content -->
+</div><!-- /container -->
+
+<script>
+let allModels = [];
+
+async function loadData() {
+    try {
+        const res = await fetch('/api/retl-data');
+        const data = await res.json();
+        allModels = data.models || [];
+
+        document.getElementById('loading').style.display = 'none';
+
+        if (!allModels.length) {
+            document.getElementById('noData').style.display = 'block';
+            return;
+        }
+
+        // Summary chips
+        const enabled = allModels.filter(m => m.enabled).length;
+        const sources = [...new Set(allModels.map(m => m.source_name))];
+
+        document.getElementById('totalModels').textContent    = allModels.length;
+        document.getElementById('enabledModels').textContent  = enabled;
+        document.getElementById('disabledModels').textContent = allModels.length - enabled;
+        document.getElementById('sourceCount').textContent    = sources.length;
+
+        // Populate source filter
+        const sel = document.getElementById('filterSource');
+        sources.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s; opt.textContent = s;
+            sel.appendChild(opt);
+        });
+
+        document.getElementById('content').style.display = 'block';
+        renderTable(allModels);
+    } catch(e) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('noData').style.display = 'block';
+        console.error(e);
+    }
+}
+
+function renderTable(models) {
+    const tbody = document.getElementById('retlTableBody');
+    tbody.innerHTML = '';
+
+    models.forEach((m, i) => {
+        const dests = (m.integrations || []).map(d => `<span>${escHtml(d.name)}</span>`).join('');
+        const hasSQL = m.query && m.query.trim();
+        const modelId = `sql_${i}`;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <div style="font-weight: 600; color: #2d3748;">${escHtml(m.name)}</div>
+                ${m.description ? `<div style="font-size:0.8rem;color:#718096;margin-top:3px;">${escHtml(m.description)}</div>` : ''}
+            </td>
+            <td>
+                <div style="font-weight:500;color:#4a5568;">${escHtml(m.source_name || '')}</div>
+                <div style="font-size:0.78rem;color:#a0aec0;">${escHtml(m.source_type || '')}</div>
+            </td>
+            <td>
+                <span class="badge ${m.enabled ? 'badge-enabled' : 'badge-disabled'}">
+                    ${m.enabled ? 'Enabled' : 'Disabled'}
+                </span>
+            </td>
+            <td style="color:#4a5568;font-size:0.85rem;">${escHtml(m.type || '—')}</td>
+            <td><div class="dest-list">${dests || '<span style="color:#a0aec0;font-style:italic;font-size:0.82rem;">—</span>'}</div></td>
+            <td>
+                ${hasSQL
+                    ? `<button class="sql-toggle" onclick="toggleSQL('${modelId}', this)">Show SQL</button>
+                       <pre class="sql-block" id="${modelId}">${escHtml(m.query)}</pre>`
+                    : `<span class="no-query">No SQL (DBT model or HTTP)</span>`
+                }
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function toggleSQL(id, btn) {
+    const block = document.getElementById(id);
+    const visible = block.style.display === 'block';
+    block.style.display = visible ? 'none' : 'block';
+    btn.textContent = visible ? 'Show SQL' : 'Hide SQL';
+}
+
+function filterTable() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const srcFilter = document.getElementById('filterSource').value;
+    const enabledFilter = document.getElementById('filterEnabled').value;
+
+    const filtered = allModels.filter(m => {
+        if (srcFilter && m.source_name !== srcFilter) return false;
+        if (enabledFilter !== '' && String(m.enabled) !== enabledFilter) return false;
+        if (search) {
+            const hay = [m.name, m.description, m.query, m.source_name].join(' ').toLowerCase();
+            if (!hay.includes(search)) return false;
+        }
+        return true;
+    });
+    renderTable(filtered);
+}
+
+function exportCSV() {
+    window.location.href = '/api/export-retl-csv';
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toggleNavDropdown() {
+    const menu = document.getElementById('navDropdownMenu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+    const dropdown = document.querySelector('.nav-dropdown');
+    const menu = document.getElementById('navDropdownMenu');
+    if (dropdown && !dropdown.contains(e.target)) menu.style.display = 'none';
+});
+
+loadData();
+</script>
+</body>
+</html>

@@ -146,6 +146,9 @@ body {
 .btn-primary {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
+}
+
+.form-card .btn-primary {
     width: 100%;
 }
 
@@ -169,8 +172,12 @@ body {
 }
 
 .btn-sm {
-    padding: 8px 16px;
-    font-size: 0.875rem;
+    padding: 10px 20px;
+    font-size: 0.925rem;
+    width: auto;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
 }
 
 .spinner {
@@ -359,6 +366,7 @@ body {
     flex-shrink: 0;
     margin-left: 20px;
     display: flex;
+    align-items: center;
     gap: 10px;
 }
 

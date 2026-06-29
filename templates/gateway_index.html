@@ -19,7 +19,7 @@
                 <div>
                     <div style="text-align: center; margin-bottom: 25px;">
                         <h2 style="margin: 0;">Start Gateway Audit</h2>
-                        <p style="color: #718096; font-size: 0.95rem; margin-top: 8px;">No Public API token required!</p>
+                        <p style="color: #718096; font-size: 0.95rem; margin-top: 8px;">Uses your active Segment session token — no Public API token required.</p>
                     </div>
 
                     <form id="auditForm">
@@ -140,7 +140,29 @@
                                         <small style="color: #718096; font-size: 0.8rem;">Plan & entitlements</small>
                                     </div>
                                 </div>
-                            </div>
+
+                            </div><!-- end grid -->
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_retl" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_retl" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            🔁 Reverse ETL
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">SQL models & queries</small>
+                                    </div>
+                                </div>
+                                <div style="display: flex; align-items: start; gap: 8px;">
+                                    <input type="checkbox" id="collect_warehouses" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
+                                    <div style="flex: 1;">
+                                        <label for="collect_warehouses" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
+                                            🏭 Warehouses
+                                        </label>
+                                        <small style="color: #718096; font-size: 0.8rem;">Sync status & sources</small>
+                                    </div>
+                                </div>
+                            </div><!-- end retl grid -->
 
                             <!-- Rate Limiting Info -->
                             <div style="background: #edf2f7; padding: 12px; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #667eea;">
@@ -157,9 +179,6 @@
 
                             <!-- Quick Select Buttons -->
                             <div style="display: flex; gap: 8px; margin-bottom: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
-                                <button type="button" onclick="selectAudiencesOnly()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
-                                    👥 Audiences Only
-                                </button>
                                 <button type="button" onclick="selectAll()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
                                     ✓ Select All
                                 </button>
@@ -198,7 +217,7 @@
                             </div>
                             <div class="help-item">
                                 <strong>Token Security:</strong>
-                                <p>Token is only used locally in your browser - never sent to external servers</p>
+                                <p>Your token is used only to call Segment Gateway APIs for this audit. It is not sent to third-party services unless experimental AI features are enabled. Audit data is stored temporarily for the session and can be deleted after export.</p>
                             </div>
                             <div class="help-item">
                                 <strong>Token Expiry:</strong>
@@ -285,17 +304,6 @@
 
     <script>
         // Quick select helper functions
-        function selectAudiencesOnly() {
-            document.getElementById('collect_sources').checked = false;
-            document.getElementById('collect_destinations').checked = false;
-            document.getElementById('collect_audiences').checked = true;
-            document.getElementById('collect_journeys').checked = false;
-            document.getElementById('collect_profiles').checked = false;
-            document.getElementById('collect_mtu').checked = false;
-            document.getElementById('collect_audit_trail').checked = false;
-            document.getElementById('collect_usage_data').checked = false;
-        }
-
         function selectAll() {
             document.getElementById('collect_sources').checked = true;
             document.getElementById('collect_destinations').checked = true;
@@ -305,6 +313,8 @@
             document.getElementById('collect_mtu').checked = true;
             document.getElementById('collect_audit_trail').checked = true;
             document.getElementById('collect_usage_data').checked = true;
+            document.getElementById('collect_retl').checked = true;
+            document.getElementById('collect_warehouses').checked = true;
         }
 
         function selectNone() {
@@ -316,6 +326,8 @@
             document.getElementById('collect_mtu').checked = false;
             document.getElementById('collect_audit_trail').checked = false;
             document.getElementById('collect_usage_data').checked = false;
+            document.getElementById('collect_retl').checked = false;
+            document.getElementById('collect_warehouses').checked = false;
         }
 
         // Show/hide definition toggle based on audiences selection
@@ -351,7 +363,9 @@
                 profiles: document.getElementById('collect_profiles').checked,
                 mtu: document.getElementById('collect_mtu').checked,
                 audit_trail: document.getElementById('collect_audit_trail').checked,
-                usage_data: document.getElementById('collect_usage_data').checked
+                usage_data: document.getElementById('collect_usage_data').checked,
+                retl: document.getElementById('collect_retl').checked,
+                warehouses: document.getElementById('collect_warehouses').checked
             };
 
             if (!workspaceSlug || !gatewayToken) {
