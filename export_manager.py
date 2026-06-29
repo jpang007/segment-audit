@@ -476,7 +476,9 @@ class ExportManager:
                 'gateway_mtu.json',
                 'gateway_usage_data.json',
                 'gateway_data_flows.json',
-                'gateway_personas_entitlements.json'
+                'gateway_personas_entitlements.json',
+                'gateway_retl_models.json',
+                'gateway_warehouses.json',
             ]
 
             # Add each Gateway file if it exists
@@ -488,6 +490,93 @@ class ExportManager:
                             zip_file.writestr(f'raw_data/{filename}', f.read())
                     except Exception as e:
                         print(f"Warning: Could not add {filename}: {e}")
+
+            # ===== rETL MODELS CSV =====
+            retl_file = self.data_dir / 'gateway_retl_models.json'
+            if retl_file.exists():
+                try:
+                    import csv as _csv, io as _io
+                    with open(retl_file, 'r') as f:
+                        models = json.load(f)
+                    out = _io.StringIO()
+                    fieldnames = ['model_name', 'source_name', 'source_type', 'enabled', 'type',
+                                  'destinations', 'queryIdentifierColumn', 'queryTimestampColumn',
+                                  'schedule', 'description', 'query', 'model_id', 'createdAt', 'updatedAt']
+                    writer = _csv.DictWriter(out, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for m in models:
+                        dests = ', '.join(i.get('name', '') for i in (m.get('integrations') or []))
+                        schedule = m.get('schedule')
+                        writer.writerow({
+                            'model_name': m.get('name', ''),
+                            'source_name': m.get('source_name', ''),
+                            'source_type': m.get('source_type', ''),
+                            'enabled': m.get('enabled', ''),
+                            'type': m.get('type', ''),
+                            'destinations': dests,
+                            'queryIdentifierColumn': m.get('queryIdentifierColumn', ''),
+                            'queryTimestampColumn': m.get('queryTimestampColumn', ''),
+                            'schedule': json.dumps(schedule) if schedule else '',
+                            'description': m.get('description', '') or '',
+                            'query': m.get('query', '') or '',
+                            'model_id': m.get('id', ''),
+                            'createdAt': m.get('createdAt', ''),
+                            'updatedAt': m.get('updatedAt', ''),
+                        })
+                    zip_file.writestr('raw_data/gateway_retl_models.csv', out.getvalue())
+                except Exception as e:
+                    print(f"Warning: Could not generate rETL CSV: {e}")
+
+            # ===== WAREHOUSE SCHEMAS CSV =====
+            wh_file = self.data_dir / 'gateway_warehouses.json'
+            if wh_file.exists():
+                try:
+                    import csv as _csv, io as _io
+                    with open(wh_file, 'r') as f:
+                        warehouses_data = json.load(f)
+                    out = _io.StringIO()
+                    fieldnames = [
+                        'warehouse_name', 'warehouse_id', 'warehouse_type',
+                        'source_name', 'source_slug', 'source_id',
+                        'collection_name', 'row_type',
+                        'name_or_key', 'data_type', 'enabled', 'archived',
+                        'last_seen_at', 'created_at', 'is_planned'
+                    ]
+                    writer = _csv.DictWriter(out, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for wh in warehouses_data:
+                        wh_name = wh.get('name', wh.get('id', ''))
+                        wh_id = wh.get('id', '')
+                        wh_type = wh.get('metadata', {}).get('name', '') if wh.get('metadata') else ''
+                        for schema in wh.get('sourceSchemas', []):
+                            src_name = schema.get('sourceName', '')
+                            src_slug = schema.get('sourceSlug', '')
+                            src_id = schema.get('sourceId', '')
+                            for coll in schema.get('collections', []):
+                                coll_name = coll.get('name', '')
+                                for event in coll.get('events', []):
+                                    writer.writerow({
+                                        'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
+                                        'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
+                                        'collection_name': coll_name, 'row_type': 'event',
+                                        'name_or_key': event.get('name', ''), 'data_type': '',
+                                        'enabled': event.get('enabled', ''), 'archived': event.get('archived', ''),
+                                        'last_seen_at': '', 'created_at': event.get('createdAt', ''),
+                                        'is_planned': event.get('isPlanned', ''),
+                                    })
+                                for prop in coll.get('objectProperties', []):
+                                    writer.writerow({
+                                        'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
+                                        'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
+                                        'collection_name': coll_name, 'row_type': 'property',
+                                        'name_or_key': prop.get('key', ''), 'data_type': prop.get('type', ''),
+                                        'enabled': prop.get('enabled', ''), 'archived': prop.get('archived', ''),
+                                        'last_seen_at': prop.get('lastSeenAt', ''), 'created_at': prop.get('createdAt', ''),
+                                        'is_planned': prop.get('isPlanned', ''),
+                                    })
+                    zip_file.writestr('raw_data/gateway_warehouse_schemas.csv', out.getvalue())
+                except Exception as e:
+                    print(f"Warning: Could not generate warehouse schemas CSV: {e}")
 
             # ===== SOURCES JSON (for Gem analysis) =====
 
