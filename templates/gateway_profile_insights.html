@@ -6,20 +6,19 @@
     <title>{{ customer_name }} - Profile Insights</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="dashboard-page">
-    <div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Profile Insights</h1>
-                <p class="subtitle" id="reportDate">Loading...</p>
+                <p class="subtitle" id="reportDate"></p>
             </div>
             <div class="header-actions">
-                {% include '_nav.html' %}
-                <button onclick="exportAllToExcel()" class="btn btn-secondary btn-sm" id="exportAllBtn">
-                    📥 Export All to Excel
-                </button>
-                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
-                    ← New Audit
+                <button onclick="exportAllToExcel()" class="btn btn-ghost btn-sm" id="exportAllBtn">
+                    📥 Export Excel
                 </button>
             </div>
         </div>
@@ -34,15 +33,15 @@
             <div class="chart-section">
                 <h2>Workspace Entitlements</h2>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
-                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                    <div style="padding: 20px; background: var(--sidebar-bg); border-radius: var(--radius); color: white;">
                         <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Personas Enabled</div>
                         <div style="font-size: 2rem; font-weight: 700;" id="personasEnabled">-</div>
                     </div>
-                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                    <div style="padding: 20px; background: var(--sidebar-bg); border-radius: var(--radius); color: white;">
                         <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Profiles Enabled</div>
                         <div style="font-size: 2rem; font-weight: 700;" id="profilesEnabled">-</div>
                     </div>
-                    <div style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+                    <div style="padding: 20px; background: var(--sidebar-bg); border-radius: var(--radius); color: white;">
                         <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 8px;">Linked Audiences</div>
                         <div style="font-size: 2rem; font-weight: 700;" id="linkedAudiencesEnabled">-</div>
                     </div>
@@ -154,7 +153,9 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
-    </div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
     <script>
         let allIdentityConfigs = [];

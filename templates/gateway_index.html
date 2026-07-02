@@ -3,347 +3,630 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gateway API Audit - The Future of Segment Auditing</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Segment Audit Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #F7F8FA;
+            color: #1A2332;
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ── Left Panel ── */
+        .left-panel {
+            width: 280px;
+            min-width: 280px;
+            background: #1A2332;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+
+        .left-panel-top {
+            padding: 28px 24px 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .brand-icon {
+            width: 32px;
+            height: 32px;
+            background: #49C5B1;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .brand-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #FFFFFF;
+            line-height: 1.2;
+        }
+
+        .brand-sub {
+            font-size: 0.72rem;
+            color: #6B7FA3;
+            margin-top: 1px;
+        }
+
+        .panel-heading {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #6B7FA3;
+            margin-bottom: 14px;
+        }
+
+        .feature-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            color: #B8C4D0;
+            font-size: 0.85rem;
+        }
+
+        .feature-item .icon {
+            width: 20px;
+            text-align: center;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+        }
+
+        .left-panel-bottom {
+            padding: 20px 24px;
+            margin-top: auto;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .info-box {
+            background: rgba(73, 197, 177, 0.1);
+            border: 1px solid rgba(73, 197, 177, 0.25);
+            border-radius: 8px;
+            padding: 14px;
+        }
+
+        .info-box-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #49C5B1;
+            margin-bottom: 6px;
+        }
+
+        .info-box p {
+            font-size: 0.75rem;
+            color: #7A8FA6;
+            line-height: 1.5;
+        }
+
+        /* ── Right Panel ── */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .top-bar {
+            background: #FFFFFF;
+            border-bottom: 1px solid #E5E9F0;
+            padding: 16px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .top-bar-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1A2332;
+        }
+
+        .top-bar-sub {
+            font-size: 0.8rem;
+            color: #6B7FA3;
+            margin-top: 2px;
+        }
+
+        .badge {
+            background: #EEF9F7;
+            color: #2A9D8B;
+            border: 1px solid #C2EDE8;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 36px 40px;
+            max-width: 860px;
+        }
+
+        /* ── Form ── */
+        .form-section {
+            background: #FFFFFF;
+            border: 1px solid #E5E9F0;
+            border-radius: 12px;
+            padding: 32px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #6B7FA3;
+            margin-bottom: 20px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: #3D4F66;
+        }
+
+        input[type="text"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #D1D9E6;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-family: inherit;
+            color: #1A2332;
+            background: #FFFFFF;
+            transition: border-color 0.15s;
+            outline: none;
+        }
+
+        input[type="text"]:focus,
+        select:focus,
+        textarea:focus {
+            border-color: #49C5B1;
+            box-shadow: 0 0 0 3px rgba(73,197,177,0.12);
+        }
+
+        textarea {
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            resize: vertical;
+        }
+
+        .field-hint {
+            font-size: 0.75rem;
+            color: #8A9BB5;
+            line-height: 1.4;
+        }
+
+        .field-hint code {
+            background: #F0F2F5;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.78rem;
+        }
+
+        /* ── Data Collection Grid ── */
+        .collect-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .collect-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px;
+            border: 1px solid #E5E9F0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+
+        .collect-item:hover {
+            border-color: #49C5B1;
+            background: #F5FEFE;
+        }
+
+        .collect-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #49C5B1;
+            cursor: pointer;
+            margin-top: 1px;
+            flex-shrink: 0;
+        }
+
+        .collect-item-label {
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: #1A2332;
+            display: block;
+            cursor: pointer;
+        }
+
+        .collect-item-desc {
+            font-size: 0.72rem;
+            color: #8A9BB5;
+            margin-top: 2px;
+        }
+
+        .quick-select {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .btn-ghost {
+            padding: 5px 14px;
+            background: transparent;
+            border: 1px solid #D1D9E6;
+            border-radius: 5px;
+            font-size: 0.78rem;
+            font-family: inherit;
+            color: #6B7FA3;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .btn-ghost:hover {
+            border-color: #49C5B1;
+            color: #2A9D8B;
+        }
+
+        .definition-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #FFFBEB;
+            border: 1px solid #F5D87E;
+            border-radius: 8px;
+            margin-top: 4px;
+        }
+
+        .definition-toggle input {
+            width: 16px;
+            height: 16px;
+            accent-color: #F59E0B;
+            cursor: pointer;
+        }
+
+        .definition-toggle label {
+            font-size: 0.82rem;
+            color: #92610A;
+            cursor: pointer;
+        }
+
+        .rate-limit-note {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #F0F2F5;
+            border-radius: 8px;
+            margin-top: 12px;
+        }
+
+        .rate-limit-note .icon { font-size: 0.9rem; margin-top: 1px; }
+
+        .rate-limit-note p {
+            font-size: 0.78rem;
+            color: #6B7FA3;
+            line-height: 1.5;
+        }
+
+        .rate-limit-note strong { color: #3D4F66; }
+
+        /* ── Submit ── */
+        .form-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 28px;
+            padding-top: 24px;
+            border-top: 1px solid #E5E9F0;
+        }
+
+        .form-footer-hint {
+            font-size: 0.78rem;
+            color: #8A9BB5;
+        }
+
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 24px;
+            background: #49C5B1;
+            color: #FFFFFF;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.1s;
+        }
+
+        .btn-primary:hover { background: #38B2A0; }
+        .btn-primary:active { transform: scale(0.98); }
+        .btn-primary:disabled { background: #A0D8D1; cursor: not-allowed; }
+
+        .error-message {
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: #FEF2F2;
+            border: 1px solid #FECACA;
+            border-radius: 6px;
+            color: #991B1B;
+            font-size: 0.82rem;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
-<body class="landing-page">
-    <div class="container">
-        <div class="form-card">
-            <div class="header">
-                <h1>🔬 Gateway API Audit Dashboard</h1>
-                <p class="subtitle">Next-generation auditing powered by Gateway API</p>
+<body>
+
+    <!-- Left Panel -->
+    <div class="left-panel">
+        <div class="left-panel-top">
+            <div class="brand">
+                <div class="brand-icon">⚡</div>
+                <div>
+                    <div class="brand-name">Segment Audit</div>
+                    <div class="brand-sub">Workspace Intelligence</div>
+                </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; margin-top: 30px;">
-                <!-- Left Column: Form -->
-                <div>
-                    <div style="text-align: center; margin-bottom: 25px;">
-                        <h2 style="margin: 0;">Start Gateway Audit</h2>
-                        <p style="color: #718096; font-size: 0.95rem; margin-top: 8px;">Uses your active Segment session token — no Public API token required.</p>
-                    </div>
+            <div class="panel-heading">What's collected</div>
+            <div class="feature-list">
+                <div class="feature-item"><span class="icon">🔌</span> Sources & schemas</div>
+                <div class="feature-item"><span class="icon">📍</span> Destinations</div>
+                <div class="feature-item"><span class="icon">👥</span> Audiences & definitions</div>
+                <div class="feature-item"><span class="icon">🚀</span> Journeys</div>
+                <div class="feature-item"><span class="icon">🔍</span> Profile Insights</div>
+                <div class="feature-item"><span class="icon">📋</span> Audit Trail</div>
+                <div class="feature-item"><span class="icon">📊</span> MTU & Usage</div>
+                <div class="feature-item"><span class="icon">🔁</span> Reverse ETL</div>
+                <div class="feature-item"><span class="icon">🏭</span> Warehouses</div>
+            </div>
+        </div>
 
-                    <form id="auditForm">
-                        <div class="form-group">
-                            <label for="workspace_slug">Workspace Slug *</label>
-                            <input type="text"
-                                   id="workspace_slug"
-                                   name="workspace_slug"
-                                   placeholder="e.g., axios"
-                                   required>
-                            <small>Found in URL: app.segment.com/<strong>workspace-slug</strong>/...</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="region">Region</label>
-                            <select id="region" name="region" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.95rem;">
-                                <option value="auto">Auto-detect from token (recommended)</option>
-                                <option value="us1">🇺🇸 US (app.segment.com)</option>
-                                <option value="eu1">🇪🇺 EU (eu1.app.segment.com)</option>
-                            </select>
-                            <small>Region is usually auto-detected from your JWT token</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="gateway_token">Gateway JWT Token *</label>
-                            <textarea id="gateway_token"
-                                      name="gateway_token"
-                                      rows="6"
-                                      placeholder="Paste your Gateway JWT token here (starts with eyJhbGciOi...)..."
-                                      required
-                                      style="font-family: 'Courier New', monospace; font-size: 0.85rem;"></textarea>
-                            <small>
-                                <strong>How to get:</strong> Open DevTools (F12) → Application → Cookies → Find <code>auth_token</code> cookie → Copy value
-                            </small>
-                        </div>
-
-                        <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f7fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <label style="display: block; font-weight: 600; margin-bottom: 15px; color: #2d3748;">📋 Select Data to Collect</label>
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
-                                <!-- Core Collections -->
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_sources" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_sources" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            🔌 Sources
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Connection inventory</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_destinations" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_destinations" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            📍 Destinations
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Integration list</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_audiences" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_audiences" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            👥 Audiences
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Size, status, destinations</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_journeys" checked style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_journeys" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            🚀 Journeys
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Engage workflows</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_profiles" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_profiles" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            🔍 Profile Insights
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Identity resolution</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_mtu" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_mtu" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            📊 MTU Data
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Usage analytics</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_audit_trail" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_audit_trail" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            📋 Audit Trail
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Activity logs</small>
-                                    </div>
-                                </div>
-
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_usage_data" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_usage_data" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            💳 Billing Data
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Plan & entitlements</small>
-                                    </div>
-                                </div>
-
-                            </div><!-- end grid -->
-
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_retl" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_retl" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            🔁 Reverse ETL
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">SQL models & queries</small>
-                                    </div>
-                                </div>
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <input type="checkbox" id="collect_warehouses" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                                    <div style="flex: 1;">
-                                        <label for="collect_warehouses" style="margin: 0; cursor: pointer; color: #2d3748; font-weight: 500; display: block;">
-                                            🏭 Warehouses
-                                        </label>
-                                        <small style="color: #718096; font-size: 0.8rem;">Sync status & sources</small>
-                                    </div>
-                                </div>
-                            </div><!-- end retl grid -->
-
-                            <!-- Rate Limiting Info -->
-                            <div style="background: #edf2f7; padding: 12px; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #667eea;">
-                                <div style="display: flex; align-items: start; gap: 8px;">
-                                    <span style="font-size: 1.1rem;">⏱️</span>
-                                    <div style="flex: 1;">
-                                        <div style="font-weight: 600; color: #2d3748; font-size: 0.85rem; margin-bottom: 4px;">Automatic Rate Limiting</div>
-                                        <p style="margin: 0; color: #718096; font-size: 0.8rem; line-height: 1.4;">
-                                            Built-in delays prevent API rate limits. Large audits take 2-5 minutes depending on workspace size.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Quick Select Buttons -->
-                            <div style="display: flex; gap: 8px; margin-bottom: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
-                                <button type="button" onclick="selectAll()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
-                                    ✓ Select All
-                                </button>
-                                <button type="button" onclick="selectNone()" style="flex: 1; padding: 6px 12px; background: white; border: 1px solid #cbd5e0; border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: #4a5568;">
-                                    ✗ Clear All
-                                </button>
-                            </div>
-
-                            <!-- Audience Definition Toggle -->
-                            <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;" id="definitionToggle">
-                                <input type="checkbox" id="fetch_definitions" style="width: 18px; height: 18px; cursor: pointer;">
-                                <label for="fetch_definitions" style="margin: 0; cursor: pointer; color: #856404; font-size: 0.9rem; flex: 1;">
-                                    <strong>⚠️ Fetch audience definitions</strong> (adds 1-2 min per 100 audiences)
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary" id="submitBtn">
-                                <span class="btn-text">🚀 Start Gateway Audit</span>
-                                <span class="btn-loading" style="display: none;">
-                                    <span class="spinner"></span> Starting...
-                                </span>
-                            </button>
-                        </div>
-
-                        <div id="errorMessage" class="error-message" style="display: none;"></div>
-                    </form>
-
-                    <div class="help-section" style="margin-top: 25px;">
-                        <h3>📚 Quick Help</h3>
-                        <div class="help-grid">
-                            <div class="help-item">
-                                <strong>Get JWT Token:</strong>
-                                <p>Login to Segment → DevTools → Application → Cookies → auth_token</p>
-                            </div>
-                            <div class="help-item">
-                                <strong>Token Security:</strong>
-                                <p>Your token is used only to call Segment Gateway APIs for this audit. It is not sent to third-party services unless experimental AI features are enabled. Audit data is stored temporarily for the session and can be deleted after export.</p>
-                            </div>
-                            <div class="help-item">
-                                <strong>Token Expiry:</strong>
-                                <p>JWT tokens typically expire after 7 days - just grab a fresh one</p>
-                            </div>
-                            <div class="help-item">
-                                <strong>Test Environment:</strong>
-                                <p>This runs on port 5003 for testing Gateway API capabilities</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Column: Features -->
-                <div style="padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; height: fit-content; position: sticky; top: 20px;">
-                    <h3 style="margin-top: 0; color: white;">📊 What's Included</h3>
-                    <p style="margin-bottom: 25px; opacity: 0.95; font-size: 0.95rem;">Complete visibility into your Segment workspace via Gateway API</p>
-
-                    <div style="display: flex; flex-direction: column; gap: 15px;">
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📈 Dashboard Overview</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">Sources, audiences, and journeys summary with quick navigation</p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🔌 Sources</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Source inventory, connections, event schemas, labels
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">👥 Audiences</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Size, status, destinations, SQL definitions, folder organization
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🚀 Journeys & Campaigns</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Engage workflows, version tracking, destinations, state (live/draft)
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📍 Destinations</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Destination inventory, connection status, source mappings
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">🔍 Profile Insights</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Identity resolution config, entitlements, space sources
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📋 Audit Trail</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                30 days of workspace activity, governance insights, user actions
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; backdrop-filter: blur(10px);">
-                            <div style="font-weight: 600; margin-bottom: 6px; font-size: 0.95rem;">📊 MTU Usage</div>
-                            <p style="font-size: 0.82rem; margin: 0; opacity: 0.9; line-height: 1.4;">
-                                Monthly tracked users, billing analysis, quota tracking, source breakdown
-                            </p>
-                        </div>
-
-                        <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.3);">
-                            <p style="font-size: 0.8rem; margin: 0; opacity: 0.95; line-height: 1.4;">
-                                ✨ <strong>All features include:</strong> Search, filtering, sorting, pagination, and Excel/CSV exports
-                            </p>
-                        </div>
-                    </div>
-                </div>
+        <div class="left-panel-bottom">
+            <div class="info-box">
+                <div class="info-box-title">How to get your token</div>
+                <p>Log into Segment → open DevTools (F12) → Application → Cookies → copy the <strong>auth_token</strong> value.</p>
             </div>
         </div>
     </div>
 
+    <!-- Right Panel -->
+    <div class="right-panel">
+        <div class="top-bar">
+            <div>
+                <div class="top-bar-title">New Audit</div>
+                <div class="top-bar-sub">Configure workspace and select data to collect</div>
+            </div>
+            <span class="badge">Gateway API</span>
+        </div>
+
+        <div class="main-content">
+            <form id="auditForm">
+
+                <!-- Workspace -->
+                <div class="form-section">
+                    <div class="section-title">Workspace credentials</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="workspace_slug">Workspace Slug</label>
+                            <input type="text" id="workspace_slug" name="workspace_slug"
+                                   placeholder="e.g., my-company" required>
+                            <span class="field-hint">Found in your Segment URL: app.segment.com/<strong>slug</strong>/...</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="region">Region</label>
+                            <select id="region" name="region">
+                                <option value="auto">Auto-detect (recommended)</option>
+                                <option value="us1">🇺🇸 US — app.segment.com</option>
+                                <option value="eu1">🇪🇺 EU — eu1.app.segment.com</option>
+                            </select>
+                            <span class="field-hint">Usually auto-detected from your JWT token</span>
+                        </div>
+                        <div class="form-group full">
+                            <label for="gateway_token">Gateway JWT Token</label>
+                            <textarea id="gateway_token" name="gateway_token" rows="5"
+                                      placeholder="eyJhbGciOi..." required></textarea>
+                            <span class="field-hint">Starts with <code>eyJ</code> — token is only used to call Segment's API and never stored beyond your session.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data to collect -->
+                <div class="form-section">
+                    <div class="section-title">Data to collect</div>
+
+                    <div class="quick-select">
+                        <button type="button" class="btn-ghost" onclick="selectAll()">✓ Select all</button>
+                        <button type="button" class="btn-ghost" onclick="selectNone()">✗ Clear all</button>
+                    </div>
+
+                    <div class="collect-grid">
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_sources" checked>
+                            <div>
+                                <span class="collect-item-label">🔌 Sources</span>
+                                <span class="collect-item-desc">Connection inventory</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_destinations" checked>
+                            <div>
+                                <span class="collect-item-label">📍 Destinations</span>
+                                <span class="collect-item-desc">Integration list</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_audiences" checked>
+                            <div>
+                                <span class="collect-item-label">👥 Audiences</span>
+                                <span class="collect-item-desc">Size, status, destinations</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_journeys" checked>
+                            <div>
+                                <span class="collect-item-label">🚀 Journeys</span>
+                                <span class="collect-item-desc">Engage workflows</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_profiles">
+                            <div>
+                                <span class="collect-item-label">🔍 Profile Insights</span>
+                                <span class="collect-item-desc">Identity resolution</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_mtu">
+                            <div>
+                                <span class="collect-item-label">📊 MTU Data</span>
+                                <span class="collect-item-desc">Usage analytics</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_audit_trail">
+                            <div>
+                                <span class="collect-item-label">📋 Audit Trail</span>
+                                <span class="collect-item-desc">Activity logs</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_usage_data">
+                            <div>
+                                <span class="collect-item-label">💳 Billing Data</span>
+                                <span class="collect-item-desc">Plan & entitlements</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_retl">
+                            <div>
+                                <span class="collect-item-label">🔁 Reverse ETL</span>
+                                <span class="collect-item-desc">SQL models</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
+                            <input type="checkbox" id="collect_warehouses">
+                            <div>
+                                <span class="collect-item-label">🏭 Warehouses</span>
+                                <span class="collect-item-desc">Sync status & sources</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="definition-toggle" id="definitionToggle">
+                        <input type="checkbox" id="fetch_definitions">
+                        <label for="fetch_definitions">
+                            <strong>⚠️ Fetch audience definitions</strong> — adds 1–2 min per 100 audiences
+                        </label>
+                    </div>
+
+                    <div class="rate-limit-note">
+                        <span class="icon">⏱️</span>
+                        <p><strong>Automatic rate limiting</strong> — built-in delays prevent hitting API limits. Large audits take 2–5 minutes depending on workspace size.</p>
+                    </div>
+                </div>
+
+                <div class="form-footer">
+                    <span class="form-footer-hint">No Public API token required — uses your active Segment session</span>
+                    <button type="submit" class="btn-primary" id="submitBtn">
+                        <span class="btn-text">Start Audit</span>
+                        <span class="btn-loading" style="display:none;">
+                            <span class="spinner"></span> Starting…
+                        </span>
+                    </button>
+                </div>
+
+                <div id="errorMessage" class="error-message" style="display:none;"></div>
+            </form>
+        </div>
+    </div>
+
     <script>
-        // Quick select helper functions
         function selectAll() {
-            document.getElementById('collect_sources').checked = true;
-            document.getElementById('collect_destinations').checked = true;
-            document.getElementById('collect_audiences').checked = true;
-            document.getElementById('collect_journeys').checked = true;
-            document.getElementById('collect_profiles').checked = true;
-            document.getElementById('collect_mtu').checked = true;
-            document.getElementById('collect_audit_trail').checked = true;
-            document.getElementById('collect_usage_data').checked = true;
-            document.getElementById('collect_retl').checked = true;
-            document.getElementById('collect_warehouses').checked = true;
+            ['collect_sources','collect_destinations','collect_audiences','collect_journeys',
+             'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
+             'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = true);
         }
-
         function selectNone() {
-            document.getElementById('collect_sources').checked = false;
-            document.getElementById('collect_destinations').checked = false;
-            document.getElementById('collect_audiences').checked = false;
-            document.getElementById('collect_journeys').checked = false;
-            document.getElementById('collect_profiles').checked = false;
-            document.getElementById('collect_mtu').checked = false;
-            document.getElementById('collect_audit_trail').checked = false;
-            document.getElementById('collect_usage_data').checked = false;
-            document.getElementById('collect_retl').checked = false;
-            document.getElementById('collect_warehouses').checked = false;
+            ['collect_sources','collect_destinations','collect_audiences','collect_journeys',
+             'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
+             'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = false);
         }
 
-        // Show/hide definition toggle based on audiences selection
         document.getElementById('collect_audiences').addEventListener('change', function() {
-            const definitionToggle = document.getElementById('definitionToggle');
-            if (this.checked) {
-                definitionToggle.style.display = 'flex';
-            } else {
-                definitionToggle.style.display = 'none';
-                document.getElementById('fetch_definitions').checked = false;
-            }
+            document.getElementById('definitionToggle').style.display = this.checked ? 'flex' : 'none';
+            if (!this.checked) document.getElementById('fetch_definitions').checked = false;
         });
 
         document.getElementById('auditForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-
             const submitBtn = document.getElementById('submitBtn');
             const btnText = submitBtn.querySelector('.btn-text');
             const btnLoading = submitBtn.querySelector('.btn-loading');
@@ -354,7 +637,6 @@
             const fetchDefinitions = document.getElementById('fetch_definitions').checked;
             const region = document.getElementById('region').value;
 
-            // Collect data collection toggles
             const collectOptions = {
                 sources: document.getElementById('collect_sources').checked,
                 destinations: document.getElementById('collect_destinations').checked,
@@ -370,23 +652,15 @@
 
             if (!workspaceSlug || !gatewayToken) {
                 errorDiv.textContent = 'Please provide workspace slug and Gateway token';
-                errorDiv.style.display = 'block';
-                return;
+                errorDiv.style.display = 'block'; return;
             }
-
-            // Check if at least one collection option is selected
-            const hasSelection = Object.values(collectOptions).some(v => v);
-            if (!hasSelection) {
+            if (!Object.values(collectOptions).some(v => v)) {
                 errorDiv.textContent = 'Please select at least one data type to collect';
-                errorDiv.style.display = 'block';
-                return;
+                errorDiv.style.display = 'block'; return;
             }
-
-            // Basic validation - JWT should start with eyJ
             if (!gatewayToken.startsWith('eyJ')) {
-                errorDiv.textContent = 'Gateway token should start with "eyJ" - make sure you copied the full token';
-                errorDiv.style.display = 'block';
-                return;
+                errorDiv.textContent = 'Gateway token should start with "eyJ" — make sure you copied the full token';
+                errorDiv.style.display = 'block'; return;
             }
 
             errorDiv.style.display = 'none';
@@ -407,7 +681,6 @@
                         collect_options: collectOptions
                     })
                 });
-
                 if (response.ok) {
                     window.location.href = '/progress';
                 } else {

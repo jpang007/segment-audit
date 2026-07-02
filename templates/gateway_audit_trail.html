@@ -9,70 +9,34 @@
     <style>
         .charts-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-            gap: 2rem;
-            margin-bottom: 2rem;
+            grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
         }
         .event-type-badge {
             display: inline-block;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             font-weight: 600;
         }
-        .badge-create { background: #d1fae5; color: #065f46; }
-        .badge-update { background: #dbeafe; color: #1e40af; }
-        .badge-delete { background: #fee2e2; color: #991b1b; }
-        .badge-other { background: #f3f4f6; color: #374151; }
-        .loading {
-            text-align: center;
-            padding: 3rem;
-            color: #6b7280;
-        }
-        .pagination {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 1rem;
-            margin-top: 1.5rem;
-            padding: 1rem 0;
-        }
-        .pagination button {
-            padding: 0.5rem 1rem;
-            border: 2px solid #667eea;
-            background: white;
-            color: #667eea;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-        .pagination button:hover:not(:disabled) {
-            background: #667eea;
-            color: white;
-        }
-        .pagination button:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-        .pagination span {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
+        .badge-create { background: var(--green-bg); color: var(--green-text); }
+        .badge-update { background: #EFF6FF; color: #1D4ED8; }
+        .badge-delete { background: var(--red-bg); color: var(--red-text); }
+        .badge-other  { background: #F0F2F5; color: var(--text-muted); }
     </style>
 </head>
-<body class="dashboard-page">
-    <div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Audit Trail</h1>
                 <p class="subtitle">Workspace activity, governance, and compliance insights</p>
             </div>
             <div class="header-actions">
-                {% include '_nav.html' %}
-                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
-                    ← New Audit
-                </button>
             </div>
         </div>
         <div id="loading" class="loading">
@@ -154,7 +118,9 @@
                 </div>
             </div>
         </div>
-    </div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
     <script>
         let charts = {};
@@ -279,7 +245,7 @@
                     datasets: [{
                         label: 'Events',
                         data: sortedResources.map(r => r[1]),
-                        backgroundColor: '#667eea'
+                        backgroundColor: '#49C5B1'
                     }]
                 },
                 options: {
@@ -321,8 +287,8 @@
                     datasets: [{
                         label: 'Daily Events',
                         data: sortedDays.map(d => d[1]),
-                        borderColor: '#667eea',
-                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderColor: '#49C5B1',
+                        backgroundColor: 'rgba(73, 197, 177, 0.1)',
                         tension: 0.4,
                         fill: true
                     }]
@@ -366,7 +332,7 @@
                     datasets: [{
                         label: 'Events',
                         data: sortedUsers.map(u => u[1]),
-                        backgroundColor: '#764ba2'
+                        backgroundColor: '#38B2A0'
                     }]
                 },
                 options: {

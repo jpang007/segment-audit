@@ -7,20 +7,19 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="dashboard-page">
-    <div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Workspace Audit</h1>
                 <p class="subtitle">Powered by Gateway API</p>
             </div>
             <div class="header-actions">
-                {% include '_nav.html' %}
-                <button onclick="downloadAllFiles(event)" class="btn btn-primary btn-sm" style="margin-right: 10px;">
+                <button onclick="downloadAllFiles(event)" class="btn btn-primary btn-sm">
                     📦 Download All Files
-                </button>
-                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
-                    ← New Audit
                 </button>
             </div>
         </div>
@@ -95,7 +94,9 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
-    </div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
     <script>
         let sourcesData = [];
@@ -244,7 +245,7 @@
                     labels: sortedTypes.map(t => t[0]),
                     datasets: [{
                         data: sortedTypes.map(t => t[1]),
-                        backgroundColor: ['#667eea', '#764ba2', '#48bb78', '#f59e0b', '#ef4444'],
+                        backgroundColor: ['#49C5B1', '#38B2A0', '#2A9D8B', '#F59E0B', '#EF4444'],
                         borderWidth: 0
                     }]
                 },
@@ -270,7 +271,7 @@
             const topSourcesList = document.getElementById('topSourcesList');
             sourcesWithDest.forEach(source => {
                 const div = document.createElement('div');
-                div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: #f7fafc; border-radius: 8px; border-left: 3px solid #667eea;';
+                div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; background: var(--teal-light); border-radius: 8px; border-left: 3px solid var(--teal);';
                 div.innerHTML = `
                     <span style="font-weight: 500; color: #2d3748;">${source.name}</span>
                     <span style="background: #667eea; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: 600;">${source.destCount} dest</span>

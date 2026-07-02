@@ -6,87 +6,35 @@
     <title>{{ customer_name }} - Warehouses</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        .wh-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        .wh-table th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; padding: 12px 14px; text-align: left;
-            font-weight: 600; font-size: 0.85rem; white-space: nowrap;
-        }
-        .wh-table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-        .wh-table tr:hover td { background: #f7fafc; }
-
-        .badge {
-            display: inline-block; padding: 2px 8px; border-radius: 12px;
-            font-size: 0.78rem; font-weight: 600; white-space: nowrap;
-        }
-        .badge-enabled  { background: #c6f6d5; color: #276749; }
-        .badge-disabled { background: #fed7d7; color: #9b2335; }
-        .badge-success  { background: #c6f6d5; color: #276749; }
-        .badge-running  { background: #bee3f8; color: #2b6cb0; }
-        .badge-failed   { background: #fed7d7; color: #9b2335; }
-        .badge-queued   { background: #fefcbf; color: #744210; }
-        .badge-unknown  { background: #e2e8f0; color: #4a5568; }
-
-        .summary-chips { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
-        .chip {
-            background: white; border: 1px solid #e2e8f0; border-radius: 8px;
-            padding: 12px 20px; text-align: center; min-width: 120px;
-        }
-        .chip-value { font-size: 1.6rem; font-weight: 700; color: #667eea; }
-        .chip-label { font-size: 0.78rem; color: #718096; margin-top: 2px; }
-
-        .search-row {
-            display: flex; gap: 12px; align-items: center;
-            margin-bottom: 18px; flex-wrap: wrap;
-        }
-        .search-row input, .search-row select {
-            padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px;
-            font-size: 0.9rem; color: #2d3748;
-        }
-        .search-row input { flex: 1; min-width: 200px; }
-
-        .toggle-btn {
-            background: none; border: 1px solid #cbd5e0; border-radius: 4px;
-            padding: 3px 10px; font-size: 0.8rem; cursor: pointer; color: #667eea;
-            white-space: nowrap; margin-bottom: 4px;
-        }
-        .toggle-btn:hover { background: #ebf4ff; }
-
-        .inner-table {
-            width: 100%; border-collapse: collapse; font-size: 0.8rem;
-            border: 1px solid #e2e8f0; margin-top: 6px;
-        }
-        .inner-table th {
-            background: #edf2f7; color: #4a5568; padding: 5px 10px;
-            text-align: left; font-weight: 600; font-size: 0.77rem;
-        }
-        .inner-table td { padding: 5px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
-        .inner-table tr:last-child td { border-bottom: none; }
-
+        .badge-success  { background: var(--green-bg); color: var(--green-text); }
+        .badge-running  { background: #EFF6FF; color: #1D4ED8; }
+        .badge-failed   { background: var(--red-bg); color: var(--red-text); }
+        .badge-queued   { background: var(--yellow-bg); color: var(--yellow-text); }
+        .badge-unknown  { background: #F0F2F5; color: var(--text-muted); }
         .schema-section { margin-top: 10px; }
         .schema-section-title {
-            font-size: 0.82rem; font-weight: 600; color: #4a5568;
+            font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
             margin: 8px 0 4px; display: flex; align-items: center; gap: 6px;
         }
-
         .coll-block { margin-bottom: 10px; }
         .coll-name {
-            font-size: 0.82rem; font-weight: 600; color: #2d3748;
-            background: #edf2f7; padding: 4px 10px; border-radius: 4px;
+            font-size: 0.82rem; font-weight: 600; color: var(--text-primary);
+            background: #F0F2F5; padding: 4px 10px; border-radius: 4px;
             margin-bottom: 4px; display: inline-block;
         }
-
         .duration-bar-bg {
-            background: #e2e8f0; border-radius: 4px; height: 6px;
+            background: var(--border); border-radius: 4px; height: 6px;
             width: 70px; display: inline-block; vertical-align: middle;
         }
-        .duration-bar-fill { background: #667eea; border-radius: 4px; height: 6px; }
-
-        .no-schema { color: #a0aec0; font-style: italic; font-size: 0.8rem; }
+        .duration-bar-fill { background: var(--teal); border-radius: 4px; height: 6px; }
+        .no-schema { color: var(--text-faint); font-style: italic; font-size: 0.8rem; }
     </style>
 </head>
-<body class="dashboard-page">
-<div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
 
     <div class="header">
         <div>
@@ -94,8 +42,6 @@
             <p class="subtitle">Warehouse sync status, connected sources, and schemas</p>
         </div>
         <div class="header-actions">
-            {% include '_nav.html' %}
-            <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">← New Audit</button>
         </div>
     </div>
 
@@ -154,7 +100,9 @@
         </div>
 
     </div>
-</div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
 <script>
 let allWarehouses = [];

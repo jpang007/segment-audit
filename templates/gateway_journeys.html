@@ -6,18 +6,17 @@
     <title>{{ customer_name }} - Journeys</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="dashboard-page">
-    <div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Journeys</h1>
-                <p class="subtitle" id="reportDate">Loading...</p>
+                <p class="subtitle" id="reportDate"></p>
             </div>
             <div class="header-actions">
-                {% include '_nav.html' %}
-                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
-                    ← New Audit
-                </button>
             </div>
         </div>
 
@@ -107,7 +106,9 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
-    </div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
     <script>
         let allJourneys = [];

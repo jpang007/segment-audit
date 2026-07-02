@@ -7,110 +7,74 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         .progress-bar-container {
-            background: #e2e8f0;
+            background: #E5E9F0;
             border-radius: 10px;
-            height: 18px;
+            height: 14px;
             overflow: hidden;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
         }
         .progress-bar {
             height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(90deg, #49C5B1 0%, #2A9D8B 100%);
             transition: width 0.4s ease;
-            box-shadow: 0 2px 4px rgba(102, 126, 234, 0.4);
         }
         .progress-text {
-            color: #2d3748;
+            color: #38B2A0;
             font-weight: 700;
             font-size: 1.2rem;
-            margin-top: 12px;
+            margin-top: 10px;
             text-align: center;
         }
         .status-message {
-            color: #718096;
-            font-size: 0.9rem;
+            color: var(--text-muted);
+            font-size: 0.85rem;
             text-align: center;
             margin-top: 8px;
             min-height: 1.4em;
-            font-style: italic;
         }
-
-        /* Module list */
         .modules-panel {
-            margin-top: 30px;
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
+            margin-top: 28px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             overflow: hidden;
         }
         .modules-panel-header {
-            background: #f7fafc;
-            padding: 14px 20px;
+            background: #F7F8FA;
+            padding: 12px 18px;
             font-weight: 600;
-            color: #2d3748;
-            font-size: 0.95rem;
-            border-bottom: 1px solid #e2e8f0;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            border-bottom: 1px solid var(--border);
         }
         .module-row {
             display: flex;
             align-items: center;
-            padding: 13px 20px;
-            border-bottom: 1px solid #f0f4f8;
-            gap: 14px;
-            transition: background 0.2s;
+            padding: 11px 18px;
+            border-bottom: 1px solid var(--border);
+            gap: 12px;
+            transition: background 0.15s;
         }
         .module-row:last-child { border-bottom: none; }
-        .module-row.state-pending  { opacity: 0.45; }
-        .module-row.state-active   { background: #fefcf3; }
-        .module-row.state-done     { background: #f0fff4; }
-        .module-row.state-skipped  { opacity: 0.3; }
-
-        .module-icon {
-            font-size: 1.2rem;
-            width: 26px;
-            text-align: center;
-            flex-shrink: 0;
-        }
-        .module-label {
-            flex: 1;
-            font-size: 0.95rem;
-            font-weight: 500;
-            color: #2d3748;
-        }
-        .module-count {
-            font-size: 0.85rem;
-            color: #718096;
-            font-weight: 500;
-            white-space: nowrap;
-        }
-        .module-count.active { color: #d69e2e; font-weight: 600; }
-        .module-count.done   { color: #38a169; font-weight: 600; }
-
-        /* inline mini progress bar for active modules */
-        .mini-bar-wrap {
-            width: 80px;
-            height: 6px;
-            background: #e2e8f0;
-            border-radius: 3px;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-        .mini-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            transition: width 0.4s ease;
-            border-radius: 3px;
-        }
+        .module-row.state-pending  { opacity: 0.4; }
+        .module-row.state-active   { background: #FFFBEB; }
+        .module-row.state-done     { background: #EEF9F7; }
+        .module-row.state-skipped  { opacity: 0.25; }
+        .module-icon { font-size: 1rem; width: 22px; text-align: center; flex-shrink: 0; }
+        .module-label { flex: 1; font-size: 0.875rem; font-weight: 500; color: var(--text-primary); }
+        .module-count { font-size: 0.8rem; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+        .module-count.active { color: #92610A; font-weight: 600; }
+        .module-count.done   { color: #1A7A52; font-weight: 600; }
+        .mini-bar-wrap { width: 70px; height: 5px; background: #E5E9F0; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+        .mini-bar { height: 100%; background: var(--teal); transition: width 0.4s ease; border-radius: 3px; }
     </style>
 </head>
-<body class="progress-page">
-    <div class="container">
-        <div style="text-align: center; margin-bottom: 35px;">
-            <div style="font-size: 3.5rem; margin-bottom: 15px;">🔬</div>
-            <h1 style="margin: 0; color: white; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">Gateway API Audit</h1>
-            <p class="subtitle" style="color: rgba(255,255,255,0.85); margin-top: 8px;">Collecting workspace data via Gateway API</p>
+<body>
+    <div class="progress-page">
+    <div class="progress-card" style="max-width: 640px;">
+        <div style="text-align: center; margin-bottom: 28px;">
+            <div style="font-size: 2.5rem; margin-bottom: 10px;">🔬</div>
+            <h1 style="font-size: 1.2rem; font-weight: 700; color: var(--text-primary); margin: 0;">Gateway API Audit</h1>
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 6px;">Collecting workspace data via Gateway API</p>
         </div>
-
-        <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 680px; margin: 0 auto;">
 
             <!-- Overall progress bar -->
             <div class="progress-bar-container">
@@ -223,9 +187,9 @@
                 </div>
             </div>
 
-            <div id="error" style="display: none; margin-top: 30px;"></div>
-        </div>
-    </div>
+            <div id="error" style="display: none; margin-top: 24px;"></div>
+        </div><!-- progress-card -->
+    </div><!-- progress-page -->
 
     <script>
         let pollInterval;
@@ -343,9 +307,9 @@
                 if (status.complete) {
                     document.getElementById('progressBar').style.width = '100%';
                     document.getElementById('progressText').textContent = '100%';
-                    document.getElementById('progressText').style.color = '#38a169';
+                    document.getElementById('progressText').style.color = '#38B2A0';
                     document.getElementById('statusMessage').innerHTML =
-                        '<span style="color:#38a169; font-weight:700; font-style:normal;">✅ Audit complete — redirecting to dashboard...</span>';
+                        '<span style="color:#38B2A0; font-weight:700;">✅ Audit complete — redirecting to dashboard...</span>';
                     clearInterval(pollInterval);
                     redirectTimeout = setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
                 }

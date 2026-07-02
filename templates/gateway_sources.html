@@ -7,18 +7,17 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
-<body class="dashboard-page">
-    <div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Sources</h1>
-                <p class="subtitle" id="reportDate">Data from Gateway API • <span style="color: #667eea;">With Connection Mapping</span></p>
+                <p class="subtitle" id="reportDate">Data from Gateway API • With Connection Mapping</p>
             </div>
             <div class="header-actions">
-                {% include '_nav.html' %}
-                <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">
-                    ← New Audit
-                </button>
             </div>
         </div>
 
@@ -112,7 +111,9 @@
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
-    </div>
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
     <!-- Schema Modal -->
     <div id="schemaModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; overflow-y: auto;">
@@ -266,7 +267,7 @@
                     datasets: [{
                         label: 'Source Count',
                         data: sortedTypes.map(t => t[1]),
-                        backgroundColor: '#667eea',
+                        backgroundColor: '#49C5B1',
                         borderRadius: 8
                     }]
                 },

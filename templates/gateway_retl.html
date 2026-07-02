@@ -6,69 +6,34 @@
     <title>{{ customer_name }} - Reverse ETL</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        .retl-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        .retl-table th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white; padding: 12px 14px; text-align: left;
-            font-weight: 600; font-size: 0.85rem; white-space: nowrap;
-        }
-        .retl-table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-        .retl-table tr:hover td { background: #f7fafc; }
-
-        .badge {
-            display: inline-block; padding: 2px 8px; border-radius: 12px;
-            font-size: 0.78rem; font-weight: 600; white-space: nowrap;
-        }
-        .badge-enabled  { background: #c6f6d5; color: #276749; }
-        .badge-disabled { background: #fed7d7; color: #9b2335; }
-
         .sql-toggle {
-            background: none; border: 1px solid #cbd5e0; border-radius: 4px;
-            padding: 3px 10px; font-size: 0.8rem; cursor: pointer; color: #667eea;
-            white-space: nowrap;
+            background: none; border: 1px solid var(--border); border-radius: 4px;
+            padding: 3px 10px; font-size: 0.8rem; cursor: pointer; color: var(--teal-dark);
+            white-space: nowrap; font-family: inherit;
         }
-        .sql-toggle:hover { background: #ebf4ff; }
-
+        .sql-toggle:hover { background: var(--teal-light); }
         .sql-block {
             display: none; margin-top: 8px;
-            background: #1a202c; color: #e2e8f0;
+            background: #1A2332; color: #B8C4D0;
             padding: 14px; border-radius: 6px;
-            font-family: 'Courier New', monospace; font-size: 0.8rem;
+            font-family: 'Courier New', monospace; font-size: 0.78rem;
             white-space: pre-wrap; word-break: break-word;
             max-height: 320px; overflow-y: auto;
             line-height: 1.5;
         }
-
-        .search-row {
-            display: flex; gap: 12px; align-items: center;
-            margin-bottom: 18px; flex-wrap: wrap;
-        }
-        .search-row input, .search-row select {
-            padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px;
-            font-size: 0.9rem; color: #2d3748;
-        }
-        .search-row input { flex: 1; min-width: 200px; }
-
-        .summary-chips {
-            display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px;
-        }
-        .chip {
-            background: white; border: 1px solid #e2e8f0; border-radius: 8px;
-            padding: 12px 20px; text-align: center; min-width: 120px;
-        }
-        .chip-value { font-size: 1.6rem; font-weight: 700; color: #667eea; }
-        .chip-label { font-size: 0.78rem; color: #718096; margin-top: 2px; }
-
-        .dest-list { font-size: 0.82rem; color: #4a5568; }
+        .dest-list { font-size: 0.82rem; color: var(--text-secondary); }
         .dest-list span {
-            display: inline-block; background: #edf2f7; border-radius: 4px;
+            display: inline-block; background: #F0F2F5; border-radius: 4px;
             padding: 1px 6px; margin: 1px 2px; white-space: nowrap;
         }
-        .no-query { color: #a0aec0; font-style: italic; font-size: 0.82rem; }
+        .no-query { color: var(--text-faint); font-style: italic; font-size: 0.82rem; }
     </style>
 </head>
-<body class="dashboard-page">
-<div class="container">
+<body>
+<div class="app-layout">
+    {% include '_nav.html' %}
+    <div class="page-body">
+    <div class="main-content">
 
     <!-- Header -->
     <div class="header">
@@ -77,8 +42,6 @@
             <p class="subtitle">SQL models syncing warehouse data into Segment destinations</p>
         </div>
         <div class="header-actions">
-            {% include '_nav.html' %}
-            <button onclick="window.location.href='/reset'" class="btn btn-secondary btn-sm">← New Audit</button>
         </div>
     </div>
 
@@ -156,7 +119,9 @@
         </div>
 
     </div><!-- /content -->
-</div><!-- /container -->
+    </div><!-- main-content -->
+    </div><!-- page-body -->
+</div><!-- app-layout -->
 
 <script>
 let allModels = [];
