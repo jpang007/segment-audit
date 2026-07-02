@@ -106,26 +106,18 @@ body {
 .sidebar-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 18px 16px 16px;
+    justify-content: center;
+    padding: 16px 14px;
     border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
-.sidebar-brand-name {
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: #FFFFFF;
-    line-height: 1.2;
-}
-
-.sidebar-brand-sub {
-    font-size: 0.7rem;
-    color: var(--sidebar-text);
-    margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 140px;
+.sidebar-ts-logo {
+    display: block;
+    width: 148px;
+    height: auto;
+    border-radius: 8px;
+    background: #FFFFFF;
+    padding: 6px 10px;
 }
 
 .sidebar-nav {
