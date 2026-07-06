@@ -12,14 +12,36 @@
             white-space: nowrap; font-family: inherit;
         }
         .sql-toggle:hover { background: var(--teal-light); }
-        .sql-block {
-            display: none; margin-top: 8px;
-            background: #1A2332; color: #B8C4D0;
-            padding: 14px; border-radius: 6px;
-            font-family: 'Courier New', monospace; font-size: 0.78rem;
-            white-space: pre-wrap; word-break: break-word;
-            max-height: 320px; overflow-y: auto;
-            line-height: 1.5;
+        #sqlModal {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 9999;
+            justify-content: center; align-items: center;
+        }
+        #sqlModal.open { display: flex; }
+        .sql-modal-card {
+            background: #fff; border-radius: 10px; width: 760px; max-width: 92vw;
+            max-height: 80vh; display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .sql-modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 20px; border-bottom: 1px solid #e2e8f0; flex-shrink: 0;
+        }
+        .sql-modal-header h3 { margin: 0; font-size: 1rem; color: #2d3748; }
+        .sql-modal-header span { font-size: 0.8rem; color: #718096; margin-top: 2px; display: block; }
+        .sql-modal-close {
+            background: none; border: none; font-size: 1.4rem; cursor: pointer;
+            color: #718096; line-height: 1; padding: 0 4px;
+        }
+        .sql-modal-close:hover { color: #2d3748; }
+        .sql-modal-body {
+            overflow-y: auto; padding: 16px 20px; flex: 1;
+        }
+        .sql-modal-body pre {
+            margin: 0; background: #1A2332; color: #B8C4D0;
+            padding: 16px; border-radius: 6px;
+            font-family: 'Courier New', monospace; font-size: 0.8rem;
+            white-space: pre-wrap; word-break: break-word; line-height: 1.6;
         }
         .dest-list { font-size: 0.82rem; color: var(--text-secondary); }
         .dest-list span {
@@ -123,6 +145,22 @@
     </div><!-- page-body -->
 </div><!-- app-layout -->
 
+<!-- SQL Modal -->
+<div id="sqlModal" onclick="closeSQLModal(event)">
+    <div class="sql-modal-card" onclick="event.stopPropagation()">
+        <div class="sql-modal-header">
+            <div>
+                <h3 id="sqlModalTitle">SQL Query</h3>
+                <span id="sqlModalSubtitle"></span>
+            </div>
+            <button class="sql-modal-close" onclick="closeSQLModal()">&times;</button>
+        </div>
+        <div class="sql-modal-body">
+            <pre id="sqlModalContent"></pre>
+        </div>
+    </div>
+</div>
+
 <script>
 let allModels = [];
 
@@ -169,10 +207,9 @@ function renderTable(models) {
     const tbody = document.getElementById('retlTableBody');
     tbody.innerHTML = '';
 
-    models.forEach((m, i) => {
+    models.forEach((m) => {
         const dests = (m.integrations || []).map(d => `<span>${escHtml(d.name)}</span>`).join('');
         const hasSQL = m.query && m.query.trim();
-        const modelId = `sql_${i}`;
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -193,8 +230,7 @@ function renderTable(models) {
             <td><div class="dest-list">${dests || '<span style="color:#a0aec0;font-style:italic;font-size:0.82rem;">—</span>'}</div></td>
             <td>
                 ${hasSQL
-                    ? `<button class="sql-toggle" onclick="toggleSQL('${modelId}', this)">Show SQL</button>
-                       <pre class="sql-block" id="${modelId}">${escHtml(m.query)}</pre>`
+                    ? `<button class="sql-toggle" onclick="openSQLModal(this)" data-name="${escHtml(m.name)}" data-source="${escHtml(m.source_name || '')}" data-query="${escHtml(m.query)}">Show SQL</button>`
                     : `<span class="no-query">No SQL (DBT model or HTTP)</span>`
                 }
             </td>
@@ -203,12 +239,26 @@ function renderTable(models) {
     });
 }
 
-function toggleSQL(id, btn) {
-    const block = document.getElementById(id);
-    const visible = block.style.display === 'block';
-    block.style.display = visible ? 'none' : 'block';
-    btn.textContent = visible ? 'Show SQL' : 'Hide SQL';
+function openSQLModal(btn) {
+    document.getElementById('sqlModalTitle').textContent = btn.dataset.name;
+    document.getElementById('sqlModalSubtitle').textContent = btn.dataset.source ? `Source: ${btn.dataset.source}` : '';
+    document.getElementById('sqlModalContent').textContent = btn.dataset.query;
+    document.getElementById('sqlModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
+
+function closeSQLModal(event) {
+    if (event && event.target !== document.getElementById('sqlModal')) return;
+    document.getElementById('sqlModal').classList.remove('open');
+    document.body.style.overflow = '';
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.getElementById('sqlModal').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+});
 
 function filterTable() {
     const search = document.getElementById('searchInput').value.toLowerCase();
