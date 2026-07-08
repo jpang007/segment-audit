@@ -5,7 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ customer_name }} - Gateway API Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .sankey-tooltip {
+            position: absolute;
+            background: rgba(15, 20, 35, 0.88);
+            color: #f0f4ff;
+            padding: 8px 13px;
+            border-radius: 7px;
+            font-family: Inter, system-ui, sans-serif;
+            font-size: 12px;
+            line-height: 1.6;
+            pointer-events: none;
+            white-space: nowrap;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+            opacity: 0;
+            transition: opacity 120ms ease;
+            z-index: 9999;
+        }
+        .sankey-tooltip.visible { opacity: 1; }
+    </style>
 </head>
 <body>
 <div class="app-layout">
@@ -90,6 +111,39 @@
                     </div>
                 </div>
             </div>
+            <!-- Sankey: Sources → Destinations -->
+            <div class="chart-section" id="sankeySection" style="display:none;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+                    <div>
+                        <h2 style="margin-bottom: 4px;">Data Flow: Sources → Destinations</h2>
+                        <p style="color: #718096; font-size: 0.85rem; margin: 0;">Ribbon thickness shows how many sources feed each destination</p>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div style="position:relative;">
+                            <span style="position:absolute; left:9px; top:50%; transform:translateY(-50%); color:#a0aec0; font-size:13px; pointer-events:none;">🔍</span>
+                            <input id="sankeySearch" type="text" placeholder="Filter sources…" oninput="rebuildSankey()"
+                                style="padding:5px 10px 5px 28px; border:1px solid #e2e8f0; border-radius:6px; font-size:0.82rem; width:160px; outline:none;"
+                                onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        </div>
+                        <label style="font-size:0.82rem; color:#718096;">Top</label>
+                        <select id="sankeyTopN" onchange="rebuildSankey()" style="padding:5px 8px; border:1px solid #e2e8f0; border-radius:6px; font-size:0.82rem;">
+                            <option value="10">10 sources</option>
+                            <option value="20" selected>20 sources</option>
+                            <option value="999">All</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="sankeyContainer" style="width:100%; overflow-x:auto;"></div>
+                <div id="sankeyOrphans" style="width:100%; overflow-x:auto; margin-top:4px;"></div>
+            </div>
+
+            <!-- Destination type breakdown -->
+            <div class="chart-section" id="extraChartsRow" style="display:none;">
+                <h2 style="margin-bottom:16px;">Destination Type Breakdown</h2>
+                <div style="height:300px;"><canvas id="destTypeChart"></canvas></div>
+            </div>
+
+
         </div>
 
         <div id="error" class="error" style="display: none;"></div>
@@ -100,6 +154,7 @@
     <script>
         let sourcesData = [];
         let audiencesData = [];
+        let destinationsData = [];
 
         function toggleNavDropdown() {
             const menu = document.getElementById('navDropdownMenu');
@@ -130,6 +185,12 @@
                     audiencesData = parseCSV(csvText);
                 }
 
+                // Load destinations JSON
+                const destResp = await fetch('/audit_data/gateway_destinations.json');
+                if (destResp.ok) {
+                    destinationsData = await destResp.json();
+                }
+
                 if (sourcesData.length === 0 && audiencesData.length === 0) {
                     throw new Error('No audit data available');
                 }
@@ -137,6 +198,8 @@
                 updateStats();
                 renderSourcesSection();
                 renderAudiencesSection();
+                renderSankey();
+                renderExtraCharts();
 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
@@ -325,179 +388,381 @@
             });
         }
 
-        async function loadHealthCheckData() {
-            try {
-                const response = await fetch('/api/health-check-data');
-                if (!response.ok) {
-                    console.warn('Health check data not available');
-                    return;
-                }
+        // Floating tooltip for Sankey
+        const sankeyTooltip = d3.select('body').append('div')
+            .attr('class', 'sankey-tooltip');
 
-                const data = await response.json();
-                renderHealthCheckCharts(data);
-            } catch (error) {
-                console.error('Error loading health check data:', error);
-            }
+        let sankeyStyle = 'B'; // Dest Gravity — locked in
+
+
+        // Extract canonical destination name from "Instance Name (Canonical)" or fall back to full string
+        function canonicalDest(raw) {
+            const m = raw.match(/\(([^)]+)\)\s*$/);
+            return m ? m[1].trim() : raw.trim();
         }
 
-        function renderHealthCheckCharts(data) {
-            // API Calls Over Time Chart with Plan Limit
-            if (data.api_calls_per_month && data.api_calls_per_month.length > 0) {
-                const apiCallsData = data.api_calls_per_month.slice(-12); // Last 12 months
-                const labels = apiCallsData.map(d => {
-                    const date = new Date(d.period);
-                    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        function renderSankey() {
+            const topN = parseInt(document.getElementById('sankeyTopN').value);
+            const search = (document.getElementById('sankeySearch').value || '').toLowerCase().trim();
+
+            // Build source→destination map from gateway_destinations.json.
+            // It already has clean canonical names with no duplication.
+            // Filter out Personas space sources (not in workspace sources CSV).
+            const csvSourceNames = new Set(sourcesData.map(s => s['Name']));
+            const destList = Array.isArray(destinationsData)
+                ? destinationsData
+                : (destinationsData && Array.isArray(destinationsData.destinations) ? destinationsData.destinations : []);
+
+            const srcDestMap = {};
+            destList.forEach(d => {
+                const srcName  = (d.source && d.source.name) ? d.source.name : null;
+                const destName = (d.metadata && d.metadata.name) ? d.metadata.name : d.name;
+                if (!srcName || !destName) return;
+                if (!csvSourceNames.has(srcName)) return; // exclude Personas/space sources
+                if (!srcDestMap[srcName]) srcDestMap[srcName] = new Set();
+                srcDestMap[srcName].add(destName);
+            });
+
+            // All 16 CSV sources — apply search first
+            let csvSources = sourcesData.map(s => s['Name']);
+            if (search) csvSources = csvSources.filter(n => n.toLowerCase().includes(search));
+
+            // Split: connected (have entries in destinations JSON) vs orphan
+            let allSources = csvSources.map(name => ({
+                name,
+                dests: srcDestMap[name] ? [...srcDestMap[name]] : []
+            }));
+
+            const connectedSources = allSources.filter(s => s.dests.length > 0);
+            const orphanSources    = allSources.filter(s => s.dests.length === 0);
+
+            connectedSources.sort((a, b) => b.dests.length - a.dests.length);
+            const shown    = connectedSources.slice(0, topN);
+            const overflow = connectedSources.slice(topN);
+
+            const linkMap = {};
+
+            const pairs = [];
+            shown.forEach(s => s.dests.forEach(d => pairs.push([s.name, d])));
+            if (overflow.length > 0) {
+                overflow.forEach(s => s.dests.forEach(d => pairs.push([`Other Sources (${overflow.length})`, d])));
+            }
+            if (pairs.length === 0) {
+                document.getElementById('sankeyContainer').innerHTML =
+                    '<p style="color:#a0aec0; font-style:italic; padding:40px 0; text-align:center;">No sources match your search.</p>';
+                document.getElementById('sankeySection').style.display = 'block';
+                return;
+            }
+
+            // Raw connection counts
+            const srcDestCount = {};  // how many unique dests each source has
+            const destSrcCount = {};  // how many sources flow into each dest
+            pairs.forEach(([src, tgt]) => {
+                const key = `${src}||${tgt}`;
+                linkMap[key] = (linkMap[key] || 0) + 1;
+                srcDestCount[src] = (srcDestCount[src] || 0) + 1;
+                destSrcCount[tgt] = (destSrcCount[tgt] || 0) + 1;
+            });
+
+            const nodeNames = [...new Set(pairs.flat())];
+            const srcNames = new Set(shown.map(s => s.name));
+            if (overflow.length > 0) srcNames.add(`Other Sources (${overflow.length})`);
+            const nodeIndex = Object.fromEntries(nodeNames.map((n, i) => [n, i]));
+
+            const nodes = nodeNames.map(n => ({ name: n, isSource: srcNames.has(n) }));
+
+            // Link value determines ribbon thickness — three modes
+            const BASE = 8; // minimum value units so hairlines never appear
+            const links = Object.entries(linkMap).map(([key]) => {
+                const [src, tgt] = key.split('||');
+                let value;
+                if (sankeyStyle === 'A') {
+                    // Uniform Bold: every link the same generous weight
+                    value = BASE;
+                } else if (sankeyStyle === 'B') {
+                    // Dest Gravity: weight by how many sources feed that destination
+                    value = BASE + (destSrcCount[tgt] || 1) * 4;
+                } else {
+                    // Source Power: weight by how many destinations that source sends to
+                    value = BASE + (srcDestCount[src] || 1) * 4;
+                }
+                return { source: nodeIndex[src], target: nodeIndex[tgt], value };
+            });
+
+            // Sizing
+            const container = document.getElementById('sankeyContainer');
+            container.innerHTML = '';
+            const W = Math.max(container.offsetWidth || 960, 800);
+            const H = Math.max(nodes.length * 52, 420);
+            const PAD = { top: 28, right: 220, bottom: 28, left: 220 };
+
+            const svg = d3.select('#sankeyContainer').append('svg')
+                .attr('width', W).attr('height', H)
+                .style('font-family', 'Inter, system-ui, sans-serif');
+
+            // ── Defs: drop shadow + per-link gradients ──────────────────────
+            const defs = svg.append('defs');
+
+            const filter = defs.append('filter')
+                .attr('id', 'node-shadow')
+                .attr('x', '-30%').attr('y', '-30%')
+                .attr('width', '160%').attr('height', '160%');
+            filter.append('feDropShadow')
+                .attr('dx', 0).attr('dy', 2)
+                .attr('stdDeviation', 3)
+                .attr('flood-color', 'rgba(0,0,0,0.15)');
+
+            const sankey = d3.sankey()
+                .nodeWidth(16)
+                .nodePadding(22)
+                .extent([[PAD.left, PAD.top], [W - PAD.right, H - PAD.bottom]]);
+
+            const { nodes: sNodes, links: sLinks } = sankey({
+                nodes: nodes.map(d => ({...d})),
+                links: links.map(d => ({...d}))
+            });
+
+            // Color palette — distinct for sources vs destinations
+            const srcPalette = ['#38B2A0','#2A9D8B','#1D7A6E','#49C5B1','#56D9C7','#3EC4AF'];
+            const destPalette = ['#667eea','#764ba2','#5a67d8','#7f5fd8','#9f7aea','#553c9a'];
+            const otherColor = '#a0aec0';
+
+            const srcColorMap = {};
+            let si = 0;
+            sNodes.filter(n => n.isSource).forEach(n => {
+                srcColorMap[n.name] = n.name.startsWith('Other') ? otherColor : srcPalette[si++ % srcPalette.length];
+            });
+            const destColorMap = {};
+            let di = 0;
+            sNodes.filter(n => !n.isSource).forEach(n => {
+                destColorMap[n.name] = destPalette[di++ % destPalette.length];
+            });
+            const nodeColor = n => n.isSource ? (srcColorMap[n.name] || otherColor) : (destColorMap[n.name] || destPalette[0]);
+
+            // Per-link gradients (source color → destination color)
+            sLinks.forEach((l, i) => {
+                l._gradId = `sg-${i}`;
+                const grad = defs.append('linearGradient')
+                    .attr('id', l._gradId)
+                    .attr('gradientUnits', 'userSpaceOnUse')
+                    .attr('x1', l.source.x1).attr('x2', l.target.x0)
+                    .attr('y1', (l.source.y0 + l.source.y1) / 2)
+                    .attr('y2', (l.target.y0 + l.target.y1) / 2);
+                grad.append('stop').attr('offset', '0%')
+                    .attr('stop-color', nodeColor(l.source)).attr('stop-opacity', 0.9);
+                grad.append('stop').attr('offset', '100%')
+                    .attr('stop-color', nodeColor(l.target)).attr('stop-opacity', 0.9);
+            });
+
+            // ── Links ────────────────────────────────────────────────────────
+            const linkG = svg.append('g');
+            const linkPaths = linkG.selectAll('path')
+                .data(sLinks)
+                .join('path')
+                .attr('class', 'sk-link')
+                .attr('d', d3.sankeyLinkHorizontal())
+                .attr('fill', d => `url(#${d._gradId})`)
+                .attr('fill-opacity', 0.38)
+                .attr('stroke', 'none')
+                .style('mix-blend-mode', 'multiply')
+                .style('cursor', 'pointer')
+                .on('mouseover', function(event, d) {
+                    linkPaths.transition().duration(180).attr('fill-opacity', 0.08);
+                    d3.select(this).transition().duration(180).attr('fill-opacity', 0.75);
+                    sankeyTooltip.classed('visible', true)
+                        .html(`<strong>${d.source.name}</strong> → <strong>${d.target.name}</strong><br/>
+                               ${d.value} connection${d.value !== 1 ? 's' : ''}`);
+                })
+                .on('mousemove', function(event) {
+                    const ttW = 220, vpW = window.innerWidth;
+                    sankeyTooltip
+                        .style('left', (event.pageX + ttW > vpW ? event.pageX - ttW - 10 : event.pageX + 14) + 'px')
+                        .style('top', (event.pageY - 36) + 'px');
+                })
+                .on('mouseout', function() {
+                    linkPaths.transition().duration(180).attr('fill-opacity', 0.38);
+                    sankeyTooltip.classed('visible', false);
                 });
-                const counts = apiCallsData.map(d => d.count);
-                const quota = data.billing_quota;
 
-                const ctx = document.getElementById('apiCallsChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'API Calls',
-                            data: counts,
-                            backgroundColor: '#48bb78',
-                            borderRadius: 4
-                        }, {
-                            label: 'Plan Limit',
-                            data: Array(labels.length).fill(quota),
-                            type: 'line',
-                            borderColor: '#f56565',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            fill: false,
-                            pointRadius: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: true,
-                                position: 'top',
-                                labels: { padding: 15, font: { size: 11 } }
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        let label = context.dataset.label || '';
-                                        if (label) {
-                                            label += ': ';
-                                        }
-                                        label += (context.parsed.y / 1000000).toFixed(2) + 'M';
-                                        return label;
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    callback: function(value) {
-                                        return (value / 1000000).toFixed(0) + 'M';
-                                    }
-                                }
-                            }
-                        }
-                    }
+            // ── Nodes ────────────────────────────────────────────────────────
+            const nodeG = svg.append('g');
+            nodeG.selectAll('rect')
+                .data(sNodes)
+                .join('rect')
+                .attr('x', d => d.x0).attr('y', d => d.y0)
+                .attr('width', d => d.x1 - d.x0)
+                .attr('height', d => Math.max(8, d.y1 - d.y0))
+                .attr('rx', 5).attr('ry', 5)
+                .attr('fill', nodeColor)
+                .attr('stroke', d => d3.color(nodeColor(d)).darker(0.4))
+                .attr('stroke-width', 1)
+                .attr('filter', 'url(#node-shadow)')
+                .style('cursor', 'pointer')
+                .on('mouseover', function(event, d) {
+                    const connected = new Set();
+                    const traverse = n => {
+                        (n.sourceLinks || []).forEach(l => { connected.add(l); traverse(l.target); });
+                        (n.targetLinks || []).forEach(l => { connected.add(l); traverse(l.source); });
+                    };
+                    traverse(d);
+                    linkPaths.transition().duration(180)
+                        .attr('fill-opacity', l => connected.has(l) ? 0.72 : 0.06);
+                    sankeyTooltip.classed('visible', true)
+                        .html(`<strong>${d.name}</strong><br/>${d.value} connection${d.value !== 1 ? 's' : ''}`);
+                })
+                .on('mousemove', function(event) {
+                    sankeyTooltip
+                        .style('left', (event.pageX + 14) + 'px')
+                        .style('top', (event.pageY - 36) + 'px');
+                })
+                .on('mouseout', function() {
+                    linkPaths.transition().duration(180).attr('fill-opacity', 0.38);
+                    sankeyTooltip.classed('visible', false);
+                });
+
+            // ── Labels ───────────────────────────────────────────────────────
+            svg.append('g')
+                .selectAll('text')
+                .data(sNodes)
+                .join('text')
+                .attr('x', d => d.isSource ? d.x0 - 10 : d.x1 + 10)
+                .attr('y', d => (d.y0 + d.y1) / 2)
+                .attr('dy', '0.35em')
+                .attr('text-anchor', d => d.isSource ? 'end' : 'start')
+                .attr('font-size', 12)
+                .attr('font-weight', 600)
+                .attr('fill', '#2d3748')
+                .attr('paint-order', 'stroke')
+                .attr('stroke', 'white')
+                .attr('stroke-width', 3)
+                .attr('stroke-linejoin', 'round')
+                .text(d => {
+                    const maxChars = Math.floor((PAD.left - 18) / 7);
+                    return d.name.length > maxChars ? d.name.slice(0, maxChars - 1) + '…' : d.name;
+                });
+
+            // Fade-in links on load
+            linkPaths.attr('fill-opacity', 0)
+                .transition().duration(500).delay((d, i) => i * 25)
+                .attr('fill-opacity', 0.38);
+
+            // ── Orphan sources (no destinations) ─────────────────────────────
+            // d3-sankey drops nodes with no links — render them in a separate strip
+            // below, aligned to the same left column as the Sankey source nodes.
+            const orphanContainer = document.getElementById('sankeyOrphans');
+            orphanContainer.innerHTML = '';
+            const visibleOrphans = orphanSources; // all — overflow only applies to connected sources
+            if (visibleOrphans.length > 0) {
+                const ROW_H = 30;
+                const NODE_W = 16, NODE_H = 10;
+                const DIVIDER_H = 36;
+                const orphanH = DIVIDER_H + visibleOrphans.length * ROW_H + 12;
+                const oSvg = d3.select('#sankeyOrphans').append('svg')
+                    .attr('width', W).attr('height', orphanH)
+                    .style('font-family', 'Inter, system-ui, sans-serif');
+
+                // Divider
+                oSvg.append('line')
+                    .attr('x1', 0).attr('y1', 16)
+                    .attr('x2', W).attr('y2', 16)
+                    .attr('stroke', '#e2e8f0').attr('stroke-width', 1);
+                oSvg.append('text')
+                    .attr('x', PAD.left - NODE_W / 2).attr('y', 16)
+                    .attr('dy', '-0.4em').attr('text-anchor', 'middle')
+                    .attr('font-size', 10).attr('fill', '#a0aec0')
+                    .attr('paint-order', 'stroke').attr('stroke', 'white').attr('stroke-width', 3)
+                    .text('Sources with no destinations');
+
+                // Node x aligns with Sankey source column
+                const nodeX = PAD.left - NODE_W;
+                const maxChars = Math.floor((PAD.left - 18) / 7);
+
+                visibleOrphans.forEach((s, i) => {
+                    const y = DIVIDER_H + i * ROW_H;
+                    const mid = y + NODE_H / 2;
+
+                    // Node rect
+                    oSvg.append('rect')
+                        .attr('x', nodeX).attr('y', y)
+                        .attr('width', NODE_W).attr('height', NODE_H)
+                        .attr('rx', 3).attr('ry', 3)
+                        .attr('fill', '#e2e8f0')
+                        .attr('stroke', '#cbd5e0').attr('stroke-width', 1);
+
+                    // Label
+                    const label = s.name.length > maxChars ? s.name.slice(0, maxChars - 1) + '…' : s.name;
+                    oSvg.append('text')
+                        .attr('x', nodeX - 10).attr('y', mid)
+                        .attr('dy', '0.35em').attr('text-anchor', 'end')
+                        .attr('font-size', 12).attr('fill', '#a0aec0')
+                        .attr('font-weight', 500)
+                        .attr('paint-order', 'stroke')
+                        .attr('stroke', 'white').attr('stroke-width', 3)
+                        .text(label);
+
+                    // Dashed tail — shows it goes nowhere
+                    oSvg.append('line')
+                        .attr('x1', nodeX + NODE_W).attr('y1', mid)
+                        .attr('x2', nodeX + NODE_W + 50).attr('y2', mid)
+                        .attr('stroke', '#e2e8f0').attr('stroke-width', 2)
+                        .attr('stroke-dasharray', '4 3');
                 });
             }
 
-            // Event Casing Chart
-            if (data.casing_analysis && data.casing_analysis.event_casing) {
-                const eventCasing = data.casing_analysis.event_casing;
-                const eventLabels = Object.keys(eventCasing).filter(k => eventCasing[k] > 0);
-                const eventValues = eventLabels.map(k => eventCasing[k]);
-
-                if (eventValues.length > 0) {
-                    const ctx = document.getElementById('eventCasingChart').getContext('2d');
-                    new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: eventLabels,
-                            datasets: [{
-                                label: 'Unique Events',
-                                data: eventValues,
-                                backgroundColor: ['#48bb78', '#4299e1', '#9f7aea', '#ed8936', '#f56565'],
-                                borderRadius: 4
-                            }]
-                        },
-                        options: {
-                            indexAxis: 'y',
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false }
-                            },
-                            scales: {
-                                x: { beginAtZero: true }
-                            }
-                        }
-                    });
-                }
-            }
-
-            // Property Casing Chart
-            if (data.casing_analysis && data.casing_analysis.property_casing) {
-                const propertyCasing = data.casing_analysis.property_casing;
-                const propertyLabels = Object.keys(propertyCasing).filter(k => propertyCasing[k] > 0);
-                const propertyValues = propertyLabels.map(k => propertyCasing[k]);
-
-                if (propertyValues.length > 0) {
-                    const ctx = document.getElementById('propertyCasingChart').getContext('2d');
-                    new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: propertyLabels,
-                            datasets: [{
-                                label: 'Unique Properties',
-                                data: propertyValues,
-                                backgroundColor: ['#9f7aea', '#4299e1', '#48bb78', '#ed8936', '#f56565'],
-                                borderRadius: 4
-                            }]
-                        },
-                        options: {
-                            indexAxis: 'y',
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
-                                legend: { display: false }
-                            },
-                            scales: {
-                                x: { beginAtZero: true }
-                            }
-                        }
-                    });
-                }
-            }
-
-            // MTU Health Summary
-            if (data.mtu_summary && data.mtu_summary.current_mtu) {
-                document.getElementById('mtuHealthSection').style.display = 'block';
-                document.getElementById('currentMTU').textContent = (data.mtu_summary.current_mtu || 0).toLocaleString();
-                document.getElementById('mtuQuota').textContent = data.billing_quota ? (data.billing_quota / 1000000).toFixed(1) + 'M' : 'N/A';
-
-                if (data.billing_quota && data.mtu_summary.current_mtu) {
-                    const utilization = ((data.mtu_summary.current_mtu / data.billing_quota) * 100).toFixed(1);
-                    const utilizationEl = document.getElementById('mtuUtilization');
-                    utilizationEl.textContent = utilization + '%';
-
-                    // Color code utilization
-                    if (utilization > 90) {
-                        utilizationEl.style.color = '#f56565'; // Red
-                    } else if (utilization > 75) {
-                        utilizationEl.style.color = '#ed8936'; // Orange
-                    } else {
-                        utilizationEl.style.color = '#48bb78'; // Green
-                    }
-                }
-            }
+            document.getElementById('sankeySection').style.display = 'block';
         }
+
+        function rebuildSankey() {
+            document.getElementById('sankeyContainer').innerHTML = '';
+            document.getElementById('sankeyOrphans').innerHTML = '';
+            renderSankey();
+        }
+
+        function renderExtraCharts() {
+            let hasExtra = false;
+
+            // Destination type breakdown (from destinations JSON)
+            const destList = Array.isArray(destinationsData)
+                ? destinationsData
+                : (destinationsData && Array.isArray(destinationsData.destinations) ? destinationsData.destinations : []);
+            if (destList.length > 0) {
+                // Dedupe by metadata.id so destinations connected to multiple sources are counted once
+                const seen = new Set();
+                const uniqueDests = destList.filter(d => {
+                    const key = (d.metadata && d.metadata.id) ? d.metadata.id : d.id;
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                const typeCounts = {};
+                uniqueDests.forEach(d => {
+                    const cats = (d.metadata && Array.isArray(d.metadata.categories) && d.metadata.categories.length > 0)
+                        ? d.metadata.categories
+                        : ['Other'];
+                    cats.forEach(c => { typeCounts[c] = (typeCounts[c] || 0) + 1; });
+                });
+                const sorted = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+                if (sorted.length > 0) {
+                    const colors = ['#667eea','#49C5B1','#F59E0B','#EF4444','#9f7aea','#4299e1','#ed8936','#48bb78'];
+                    new Chart(document.getElementById('destTypeChart').getContext('2d'), {
+                        type: 'bar',
+                        data: {
+                            labels: sorted.map(t => t[0]),
+                            datasets: [{ data: sorted.map(t => t[1]), backgroundColor: colors, borderRadius: 5, borderSkipped: false }]
+                        },
+                        options: {
+                            indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+                        }
+                    });
+                    hasExtra = true;
+                }
+            }
+
+            if (hasExtra) document.getElementById('extraChartsRow').style.display = 'block';
+        }
+
 
         async function downloadAllFiles(event) {
             try {

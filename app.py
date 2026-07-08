@@ -4100,35 +4100,44 @@ def export_sources_excel():
 
 @app.route('/api/export-sources-excel-v2')
 def export_sources_excel_v2():
-    """Export sources - LLM-optimized with flattened master sheet"""
-    try:
-        gateway_token = session.get('gateway_token')
-        workspace_slug = session.get('workspace_slug')
+    """Export sources - LLM-optimized with flattened master sheet.
 
-        if not gateway_token or not workspace_slug:
-            return jsonify({'error': 'Session expired'}), 401
+    Reads schemas from the cached gateway_sources.json written during the audit,
+    so this endpoint does no Gateway API calls at export time.
+    """
+    try:
+        workspace_slug = session.get('workspace_slug')
 
         DATA_DIR = get_session_data_dir()
         if not DATA_DIR:
             return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
-        # Load sources
-        sources_file = DATA_DIR / 'gateway_sources.csv'
-        if not sources_file.exists():
-            return jsonify({'error': 'No source data'}), 404
+        sources_json = DATA_DIR / 'gateway_sources.json'
+        if not sources_json.exists():
+            return jsonify({'error': 'No source data. Please re-run the audit.'}), 404
 
-        sources = []
-        with open(sources_file, 'r', encoding='utf-8') as f:
-            sources = list(csv.DictReader(f))
+        with open(sources_json, 'r', encoding='utf-8') as f:
+            sources = json.load(f)
+
+        if not workspace_slug:
+            workspace_slug = ''
 
         # Helper functions
-        def extract_environment(labels_str):
-            if not labels_str:
-                return ''
-            for label in labels_str.split(','):
-                if 'environment=' in label.lower():
-                    return label.split('=')[1].strip()
+        def extract_environment(labels):
+            for label in labels or []:
+                if (label.get('key') or '').lower() == 'environment':
+                    return label.get('value', '')
             return ''
+
+        def format_connections(items):
+            parts = []
+            for item in items or []:
+                name = item.get('name', '')
+                type_name = (item.get('metadata') or {}).get('name', '')
+                if not name:
+                    continue
+                parts.append(f"{name} ({type_name})" if type_name else name)
+            return ', '.join(parts)
 
         def get_source_health(status, total_allowed):
             if status == 'DISABLED':
@@ -4142,8 +4151,6 @@ def export_sources_excel_v2():
         # Style
         header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
         header_font = Font(bold=True, color='FFFFFF')
-
-        client = GatewayAPIClient(gateway_token, workspace_slug)
 
         # Master flattened table - all events and traits in one sheet
         ws_master = wb.create_sheet('Master Data')
@@ -4173,25 +4180,27 @@ def export_sources_excel_v2():
             cell.font = header_font
 
         # Process each source
-        for source in sources:
-            source_name = source.get('Name', '')
-            source_slug = source.get('Slug', '')
-            source_status = source.get('Status', '')
-            source_type = source.get('Type', '')
-            technical_type = source.get('Technical Type', '')
-            labels = source.get('Labels', '')
-            environment = extract_environment(labels)
+        for source_idx, source in enumerate(sources):
+            source_name = source.get('name', '')
+            source_slug = source.get('slug', '')
+            source_status = source.get('status', '')
+            metadata = source.get('metadata') or {}
+            metadata_category = metadata.get('category', '') or ''
+            technical_type = metadata.get('name', '')
+            source_type = metadata_category.capitalize() if metadata_category else technical_type
+            environment = extract_environment(source.get('labels'))
+            connected_destinations = format_connections(source.get('integrations'))
+            connected_warehouses = format_connections(source.get('warehouses'))
 
             total_allowed = 0
             total_blocked = 0
             total_events = 0
             traits_count = 0
 
-            # Fetch schema
-            if source_slug:
+            # Read schema from cached JSON (already fetched during audit)
+            schema_data = source.get('schema') or None
+            if schema_data:
                 try:
-                    schema_data = client.get_source_schema(source_slug)
-
                     # Process events
                     recent_events_map = {}
                     for e in schema_data.get('events', []):
@@ -4298,20 +4307,20 @@ def export_sources_excel_v2():
                             break
 
                 except Exception as e:
-                    print(f"Error fetching schema for {source_slug}: {e}")
+                    print(f"Error processing schema for {source_slug}: {e}")
 
             # Write to summary sheet
             summary_row = [
                 workspace_slug, source_name, source_slug, source_status,
                 get_source_health(source_status, total_allowed), environment,
                 source_type, technical_type,
-                source.get('Connected Destinations', ''),
-                source.get('Connected Warehouses', ''),
+                connected_destinations,
+                connected_warehouses,
                 total_events, traits_count, total_allowed, total_blocked,
                 'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days'
             ]
 
-            summary_row_idx = sources.index(source) + 2  # +2 for header row and 1-indexed
+            summary_row_idx = source_idx + 2  # +2 for header row and 1-indexed
             for col_idx, value in enumerate(summary_row, 1):
                 ws_summary.cell(row=summary_row_idx, column=col_idx, value=value)
 
