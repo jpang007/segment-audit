@@ -516,6 +516,13 @@
                             </div>
                         </label>
                         <label class="collect-item">
+                            <input type="checkbox" id="collect_schemas" checked>
+                            <div>
+                                <span class="collect-item-label">🧬 Source Schema</span>
+                                <span class="collect-item-desc">Events, traits</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
                             <input type="checkbox" id="collect_destinations" checked>
                             <div>
                                 <span class="collect-item-label">📍 Destinations</span>
@@ -610,12 +617,12 @@
 
     <script>
         function selectAll() {
-            ['collect_sources','collect_destinations','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_destinations','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = true);
         }
         function selectNone() {
-            ['collect_sources','collect_destinations','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_destinations','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = false);
         }
@@ -623,6 +630,12 @@
         document.getElementById('collect_audiences').addEventListener('change', function() {
             document.getElementById('definitionToggle').style.display = this.checked ? 'flex' : 'none';
             if (!this.checked) document.getElementById('fetch_definitions').checked = false;
+        });
+
+        document.getElementById('collect_sources').addEventListener('change', function() {
+            const schemasBox = document.getElementById('collect_schemas');
+            schemasBox.disabled = !this.checked;
+            if (!this.checked) schemasBox.checked = false;
         });
 
         document.getElementById('auditForm').addEventListener('submit', async (e) => {
@@ -639,6 +652,7 @@
 
             const collectOptions = {
                 sources: document.getElementById('collect_sources').checked,
+                schemas: document.getElementById('collect_schemas').checked,
                 destinations: document.getElementById('collect_destinations').checked,
                 audiences: document.getElementById('collect_audiences').checked,
                 journeys: document.getElementById('collect_journeys').checked,

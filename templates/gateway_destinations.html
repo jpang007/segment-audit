@@ -36,7 +36,6 @@
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Destinations</h1>
-                <p class="subtitle" id="reportDate">Data from Gateway API • With Usage & Data Flows</p>
             </div>
             <div class="header-actions">
             </div>
@@ -116,6 +115,7 @@
                             <option value="enabled">Enabled</option>
                             <option value="disabled">Disabled</option>
                         </select>
+                        <button onclick="exportDestinationsCSV()" class="btn btn-secondary btn-sm">📥 Export CSV</button>
                     </div>
                 </div>
 
@@ -183,6 +183,10 @@
         const pageSize = 20;
         let sortColumn = null;
         let sortDirection = 'desc'; // 'asc' or 'desc'
+
+        function exportDestinationsCSV() {
+            window.location.href = '/api/export-destinations-csv';
+        }
 
         // Format large numbers with abbreviations (K, M, B)
         function formatNumber(num) {

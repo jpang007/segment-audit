@@ -2147,6 +2147,7 @@ def start_audit():
         region = data.get('region')  # Can be None (auto-detect), 'us1', or 'eu1'
         collect_options = data.get('collect_options', {
             'sources': True,
+            'schemas': True,
             'destinations': True,
             'audiences': True,
             'journeys': True,
@@ -2191,6 +2192,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
     if collect_options is None:
         collect_options = {
             'sources': True,
+            'schemas': True,
             'destinations': True,
             'audiences': True,
             'journeys': True,
@@ -2766,34 +2768,37 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                     # Fetch traits and event count for this source
                     traits_list = []
                     event_count = 0
-                    try:
-                        status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
-                        set_module('schemas', 'active', done=idx, total=len(sources))
-                        schema_data = client.get_source_schema(source.get('slug', ''))
+                    if collect_options.get('schemas', True):
+                        try:
+                            status['message'] = f'Fetching schema for {source.get("name", "source")} ({idx + 1}/{len(sources)})...'
+                            set_module('schemas', 'active', done=idx, total=len(sources))
+                            schema_data = client.get_source_schema(source.get('slug', ''))
 
-                        # Attach schema to source object for JSON export
-                        source['schema'] = schema_data
+                            # Attach schema to source object for JSON export
+                            source['schema'] = schema_data
 
-                        # Count total events in schema
-                        for collection in schema_data.get('collections', []):
-                            events = collection.get('events', [])
-                            event_count += len(events)
+                            # Count total events in schema
+                            for collection in schema_data.get('collections', []):
+                                events = collection.get('events', [])
+                                event_count += len(events)
 
-                            # Look for "users" collection (Identify traits)
-                            if collection.get('name', '').lower() == 'users':
-                                for prop in collection.get('objectProperties', []):
-                                    trait_key = prop.get('key', '')
-                                    if trait_key:
-                                        # Only include enabled, non-archived traits
-                                        if prop.get('enabled', True) and not prop.get('archived', False):
-                                            traits_list.append(trait_key)
+                                # Look for "users" collection (Identify traits)
+                                if collection.get('name', '').lower() == 'users':
+                                    for prop in collection.get('objectProperties', []):
+                                        trait_key = prop.get('key', '')
+                                        if trait_key:
+                                            # Only include enabled, non-archived traits
+                                            if prop.get('enabled', True) and not prop.get('archived', False):
+                                                traits_list.append(trait_key)
 
-                        # Add delay to avoid rate limits
-                        import time
-                        time.sleep(1)
-                    except Exception as e:
-                        print(f"    -> Failed to fetch schema for {source.get('slug', '')}: {e}")
-                        source['schema'] = None  # Mark as failed to fetch
+                            # Add delay to avoid rate limits
+                            import time
+                            time.sleep(1)
+                        except Exception as e:
+                            print(f"    -> Failed to fetch schema for {source.get('slug', '')}: {e}")
+                            source['schema'] = None  # Mark as failed to fetch
+                    else:
+                        source['schema'] = None
 
                     traits_str = ', '.join(traits_list) if traits_list else ''
 
@@ -2824,7 +2829,8 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         'Event Count': event_count
                     })
 
-            set_module('schemas', 'done', done=len(sources), total=len(sources))
+            if collect_options.get('schemas', True):
+                set_module('schemas', 'done', done=len(sources), total=len(sources))
             # Save sources JSON with full schema data (for Gem analysis)
             print(f"  -> Saving sources with full schemas to gateway_sources.json")
             with open(DATA_DIR / 'gateway_sources.json', 'w', encoding='utf-8') as f:
@@ -4499,6 +4505,27 @@ def export_sources_destinations_csv():
             csv_data,
             mimetype='text/csv',
             headers={'Content-Disposition': 'attachment; filename=sources_with_destinations.csv'}
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/export-destinations-csv')
+def export_destinations_csv():
+    """Export destinations as CSV"""
+    try:
+        from export_manager import ExportManager
+
+        DATA_DIR = get_session_data_dir()
+        if not DATA_DIR:
+            return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
+        exporter = ExportManager(str(DATA_DIR))
+        csv_data = exporter.export_destinations_csv()
+
+        from flask import Response
+        return Response(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=destinations.csv'}
         )
     except Exception as e:
         return jsonify({'error': str(e)}), 500

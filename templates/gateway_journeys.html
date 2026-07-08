@@ -14,7 +14,6 @@
         <div class="header">
             <div>
                 <h1 id="customerName">{{ customer_name }} - Journeys</h1>
-                <p class="subtitle" id="reportDate"></p>
             </div>
             <div class="header-actions">
             </div>
@@ -226,8 +225,6 @@
                 const response = await fetch('/audit_data/gateway_summary.json');
                 if (response.ok) {
                     const summary = await response.json();
-                    const auditDate = new Date(summary.audit_date);
-                    document.getElementById('reportDate').textContent = `Audit Date: ${auditDate.toLocaleDateString()} ${auditDate.toLocaleTimeString()}`;
                     document.getElementById('customerName').textContent = `${summary.customer_name} - Journeys`;
                 }
             } catch (e) {

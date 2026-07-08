@@ -127,6 +127,60 @@ class ExportManager:
 
         return output.getvalue()
 
+    def export_destinations_csv(self) -> str:
+        """
+        Export destinations with source info, type, status, and categories.
+        One row per destination.
+        """
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        writer.writerow([
+            'Destination Name',
+            'Destination ID',
+            'Kind',
+            'Destination Type',
+            'Status',
+            'Categories',
+            'Source Name',
+            'Source Slug',
+            'Source Type',
+            'Created At'
+        ])
+
+        dest_file = self.data_dir / 'gateway_destinations.json'
+        if not dest_file.exists():
+            return "No Gateway API destinations data found (gateway_destinations.json missing)"
+
+        with open(dest_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        destinations = data.get('destinations', []) if isinstance(data, dict) else data
+
+        for dest in destinations:
+            typename = dest.get('__typename', '')
+            status = dest.get('integrationStatus') or dest.get('warehouseStatus', '')
+            metadata = dest.get('metadata') or {}
+            dest_type = metadata.get('name', '')
+            categories = ', '.join(metadata.get('categories') or [])
+            source = dest.get('source') or {}
+            source_metadata = source.get('metadata') or {}
+
+            writer.writerow([
+                dest.get('name', ''),
+                dest.get('id', ''),
+                typename,
+                dest_type,
+                status,
+                categories,
+                source.get('name', ''),
+                source.get('slug', ''),
+                source_metadata.get('name', ''),
+                dest.get('createdAt', '')
+            ])
+
+        return output.getvalue()
+
     def export_audiences_with_destinations_csv(self) -> str:
         """
         Export audiences with their destinations
