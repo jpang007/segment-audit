@@ -648,6 +648,71 @@ class GatewayAPIClient:
             'collections': source.get('schema', {}).get('collections', [])
         }
 
+    def get_destination_subscriptions(self, source_slug, destination_slug, destination_config_id):
+        """Get configured subscriptions (mappings) for a source→destination pair.
+
+        Returns dict:
+          {
+            'subscriptions': [...],   # configured mappings with trigger + settings
+            'actions': [...]          # metadata.actions catalog for actionId lookup
+          }
+        """
+        query = """
+        query DestinationSubscriptions($workspaceSlug: Slug!, $sourceSlug: String!, $destinationSlug: String!, $destinationConfigId: String!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            source(slug: $sourceSlug) {
+              id
+              integration(slug: $destinationSlug, id: $destinationConfigId) {
+                id
+                name
+                subscriptions {
+                  id
+                  name
+                  actionId
+                  actionSlug
+                  trigger
+                  enabled
+                  settings {
+                    fieldKey
+                    value
+                    __typename
+                  }
+                  __typename
+                }
+                metadata {
+                  actions {
+                    id
+                    slug
+                    name
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "sourceSlug": source_slug,
+            "destinationSlug": destination_slug,
+            "destinationConfigId": destination_config_id
+        }
+
+        data = self._execute_query(query, variables)
+        integration = ((data.get('workspace') or {}).get('source') or {}).get('integration') or {}
+        metadata = integration.get('metadata') or {}
+        return {
+            'subscriptions': integration.get('subscriptions') or [],
+            'actions': metadata.get('actions') or []
+        }
+
     def get_audience_definition(self, space_id, audience_id):
         """Get audience definition"""
         query = """
@@ -2149,6 +2214,7 @@ def start_audit():
             'sources': True,
             'schemas': True,
             'destinations': True,
+            'mappings': False,
             'audiences': True,
             'journeys': True,
             'profiles': False,
@@ -2194,6 +2260,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
             'sources': True,
             'schemas': True,
             'destinations': True,
+            'mappings': False,
             'audiences': True,
             'journeys': True,
             'profiles': False,
@@ -2417,6 +2484,36 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                 print(f"  -> Found {len(use_cases)} use cases")
             except Exception as e:
                 print(f"  -> ERROR fetching data flows: {e}")
+
+            # Fetch per-destination subscriptions (mappings) if requested
+            if collect_options.get('mappings', False):
+                dest_list = destinations_data.get('destinations', [])
+                actions_dests = [
+                    d for d in dest_list
+                    if d.get('__typename') == 'Integration'
+                    and ((d.get('metadata') or {}).get('slug') or '').startswith('actions-')
+                    and (d.get('source') or {}).get('slug')
+                ]
+                total_mappings_targets = len(actions_dests)
+                print(f"\n=== FETCHING DESTINATION MAPPINGS ({total_mappings_targets} Actions destinations) ===")
+                set_module('mappings', 'active', done=0, total=total_mappings_targets)
+                import time as _mapping_time
+                for m_idx, dest in enumerate(actions_dests):
+                    source_slug = (dest.get('source') or {}).get('slug')
+                    dest_slug = (dest.get('metadata') or {}).get('slug')
+                    dest_id = dest.get('id')
+                    status['message'] = f'Fetching mappings for {dest.get("name", "destination")} ({m_idx + 1}/{total_mappings_targets})...'
+                    set_module('mappings', 'active', done=m_idx, total=total_mappings_targets)
+                    try:
+                        result = client.get_destination_subscriptions(source_slug, dest_slug, dest_id)
+                        dest['subscriptions'] = result.get('subscriptions') or []
+                        dest['actions_catalog'] = result.get('actions') or []
+                        _mapping_time.sleep(1)
+                    except Exception as e:
+                        print(f"  -> Failed to fetch mappings for {dest.get('name', '')}: {e}")
+                        dest['subscriptions'] = []
+                        dest['actions_catalog'] = []
+                set_module('mappings', 'done', done=total_mappings_targets, total=total_mappings_targets)
         else:
             print("Skipping destinations collection")
 
@@ -3524,18 +3621,20 @@ def export_audit_trail_csv():
             audit_events = json.load(f)
 
         output = io.StringIO()
-        fieldnames = ['timestamp', 'event_type', 'resource_type', 'resource_name', 'user', 'user_email']
+        fieldnames = ['timestamp', 'event_type', 'target', 'resource_type', 'user', 'user_email']
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for e in audit_events:
-            subject = e.get('subject', {}) or {}
-            user_obj = subject.get('user', {}) or {}
+            subject = e.get('subject') or {}
+            user_obj = subject.get('user') or {}
+            token_obj = subject.get('token') or {}
+            resource = e.get('resource') or {}
             writer.writerow({
                 'timestamp': e.get('timestamp', ''),
                 'event_type': e.get('type', ''),
-                'resource_type': (e.get('resource', {}) or {}).get('type', ''),
-                'resource_name': (e.get('resource', {}) or {}).get('name', ''),
-                'user': user_obj.get('name', subject.get('token', {}).get('description', '')),
+                'target': e.get('target', ''),
+                'resource_type': resource.get('type', ''),
+                'user': user_obj.get('name') or token_obj.get('description', ''),
                 'user_email': user_obj.get('email', ''),
             })
 
@@ -4112,241 +4211,21 @@ def export_sources_excel_v2():
     so this endpoint does no Gateway API calls at export time.
     """
     try:
-        workspace_slug = session.get('workspace_slug')
+        from export_manager import ExportManager
 
+        workspace_slug = session.get('workspace_slug') or ''
         DATA_DIR = get_session_data_dir()
         if not DATA_DIR:
             return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
 
-        sources_json = DATA_DIR / 'gateway_sources.json'
-        if not sources_json.exists():
+        exporter = ExportManager(str(DATA_DIR))
+        try:
+            xlsx_bytes = exporter.export_sources_xlsx(workspace_slug=workspace_slug)
+        except FileNotFoundError:
             return jsonify({'error': 'No source data. Please re-run the audit.'}), 404
 
-        with open(sources_json, 'r', encoding='utf-8') as f:
-            sources = json.load(f)
-
-        if not workspace_slug:
-            workspace_slug = ''
-
-        # Helper functions
-        def extract_environment(labels):
-            for label in labels or []:
-                if (label.get('key') or '').lower() == 'environment':
-                    return label.get('value', '')
-            return ''
-
-        def format_connections(items):
-            parts = []
-            for item in items or []:
-                name = item.get('name', '')
-                type_name = (item.get('metadata') or {}).get('name', '')
-                if not name:
-                    continue
-                parts.append(f"{name} ({type_name})" if type_name else name)
-            return ', '.join(parts)
-
-        def get_source_health(status, total_allowed):
-            if status == 'DISABLED':
-                return 'DISABLED'
-            return 'ACTIVE' if total_allowed > 0 else 'NO_RECENT_DATA'
-
-        # Create workbook
-        wb = Workbook()
-        wb.remove(wb.active)
-
-        # Style
-        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
-        header_font = Font(bold=True, color='FFFFFF')
-
-        # Master flattened table - all events and traits in one sheet
-        ws_master = wb.create_sheet('Master Data')
-        master_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
-                         'environment', 'source_type', 'technical_type', 'record_type', 'object_name',
-                         'object_type', 'planning_status', 'allowed_7d', 'blocked_7d',
-                         'volume_window', 'has_recent_data']
-
-        for col_idx, header in enumerate(master_headers, 1):
-            cell = ws_master.cell(row=1, column=col_idx, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-
-        master_row_idx = 2
-
-        # Sources Summary sheet
-        ws_summary = wb.create_sheet('Sources Summary')
-        summary_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
-                          'environment', 'source_type', 'technical_type',
-                          'connected_destinations', 'connected_warehouses',
-                          'total_events', 'traits_count', 'total_allowed_7d', 'total_blocked_7d',
-                          'has_recent_data', 'volume_window']
-
-        for col_idx, header in enumerate(summary_headers, 1):
-            cell = ws_summary.cell(row=1, column=col_idx, value=header)
-            cell.fill = header_fill
-            cell.font = header_font
-
-        # Process each source
-        for source_idx, source in enumerate(sources):
-            source_name = source.get('name', '')
-            source_slug = source.get('slug', '')
-            source_status = source.get('status', '')
-            metadata = source.get('metadata') or {}
-            metadata_category = metadata.get('category', '') or ''
-            technical_type = metadata.get('name', '')
-            source_type = metadata_category.capitalize() if metadata_category else technical_type
-            environment = extract_environment(source.get('labels'))
-            connected_destinations = format_connections(source.get('integrations'))
-            connected_warehouses = format_connections(source.get('warehouses'))
-
-            total_allowed = 0
-            total_blocked = 0
-            total_events = 0
-            traits_count = 0
-
-            # Read schema from cached JSON (already fetched during audit)
-            schema_data = source.get('schema') or None
-            if schema_data:
-                try:
-                    # Process events
-                    recent_events_map = {}
-                    for e in schema_data.get('events', []):
-                        recent_events_map[e['name']] = {
-                            'type': e['type'],
-                            'allowed': e.get('counts', {}).get('allowed', 0),
-                            'denied': e.get('counts', {}).get('denied', 0)
-                        }
-
-                    all_events = []
-                    for collection in schema_data.get('collections', []):
-                        for event in collection.get('events', []):
-                            recent = recent_events_map.get(event['name'])
-                            all_events.append({
-                                'name': event['name'],
-                                'type': 'TRACK',
-                                'isPlanned': event.get('isPlanned', False),
-                                'allowed': recent['allowed'] if recent else 0,
-                                'denied': recent['denied'] if recent else 0
-                            })
-
-                    # Add unplanned recent events
-                    for name, data in recent_events_map.items():
-                        if not any(e['name'] == name for e in all_events):
-                            all_events.append({
-                                'name': name,
-                                'type': data['type'],
-                                'isPlanned': False,
-                                'allowed': data['allowed'],
-                                'denied': data['denied']
-                            })
-
-                    total_events = len(all_events)
-                    total_allowed = sum(e['allowed'] for e in all_events)
-                    total_blocked = sum(e['denied'] for e in all_events)
-
-                    # Add events to master sheet (filter to only allowed events)
-                    for event in all_events:
-                        allowed = event['allowed']
-                        blocked = event['denied']
-
-                        # Skip events with no allowed volume (only show events that are successfully flowing)
-                        # This filters out both zero-volume and blocked-only events
-                        if allowed == 0:
-                            continue
-
-                        event_type = event['type']
-                        if event_type == 'TRACK' and event['name'] == 'Page Viewed':
-                            event_type = 'PAGE'
-
-                        planning_status = 'Planned' if event['isPlanned'] else 'Unplanned'
-
-                        ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
-                        ws_master.cell(row=master_row_idx, column=2, value=source_name)
-                        ws_master.cell(row=master_row_idx, column=3, value=source_slug)
-                        ws_master.cell(row=master_row_idx, column=4, value=source_status)
-                        ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
-                        ws_master.cell(row=master_row_idx, column=6, value=environment)
-                        ws_master.cell(row=master_row_idx, column=7, value=source_type)
-                        ws_master.cell(row=master_row_idx, column=8, value=technical_type)
-                        ws_master.cell(row=master_row_idx, column=9, value='event')
-                        ws_master.cell(row=master_row_idx, column=10, value=event['name'])
-                        ws_master.cell(row=master_row_idx, column=11, value=event_type)
-                        ws_master.cell(row=master_row_idx, column=12, value=planning_status)
-                        ws_master.cell(row=master_row_idx, column=13, value=allowed)
-                        ws_master.cell(row=master_row_idx, column=14, value=blocked)
-                        ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
-                        ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
-                        master_row_idx += 1
-
-                    # Process traits
-                    for collection in schema_data.get('collections', []):
-                        if collection.get('name', '').lower() == 'users':
-                            for prop in collection.get('objectProperties', []):
-                                if prop.get('enabled', True) and not prop.get('archived', False):
-                                    trait_key = prop.get('key', '')
-                                    stats = prop.get('stats', {})
-                                    allowed = stats.get('allowed', 0)
-                                    blocked = stats.get('denied', 0)
-                                    traits_count += 1
-
-                                    # Skip traits with no allowed volume (only show traits that are successfully flowing)
-                                    if allowed == 0:
-                                        continue
-
-                                    # Add trait to master
-                                    ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
-                                    ws_master.cell(row=master_row_idx, column=2, value=source_name)
-                                    ws_master.cell(row=master_row_idx, column=3, value=source_slug)
-                                    ws_master.cell(row=master_row_idx, column=4, value=source_status)
-                                    ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
-                                    ws_master.cell(row=master_row_idx, column=6, value=environment)
-                                    ws_master.cell(row=master_row_idx, column=7, value=source_type)
-                                    ws_master.cell(row=master_row_idx, column=8, value=technical_type)
-                                    ws_master.cell(row=master_row_idx, column=9, value='trait')
-                                    ws_master.cell(row=master_row_idx, column=10, value=trait_key)
-                                    ws_master.cell(row=master_row_idx, column=11, value='')
-                                    ws_master.cell(row=master_row_idx, column=12, value='')
-                                    ws_master.cell(row=master_row_idx, column=13, value=allowed)
-                                    ws_master.cell(row=master_row_idx, column=14, value=blocked)
-                                    ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
-                                    ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
-                                    master_row_idx += 1
-                            break
-
-                except Exception as e:
-                    print(f"Error processing schema for {source_slug}: {e}")
-
-            # Write to summary sheet
-            summary_row = [
-                workspace_slug, source_name, source_slug, source_status,
-                get_source_health(source_status, total_allowed), environment,
-                source_type, technical_type,
-                connected_destinations,
-                connected_warehouses,
-                total_events, traits_count, total_allowed, total_blocked,
-                'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days'
-            ]
-
-            summary_row_idx = source_idx + 2  # +2 for header row and 1-indexed
-            for col_idx, value in enumerate(summary_row, 1):
-                ws_summary.cell(row=summary_row_idx, column=col_idx, value=value)
-
-        # Auto-size all columns
-        for ws in [ws_master, ws_summary]:
-            for col in ws.columns:
-                max_length = 0
-                column = col[0].column_letter
-                for cell in col:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
-                ws.column_dimensions[column].width = min(max_length + 2, 50)
-
-        # Save
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-
+        output = io.BytesIO(xlsx_bytes)
         filename = f"{workspace_slug}_sources_llm_optimized_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
-
         return send_file(output,
                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         as_attachment=True,
@@ -4509,25 +4388,32 @@ def export_sources_destinations_csv():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/export-destinations-csv')
-def export_destinations_csv():
-    """Export destinations as CSV"""
+@app.route('/api/export-destinations-excel')
+def export_destinations_excel():
+    """Export destinations to Excel. Sheet 1: destination inventory. Sheet 2: configured mappings (populated when the audit collected them)."""
     try:
         from export_manager import ExportManager
 
+        workspace_slug = session.get('workspace_slug', 'workspace')
         DATA_DIR = get_session_data_dir()
         if not DATA_DIR:
             return jsonify({'error': 'No audit session found. Please run an audit first.'}), 401
-        exporter = ExportManager(str(DATA_DIR))
-        csv_data = exporter.export_destinations_csv()
 
-        from flask import Response
-        return Response(
-            csv_data,
-            mimetype='text/csv',
-            headers={'Content-Disposition': 'attachment; filename=destinations.csv'}
-        )
+        exporter = ExportManager(str(DATA_DIR))
+        try:
+            xlsx_bytes = exporter.export_destinations_xlsx()
+        except FileNotFoundError:
+            return jsonify({'error': 'No destinations data. Please re-run the audit.'}), 404
+
+        output = io.BytesIO(xlsx_bytes)
+        filename = f"{workspace_slug}_destinations_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        return send_file(output,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                         as_attachment=True,
+                         download_name=filename)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/export-audiences-destinations-csv')

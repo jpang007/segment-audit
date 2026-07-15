@@ -127,59 +127,326 @@ class ExportManager:
 
         return output.getvalue()
 
-    def export_destinations_csv(self) -> str:
+    def export_destinations_xlsx(self) -> bytes:
         """
-        Export destinations with source info, type, status, and categories.
-        One row per destination.
+        Build the two-sheet destinations Excel: 'Destinations' (inventory)
+        and 'Mappings' (configured subscriptions when the audit collected them).
+        Returns raw .xlsx bytes.
         """
-        output = io.StringIO()
-        writer = csv.writer(output)
-
-        writer.writerow([
-            'Destination Name',
-            'Destination ID',
-            'Kind',
-            'Destination Type',
-            'Status',
-            'Categories',
-            'Source Name',
-            'Source Slug',
-            'Source Type',
-            'Created At'
-        ])
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from io import BytesIO
 
         dest_file = self.data_dir / 'gateway_destinations.json'
         if not dest_file.exists():
-            return "No Gateway API destinations data found (gateway_destinations.json missing)"
+            raise FileNotFoundError('gateway_destinations.json missing')
 
         with open(dest_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
         destinations = data.get('destinations', []) if isinstance(data, dict) else data
 
-        for dest in destinations:
+        wb = Workbook()
+        wb.remove(wb.active)
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        # Sheet 1: Destinations
+        ws_dest = wb.create_sheet('Destinations')
+        dest_headers = ['Destination Name', 'Destination ID', 'Kind', 'Destination Type',
+                        'Destination Slug', 'Status', 'Categories',
+                        'Source Name', 'Source Slug', 'Source Type', 'Created At']
+        for col_idx, header in enumerate(dest_headers, 1):
+            cell = ws_dest.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        for row_idx, dest in enumerate(destinations, 2):
             typename = dest.get('__typename', '')
-            status = dest.get('integrationStatus') or dest.get('warehouseStatus', '')
+            status_val = dest.get('integrationStatus') or dest.get('warehouseStatus', '')
             metadata = dest.get('metadata') or {}
-            dest_type = metadata.get('name', '')
-            categories = ', '.join(metadata.get('categories') or [])
             source = dest.get('source') or {}
             source_metadata = source.get('metadata') or {}
+            ws_dest.cell(row=row_idx, column=1, value=dest.get('name', ''))
+            ws_dest.cell(row=row_idx, column=2, value=dest.get('id', ''))
+            ws_dest.cell(row=row_idx, column=3, value=typename)
+            ws_dest.cell(row=row_idx, column=4, value=metadata.get('name', ''))
+            ws_dest.cell(row=row_idx, column=5, value=metadata.get('slug', ''))
+            ws_dest.cell(row=row_idx, column=6, value=status_val)
+            ws_dest.cell(row=row_idx, column=7, value=', '.join(metadata.get('categories') or []))
+            ws_dest.cell(row=row_idx, column=8, value=source.get('name', ''))
+            ws_dest.cell(row=row_idx, column=9, value=source.get('slug', ''))
+            ws_dest.cell(row=row_idx, column=10, value=source_metadata.get('name', ''))
+            ws_dest.cell(row=row_idx, column=11, value=dest.get('createdAt', ''))
 
-            writer.writerow([
-                dest.get('name', ''),
-                dest.get('id', ''),
-                typename,
-                dest_type,
-                status,
-                categories,
-                source.get('name', ''),
-                source.get('slug', ''),
-                source_metadata.get('name', ''),
-                dest.get('createdAt', '')
-            ])
+        # Sheet 2: Mappings
+        ws_map = wb.create_sheet('Mappings')
+        map_headers = ['Destination Name', 'Destination ID', 'Destination Type',
+                       'Source Name', 'Source Slug',
+                       'Mapping Name', 'Action Name', 'Action Slug', 'Trigger',
+                       'Enabled', 'Field Mappings (JSON)']
+        for col_idx, header in enumerate(map_headers, 1):
+            cell = ws_map.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
 
-        return output.getvalue()
+        row_idx = 2
+        found_any_mapping = False
+        for dest in destinations:
+            subs = dest.get('subscriptions') or []
+            if not any(s.get('id') for s in subs):
+                continue
+            found_any_mapping = True
+            metadata = dest.get('metadata') or {}
+            source = dest.get('source') or {}
+            action_lookup = {
+                (a.get('id') or ''): (a.get('name') or a.get('slug') or '')
+                for a in (dest.get('actions_catalog') or [])
+            }
+            for sub in subs:
+                if not sub.get('id'):
+                    continue
+                settings_json = json.dumps(sub.get('settings') or [], separators=(',', ':'))
+                ws_map.cell(row=row_idx, column=1, value=dest.get('name', ''))
+                ws_map.cell(row=row_idx, column=2, value=dest.get('id', ''))
+                ws_map.cell(row=row_idx, column=3, value=metadata.get('name', ''))
+                ws_map.cell(row=row_idx, column=4, value=source.get('name', ''))
+                ws_map.cell(row=row_idx, column=5, value=source.get('slug', ''))
+                ws_map.cell(row=row_idx, column=6, value=sub.get('name', ''))
+                ws_map.cell(row=row_idx, column=7, value=action_lookup.get(sub.get('actionId') or '', ''))
+                ws_map.cell(row=row_idx, column=8, value=sub.get('actionSlug', ''))
+                ws_map.cell(row=row_idx, column=9, value=sub.get('trigger', ''))
+                ws_map.cell(row=row_idx, column=10, value='TRUE' if sub.get('enabled') else 'FALSE')
+                ws_map.cell(row=row_idx, column=11, value=settings_json)
+                row_idx += 1
+
+        if not found_any_mapping:
+            ws_map.cell(row=2, column=1,
+                        value='No mapping data. Re-run the audit with "Destination Mappings" enabled to populate this sheet.')
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.read()
+
+    def export_sources_xlsx(self, workspace_slug: str = None) -> bytes:
+        """
+        Build the sources Excel: Master Data (flattened events + traits) and
+        Sources Summary. Reads schemas from cached gateway_sources.json.
+        Returns raw .xlsx bytes.
+        """
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill
+        from io import BytesIO
+
+        sources_json = self.data_dir / 'gateway_sources.json'
+        if not sources_json.exists():
+            raise FileNotFoundError('gateway_sources.json missing')
+
+        with open(sources_json, 'r', encoding='utf-8') as f:
+            sources = json.load(f)
+
+        # Load workspace_slug from summary if not supplied (ZIP path doesn't have session context)
+        if workspace_slug is None:
+            summary_file = self.data_dir / 'gateway_summary.json'
+            workspace_slug = ''
+            if summary_file.exists():
+                try:
+                    with open(summary_file) as f:
+                        workspace_slug = json.load(f).get('workspace_slug', '') or ''
+                except Exception:
+                    pass
+
+        def extract_environment(labels):
+            for label in labels or []:
+                if (label.get('key') or '').lower() == 'environment':
+                    return label.get('value', '')
+            return ''
+
+        def format_connections(items):
+            parts = []
+            for item in items or []:
+                name = item.get('name', '')
+                type_name = (item.get('metadata') or {}).get('name', '')
+                if not name:
+                    continue
+                parts.append(f"{name} ({type_name})" if type_name else name)
+            return ', '.join(parts)
+
+        def get_source_health(status, total_allowed):
+            if status == 'DISABLED':
+                return 'DISABLED'
+            return 'ACTIVE' if total_allowed > 0 else 'NO_RECENT_DATA'
+
+        wb = Workbook()
+        wb.remove(wb.active)
+
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        ws_master = wb.create_sheet('Master Data')
+        master_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
+                         'environment', 'source_type', 'technical_type', 'record_type', 'object_name',
+                         'object_type', 'planning_status', 'allowed_7d', 'blocked_7d',
+                         'volume_window', 'has_recent_data']
+        for col_idx, header in enumerate(master_headers, 1):
+            cell = ws_master.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        master_row_idx = 2
+
+        ws_summary = wb.create_sheet('Sources Summary')
+        summary_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
+                          'environment', 'source_type', 'technical_type',
+                          'connected_destinations', 'connected_warehouses',
+                          'total_events', 'traits_count', 'total_allowed_7d', 'total_blocked_7d',
+                          'has_recent_data', 'volume_window']
+        for col_idx, header in enumerate(summary_headers, 1):
+            cell = ws_summary.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+
+        for source_idx, source in enumerate(sources):
+            source_name = source.get('name', '')
+            source_slug = source.get('slug', '')
+            source_status = source.get('status', '')
+            metadata = source.get('metadata') or {}
+            metadata_category = metadata.get('category', '') or ''
+            technical_type = metadata.get('name', '')
+            source_type = metadata_category.capitalize() if metadata_category else technical_type
+            environment = extract_environment(source.get('labels'))
+            connected_destinations = format_connections(source.get('integrations'))
+            connected_warehouses = format_connections(source.get('warehouses'))
+
+            total_allowed = 0
+            total_blocked = 0
+            total_events = 0
+            traits_count = 0
+
+            schema_data = source.get('schema') or None
+            if schema_data:
+                try:
+                    recent_events_map = {}
+                    for e in schema_data.get('events', []):
+                        recent_events_map[e['name']] = {
+                            'type': e['type'],
+                            'allowed': e.get('counts', {}).get('allowed', 0),
+                            'denied': e.get('counts', {}).get('denied', 0)
+                        }
+
+                    all_events = []
+                    for collection in schema_data.get('collections', []):
+                        for event in collection.get('events', []):
+                            recent = recent_events_map.get(event['name'])
+                            all_events.append({
+                                'name': event['name'],
+                                'type': 'TRACK',
+                                'isPlanned': event.get('isPlanned', False),
+                                'allowed': recent['allowed'] if recent else 0,
+                                'denied': recent['denied'] if recent else 0
+                            })
+
+                    for name, data in recent_events_map.items():
+                        if not any(e['name'] == name for e in all_events):
+                            all_events.append({
+                                'name': name,
+                                'type': data['type'],
+                                'isPlanned': False,
+                                'allowed': data['allowed'],
+                                'denied': data['denied']
+                            })
+
+                    total_events = len(all_events)
+                    total_allowed = sum(e['allowed'] for e in all_events)
+                    total_blocked = sum(e['denied'] for e in all_events)
+
+                    for event in all_events:
+                        allowed = event['allowed']
+                        blocked = event['denied']
+                        if allowed == 0:
+                            continue
+                        event_type = event['type']
+                        if event_type == 'TRACK' and event['name'] == 'Page Viewed':
+                            event_type = 'PAGE'
+                        planning_status = 'Planned' if event['isPlanned'] else 'Unplanned'
+
+                        ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
+                        ws_master.cell(row=master_row_idx, column=2, value=source_name)
+                        ws_master.cell(row=master_row_idx, column=3, value=source_slug)
+                        ws_master.cell(row=master_row_idx, column=4, value=source_status)
+                        ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
+                        ws_master.cell(row=master_row_idx, column=6, value=environment)
+                        ws_master.cell(row=master_row_idx, column=7, value=source_type)
+                        ws_master.cell(row=master_row_idx, column=8, value=technical_type)
+                        ws_master.cell(row=master_row_idx, column=9, value='event')
+                        ws_master.cell(row=master_row_idx, column=10, value=event['name'])
+                        ws_master.cell(row=master_row_idx, column=11, value=event_type)
+                        ws_master.cell(row=master_row_idx, column=12, value=planning_status)
+                        ws_master.cell(row=master_row_idx, column=13, value=allowed)
+                        ws_master.cell(row=master_row_idx, column=14, value=blocked)
+                        ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
+                        ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
+                        master_row_idx += 1
+
+                    for collection in schema_data.get('collections', []):
+                        if collection.get('name', '').lower() == 'users':
+                            for prop in collection.get('objectProperties', []):
+                                if prop.get('enabled', True) and not prop.get('archived', False):
+                                    trait_key = prop.get('key', '')
+                                    stats = prop.get('stats', {})
+                                    allowed = stats.get('allowed', 0)
+                                    blocked = stats.get('denied', 0)
+                                    traits_count += 1
+                                    if allowed == 0:
+                                        continue
+                                    ws_master.cell(row=master_row_idx, column=1, value=workspace_slug)
+                                    ws_master.cell(row=master_row_idx, column=2, value=source_name)
+                                    ws_master.cell(row=master_row_idx, column=3, value=source_slug)
+                                    ws_master.cell(row=master_row_idx, column=4, value=source_status)
+                                    ws_master.cell(row=master_row_idx, column=5, value=get_source_health(source_status, total_allowed))
+                                    ws_master.cell(row=master_row_idx, column=6, value=environment)
+                                    ws_master.cell(row=master_row_idx, column=7, value=source_type)
+                                    ws_master.cell(row=master_row_idx, column=8, value=technical_type)
+                                    ws_master.cell(row=master_row_idx, column=9, value='trait')
+                                    ws_master.cell(row=master_row_idx, column=10, value=trait_key)
+                                    ws_master.cell(row=master_row_idx, column=11, value='')
+                                    ws_master.cell(row=master_row_idx, column=12, value='')
+                                    ws_master.cell(row=master_row_idx, column=13, value=allowed)
+                                    ws_master.cell(row=master_row_idx, column=14, value=blocked)
+                                    ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
+                                    ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
+                                    master_row_idx += 1
+                            break
+                except Exception as e:
+                    print(f"Error processing schema for {source_slug}: {e}")
+
+            summary_row = [
+                workspace_slug, source_name, source_slug, source_status,
+                get_source_health(source_status, total_allowed), environment,
+                source_type, technical_type,
+                connected_destinations,
+                connected_warehouses,
+                total_events, traits_count, total_allowed, total_blocked,
+                'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days'
+            ]
+            summary_row_idx = source_idx + 2
+            for col_idx, value in enumerate(summary_row, 1):
+                ws_summary.cell(row=summary_row_idx, column=col_idx, value=value)
+
+        for ws in [ws_master, ws_summary]:
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[column].width = min(max_length + 2, 50)
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.read()
 
     def export_audiences_with_destinations_csv(self) -> str:
         """
@@ -486,7 +753,7 @@ class ExportManager:
             # Only include exports for data that was actually collected
 
             # Sources with destinations (only if sources were collected)
-            if self.collection_options.get('sources', True):
+            if self.collection_options.get('sources', False):
                 try:
                     zip_file.writestr(
                         'processed/sources_with_destinations.csv',
@@ -496,7 +763,7 @@ class ExportManager:
                     print(f"Warning: Could not export sources_with_destinations: {e}")
 
             # Audiences with destinations (only if audiences were collected)
-            if self.collection_options.get('audiences', True):
+            if self.collection_options.get('audiences', False):
                 try:
                     zip_file.writestr(
                         'processed/audiences_with_destinations.csv',
@@ -506,7 +773,7 @@ class ExportManager:
                     print(f"Warning: Could not export audiences_with_destinations: {e}")
 
             # Top events (only if sources were collected - needs event schema)
-            if self.collection_options.get('sources', True):
+            if self.collection_options.get('sources', False):
                 try:
                     zip_file.writestr(
                         'processed/top_events.csv',
@@ -515,28 +782,32 @@ class ExportManager:
                 except Exception as e:
                     print(f"Warning: Could not export top_events: {e}")
 
-            # ===== RAW DATA FILES (All Gateway API data) =====
+            # ===== RAW DATA FILES (Gateway API data for the checked collections only) =====
 
-            # List of Gateway API files to include
+            # (filename, collect_options key or None to always include).
+            # None means the file holds workspace-level metadata that isn't gated by
+            # any specific collection choice.
             gateway_files = [
-                'gateway_audiences.csv',
-                'gateway_sources.csv',
-                'gateway_journeys.csv',
-                'gateway_profile_insights.csv',
-                'gateway_space_sources.csv',
-                'gateway_summary.json',
-                'gateway_destinations.json',
-                'gateway_audit_trail.json',
-                'gateway_mtu.json',
-                'gateway_usage_data.json',
-                'gateway_data_flows.json',
-                'gateway_personas_entitlements.json',
-                'gateway_retl_models.json',
-                'gateway_warehouses.json',
+                ('gateway_summary.json', None),
+                ('gateway_personas_entitlements.json', None),
+                ('gateway_sources.csv', 'sources'),
+                ('gateway_sources.json', 'sources'),
+                ('gateway_audiences.csv', 'audiences'),
+                ('gateway_space_sources.csv', 'audiences'),
+                ('gateway_journeys.csv', 'journeys'),
+                ('gateway_profile_insights.csv', 'profiles'),
+                ('gateway_destinations.json', 'destinations'),
+                ('gateway_data_flows.json', 'destinations'),
+                ('gateway_audit_trail.json', 'audit_trail'),
+                ('gateway_mtu.json', 'mtu'),
+                ('gateway_usage_data.json', 'usage_data'),
+                ('gateway_retl_models.json', 'retl'),
+                ('gateway_warehouses.json', 'warehouses'),
             ]
 
-            # Add each Gateway file if it exists
-            for filename in gateway_files:
+            for filename, option_key in gateway_files:
+                if option_key and not self.collection_options.get(option_key, False):
+                    continue
                 file_path = self.data_dir / filename
                 if file_path.exists():
                     try:
@@ -545,9 +816,29 @@ class ExportManager:
                     except Exception as e:
                         print(f"Warning: Could not add {filename}: {e}")
 
+            # Destinations Excel — matches the Destinations page's Export Excel output
+            if self.collection_options.get('destinations', False):
+                try:
+                    xlsx_bytes = self.export_destinations_xlsx()
+                    zip_file.writestr('raw_data/destinations.xlsx', xlsx_bytes)
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    print(f"Warning: Could not generate destinations xlsx: {e}")
+
+            # Sources Excel — matches the Sources page's Export Excel output
+            if self.collection_options.get('sources', False):
+                try:
+                    xlsx_bytes = self.export_sources_xlsx()
+                    zip_file.writestr('raw_data/sources.xlsx', xlsx_bytes)
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    print(f"Warning: Could not generate sources xlsx: {e}")
+
             # ===== rETL MODELS CSV =====
             retl_file = self.data_dir / 'gateway_retl_models.json'
-            if retl_file.exists():
+            if self.collection_options.get('retl', False) and retl_file.exists():
                 try:
                     import csv as _csv, io as _io
                     with open(retl_file, 'r') as f:
@@ -583,7 +874,7 @@ class ExportManager:
 
             # ===== WAREHOUSE SCHEMAS CSV =====
             wh_file = self.data_dir / 'gateway_warehouses.json'
-            if wh_file.exists():
+            if self.collection_options.get('warehouses', False) and wh_file.exists():
                 try:
                     import csv as _csv, io as _io
                     with open(wh_file, 'r') as f:
@@ -631,17 +922,6 @@ class ExportManager:
                     zip_file.writestr('raw_data/gateway_warehouse_schemas.csv', out.getvalue())
                 except Exception as e:
                     print(f"Warning: Could not generate warehouse schemas CSV: {e}")
-
-            # ===== SOURCES JSON (for Gem analysis) =====
-
-            # Include sources.json with full schema data
-            sources_json = self.data_dir / 'gateway_sources.json'
-            if sources_json.exists():
-                try:
-                    with open(sources_json, 'rb') as f:
-                        zip_file.writestr('raw_data/gateway_sources.json', f.read())
-                except Exception as e:
-                    print(f"Warning: Could not add sources JSON: {e}")
 
             # ===== GEM ANALYSIS FILES (formatted for Gemini Gems) =====
 
@@ -987,9 +1267,11 @@ This ZIP contains a complete export of your Segment workspace audit data.
     Complete raw data from Segment Gateway API:
     - gateway_sources.csv: All sources (basic info)
     - gateway_sources.json: All sources with FULL EVENT SCHEMAS (track, identify, page, screen)
+    - sources.xlsx: Master Data + Sources Summary (same as the Sources page's Export Excel)
     - gateway_audiences.csv: All audiences and their properties
     - gateway_journeys.csv: All journeys and campaigns with destinations
-    - gateway_destinations.json: All destinations and configs
+    - gateway_destinations.json: All destinations and configs (raw JSON)
+    - destinations.xlsx: Destinations + Mappings (two sheets; same as the Destinations page's Export Excel)
     - gateway_mtu.json: MTU/API usage data with billing info
     - gateway_audit_trail.json: Workspace activity logs (last 30 days)
     - gateway_usage_data.json: Usage metrics and billing

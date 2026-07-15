@@ -530,6 +530,13 @@
                             </div>
                         </label>
                         <label class="collect-item">
+                            <input type="checkbox" id="collect_mappings">
+                            <div>
+                                <span class="collect-item-label">🔗 Destination Mappings</span>
+                                <span class="collect-item-desc">Triggers & field mappings — slow</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
                             <input type="checkbox" id="collect_audiences" checked>
                             <div>
                                 <span class="collect-item-label">👥 Audiences</span>
@@ -617,12 +624,12 @@
 
     <script>
         function selectAll() {
-            ['collect_sources','collect_schemas','collect_destinations','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = true);
         }
         function selectNone() {
-            ['collect_sources','collect_schemas','collect_destinations','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = false);
         }
@@ -636,6 +643,12 @@
             const schemasBox = document.getElementById('collect_schemas');
             schemasBox.disabled = !this.checked;
             if (!this.checked) schemasBox.checked = false;
+        });
+
+        document.getElementById('collect_destinations').addEventListener('change', function() {
+            const mappingsBox = document.getElementById('collect_mappings');
+            mappingsBox.disabled = !this.checked;
+            if (!this.checked) mappingsBox.checked = false;
         });
 
         document.getElementById('auditForm').addEventListener('submit', async (e) => {
@@ -654,6 +667,7 @@
                 sources: document.getElementById('collect_sources').checked,
                 schemas: document.getElementById('collect_schemas').checked,
                 destinations: document.getElementById('collect_destinations').checked,
+                mappings: document.getElementById('collect_mappings').checked,
                 audiences: document.getElementById('collect_audiences').checked,
                 journeys: document.getElementById('collect_journeys').checked,
                 profiles: document.getElementById('collect_profiles').checked,

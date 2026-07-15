@@ -115,7 +115,7 @@
                             <option value="enabled">Enabled</option>
                             <option value="disabled">Disabled</option>
                         </select>
-                        <button onclick="exportDestinationsCSV()" class="btn btn-secondary btn-sm">📥 Export CSV</button>
+                        <button onclick="exportDestinationsExcel()" class="btn btn-secondary btn-sm">📥 Export Excel</button>
                     </div>
                 </div>
 
@@ -184,8 +184,8 @@
         let sortColumn = null;
         let sortDirection = 'desc'; // 'asc' or 'desc'
 
-        function exportDestinationsCSV() {
-            window.location.href = '/api/export-destinations-csv';
+        function exportDestinationsExcel() {
+            window.location.href = '/api/export-destinations-excel';
         }
 
         // Format large numbers with abbreviations (K, M, B)
