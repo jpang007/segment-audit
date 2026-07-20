@@ -73,8 +73,12 @@
             <div class="chart-section">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2>All Sources</h2>
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; align-items: center;">
                         <input type="text" id="searchBox" placeholder="🔍 Search sources..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 300px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #4a5568; cursor: pointer; user-select: none;">
+                            <input type="checkbox" id="onlyViolations" style="cursor: pointer;">
+                            🚨 Only with violations
+                        </label>
                         <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
                             <option value="name-asc">Name (A-Z)</option>
                             <option value="name-desc">Name (Z-A)</option>
@@ -82,6 +86,7 @@
                             <option value="disabled-first">Disabled First</option>
                             <option value="dest-desc">Dest Count (High-Low)</option>
                             <option value="dest-asc">Dest Count (Low-High)</option>
+                            <option value="violations-desc">Violations (High-Low)</option>
                         </select>
                         <button onclick="exportToExcel(event)" class="btn btn-secondary btn-sm" id="exportBtn">
                             📥 Export Excel
@@ -98,6 +103,7 @@
                                 <th style="text-align: center; white-space: nowrap;">Dest Count</th>
                                 <th>Destinations</th>
                                 <th>Warehouses</th>
+                                <th style="text-align: center; white-space: nowrap;">🚨 Violations (7d)</th>
                                 <th>Labels</th>
                                 <th style="text-align: center;">Schema</th>
                             </tr>
@@ -315,6 +321,15 @@
 
                 const sourceSlug = source['Slug'] || '';
 
+                const vEvents = parseInt(source['Violation Events (7d)'] || '0', 10) || 0;
+                const vUnique = parseInt(source['Unique Violations (7d)'] || '0', 10) || 0;
+                const vPct = source['Violation % of Total (7d)'];
+                const vPctStr = (vPct !== '' && vPct !== undefined && vPct !== null) ? `${Number(vPct).toFixed(1)}%` : '';
+                const vTitle = vEvents > 0 ? `${vEvents.toLocaleString()} events • ${vUnique} unique${vPctStr ? ' • ' + vPctStr + ' of traffic' : ''}` : 'No violations in last 7 days';
+                const vCell = vEvents > 0
+                    ? `<span style="background: #fed7d7; color: #c53030; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;" title="${vTitle}">${vEvents.toLocaleString()}</span>`
+                    : '<span style="color: #a0aec0; font-size: 0.85rem;" title="No violations in last 7 days">—</span>';
+
                 row.innerHTML = `
                     <td style="text-align: center;">${statusBadge}</td>
                     <td><strong>${source['Name'] || ''}</strong></td>
@@ -322,6 +337,7 @@
                     <td style="text-align: center;"><span style="font-weight: 600; color: ${destCount > 0 ? '#667eea' : '#a0aec0'};">${destCount}</span></td>
                     <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;" title="${destinationsFull}">${destDisplay}</td>
                     <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${warehousesFull}">${whDisplay}</td>
+                    <td style="text-align: center;">${vCell}</td>
                     <td style="font-size: 0.85rem; color: #718096;">${source['Labels'] || ''}</td>
                     <td style="text-align: center;">
                         <button onclick="openSchemaModal('${sourceSlug}', '${source['Name'].replace(/'/g, "\\'")}', event)" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;">
@@ -367,23 +383,33 @@
         // Search functionality
         document.getElementById('searchBox').addEventListener('input', applyFiltersAndSort);
         document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+        document.getElementById('onlyViolations').addEventListener('change', applyFiltersAndSort);
 
         function applyFiltersAndSort() {
             const searchTerm = document.getElementById('searchBox').value.toLowerCase();
             const sortBy = document.getElementById('sortBy').value;
+            const onlyViolations = document.getElementById('onlyViolations').checked;
 
-            // Filter by search term
+            // Filter by search term and (optional) violations-only
             filteredSources = allSources.filter(source => {
-                return !searchTerm ||
+                const matchesSearch = !searchTerm ||
                     (source['Name'] || '').toLowerCase().includes(searchTerm) ||
                     (source['Type'] || '').toLowerCase().includes(searchTerm) ||
                     (source['Connected Destinations'] || '').toLowerCase().includes(searchTerm);
+                if (!matchesSearch) return false;
+                if (onlyViolations) {
+                    const v = parseInt(source['Violation Events (7d)'] || '0', 10) || 0;
+                    if (v <= 0) return false;
+                }
+                return true;
             });
 
             // Sort
             filteredSources.sort((a, b) => {
                 const destCountA = (a['Connected Destinations'] || '').split(',').filter(d => d.trim()).length;
                 const destCountB = (b['Connected Destinations'] || '').split(',').filter(d => d.trim()).length;
+                const vA = parseInt(a['Violation Events (7d)'] || '0', 10) || 0;
+                const vB = parseInt(b['Violation Events (7d)'] || '0', 10) || 0;
 
                 switch(sortBy) {
                     case 'name-asc':
@@ -403,6 +429,9 @@
                         return (a['Name'] || '').localeCompare(b['Name'] || '');
                     case 'dest-asc':
                         if (destCountA !== destCountB) return destCountA - destCountB;
+                        return (a['Name'] || '').localeCompare(b['Name'] || '');
+                    case 'violations-desc':
+                        if (vB !== vA) return vB - vA;
                         return (a['Name'] || '').localeCompare(b['Name'] || '');
                     default:
                         return 0;
@@ -525,7 +554,7 @@
 
         function renderSchema(data) {
             const content = document.getElementById('schemaModalContent');
-            const { events = [], collections = [] } = data;
+            const { events = [], collections = [], event_violations = {} } = data;
 
             // Create a map of recent event counts
             const recentEventsMap = new Map();
@@ -583,6 +612,8 @@
                 const unplannedCount = allEvents.length - plannedCount;
                 const totalAllowed = allEvents.reduce((sum, e) => sum + (e.allowed || 0), 0);
                 const totalDenied = allEvents.reduce((sum, e) => sum + (e.denied || 0), 0);
+                const eventsWithViolations = allEvents.filter(e => (event_violations[e.name] || {}).eventCount > 0).length;
+                const totalViolations = Object.values(event_violations).reduce((sum, v) => sum + (v.eventCount || 0), 0);
 
                 // Count events by type
                 // Special handling: "Page Viewed" is TRACK but counted as PAGE
@@ -626,6 +657,7 @@
                             <div><strong style="color: #a0aec0;">${unplannedCount}</strong> <span style="color: #718096;">unplanned</span></div>
                             <div style="border-left: 2px solid #e2e8f0; padding-left: 20px; margin-left: 10px;"><strong style="color: #48bb78;">${totalAllowed.toLocaleString()}</strong> <span style="color: #718096;">allowed</span></div>
                             <div><strong style="color: ${totalDenied > 0 ? '#e53e3e' : '#a0aec0'};">${totalDenied.toLocaleString()}</strong> <span style="color: #718096;">blocked</span></div>
+                            <div style="border-left: 2px solid #e2e8f0; padding-left: 20px; margin-left: 10px;" title="Events failing tracking plan validation, last 7 days"><strong style="color: ${totalViolations > 0 ? '#c53030' : '#a0aec0'};">${totalViolations.toLocaleString()}</strong> <span style="color: #718096;">🚨 violations (${eventsWithViolations} events)</span></div>
                         </div>
                         <div style="display: flex; gap: 20px; padding: 15px; background: #eef2ff; border-radius: 8px; flex-wrap: wrap; border: 1px solid #667eea;">
                             <div style="font-weight: 600; color: #2d3748; width: 100%;">📊 Event Type Breakdown:</div>
@@ -636,7 +668,7 @@
 
                 html += '<div style="max-height: 500px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">';
                 html += '<table style="width: 100%; border-collapse: collapse;">';
-                html += '<thead style="background: #f7fafc; position: sticky; top: 0; z-index: 10;"><tr><th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Event Name</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Type</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Allowed</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Blocked</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 180px;">Status</th></tr></thead>';
+                html += '<thead style="background: #f7fafc; position: sticky; top: 0; z-index: 10;"><tr><th style="padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0;">Event Name</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Type</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Allowed</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Blocked</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 110px;" title="Events failing tracking plan validation (7d)">🚨 Violations</th><th style="padding: 12px; text-align: center; border-bottom: 2px solid #e2e8f0; width: 180px;">Status</th></tr></thead>';
                 html += '<tbody>';
 
                 allEvents.forEach(event => {
@@ -651,12 +683,21 @@
                         ? (event.denied > 0 ? `<strong style="color: #e53e3e;">${event.denied.toLocaleString()}</strong>` : '<span style="color: #a0aec0;">0</span>')
                         : '<span style="color: #a0aec0;">—</span>';
 
+                    const vData = event_violations[event.name];
+                    const vCount = vData ? (vData.eventCount || 0) : 0;
+                    const vUnique = vData ? (vData.uniqueViolationCount || 0) : 0;
+                    const vTitle = vCount > 0 ? `${vCount.toLocaleString()} violating events • ${vUnique} unique reasons` : '';
+                    const vDisplay = vCount > 0
+                        ? `<span style="background: #fed7d7; color: #c53030; padding: 3px 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 600;" title="${vTitle}">${vCount.toLocaleString()}</span>`
+                        : '<span style="color: #a0aec0;">0</span>';
+
                     html += `
                         <tr style="border-bottom: 1px solid #e2e8f0; ${rowBg}">
                             <td style="padding: 12px;"><strong style="color: #2d3748;">${event.name}</strong></td>
                             <td style="padding: 12px; text-align: center;"><span style="background: #edf2f7; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; color: #4a5568;">${event.type}</span></td>
                             <td style="padding: 12px; text-align: center;">${allowedDisplay}</td>
                             <td style="padding: 12px; text-align: center;">${deniedDisplay}</td>
+                            <td style="padding: 12px; text-align: center;">${vDisplay}</td>
                             <td style="padding: 12px; text-align: center;">${recentBadge}${plannedBadge}</td>
                         </tr>
                     `;

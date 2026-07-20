@@ -288,7 +288,8 @@ class ExportManager:
         master_headers = ['workspace', 'source_name', 'source_slug', 'source_status', 'source_health',
                          'environment', 'source_type', 'technical_type', 'record_type', 'object_name',
                          'object_type', 'planning_status', 'allowed_7d', 'blocked_7d',
-                         'volume_window', 'has_recent_data']
+                         'volume_window', 'has_recent_data',
+                         'violation_events_7d', 'unique_violations_7d']
         for col_idx, header in enumerate(master_headers, 1):
             cell = ws_master.cell(row=1, column=col_idx, value=header)
             cell.fill = header_fill
@@ -301,7 +302,8 @@ class ExportManager:
                           'environment', 'source_type', 'technical_type',
                           'connected_destinations', 'connected_warehouses',
                           'total_events', 'traits_count', 'total_allowed_7d', 'total_blocked_7d',
-                          'has_recent_data', 'volume_window']
+                          'has_recent_data', 'volume_window',
+                          'violation_events_7d', 'unique_violations_7d', 'violation_percent_of_total_7d']
         for col_idx, header in enumerate(summary_headers, 1):
             cell = ws_summary.cell(row=1, column=col_idx, value=header)
             cell.fill = header_fill
@@ -324,6 +326,7 @@ class ExportManager:
             total_events = 0
             traits_count = 0
 
+            event_violations = source.get('event_violations') or {}
             schema_data = source.get('schema') or None
             if schema_data:
                 try:
@@ -387,6 +390,9 @@ class ExportManager:
                         ws_master.cell(row=master_row_idx, column=14, value=blocked)
                         ws_master.cell(row=master_row_idx, column=15, value='last_7_days')
                         ws_master.cell(row=master_row_idx, column=16, value='TRUE' if allowed > 0 else 'FALSE')
+                        _v = event_violations.get(event['name']) or {}
+                        ws_master.cell(row=master_row_idx, column=17, value=_v.get('eventCount', ''))
+                        ws_master.cell(row=master_row_idx, column=18, value=_v.get('uniqueViolationCount', ''))
                         master_row_idx += 1
 
                     for collection in schema_data.get('collections', []):
@@ -421,6 +427,7 @@ class ExportManager:
                 except Exception as e:
                     print(f"Error processing schema for {source_slug}: {e}")
 
+            violations = source.get('violations') or {}
             summary_row = [
                 workspace_slug, source_name, source_slug, source_status,
                 get_source_health(source_status, total_allowed), environment,
@@ -428,7 +435,10 @@ class ExportManager:
                 connected_destinations,
                 connected_warehouses,
                 total_events, traits_count, total_allowed, total_blocked,
-                'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days'
+                'TRUE' if total_allowed > 0 else 'FALSE', 'last_7_days',
+                violations.get('eventCount', ''),
+                violations.get('uniqueEventCount', ''),
+                violations.get('percentOfTotalEvents', '')
             ]
             summary_row_idx = source_idx + 2
             for col_idx, value in enumerate(summary_row, 1):

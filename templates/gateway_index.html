@@ -523,6 +523,13 @@
                             </div>
                         </label>
                         <label class="collect-item">
+                            <input type="checkbox" id="collect_violations" checked>
+                            <div>
+                                <span class="collect-item-label">🚨 Violations</span>
+                                <span class="collect-item-desc">Tracking-plan violations (last 7d)</span>
+                            </div>
+                        </label>
+                        <label class="collect-item">
                             <input type="checkbox" id="collect_destinations" checked>
                             <div>
                                 <span class="collect-item-label">📍 Destinations</span>
@@ -624,12 +631,12 @@
 
     <script>
         function selectAll() {
-            ['collect_sources','collect_schemas','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_violations','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = true);
         }
         function selectNone() {
-            ['collect_sources','collect_schemas','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
+            ['collect_sources','collect_schemas','collect_violations','collect_destinations','collect_mappings','collect_audiences','collect_journeys',
              'collect_profiles','collect_mtu','collect_audit_trail','collect_usage_data',
              'collect_retl','collect_warehouses'].forEach(id => document.getElementById(id).checked = false);
         }
@@ -643,6 +650,9 @@
             const schemasBox = document.getElementById('collect_schemas');
             schemasBox.disabled = !this.checked;
             if (!this.checked) schemasBox.checked = false;
+            const violationsBox = document.getElementById('collect_violations');
+            violationsBox.disabled = !this.checked;
+            if (!this.checked) violationsBox.checked = false;
         });
 
         document.getElementById('collect_destinations').addEventListener('change', function() {
@@ -666,6 +676,7 @@
             const collectOptions = {
                 sources: document.getElementById('collect_sources').checked,
                 schemas: document.getElementById('collect_schemas').checked,
+                violations: document.getElementById('collect_violations').checked,
                 destinations: document.getElementById('collect_destinations').checked,
                 mappings: document.getElementById('collect_mappings').checked,
                 audiences: document.getElementById('collect_audiences').checked,

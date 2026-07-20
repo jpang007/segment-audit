@@ -713,6 +713,185 @@ class GatewayAPIClient:
             'actions': metadata.get('actions') or []
         }
 
+    def get_source_violation_counts(self, start_time, end_time):
+        """Fetch workspace-wide source violation counts across all tracking plans.
+
+        One call returns violation counts for every source that's attached to a
+        tracking plan. Sources without a plan are absent from the response — the
+        caller should treat them as zero violations.
+
+        Args:
+            start_time: ISO 8601 UTC string (e.g. "2026-07-10T16:15:00.000Z")
+            end_time: ISO 8601 UTC string
+
+        Returns:
+            dict {source_id: {eventCount, uniqueEventCount, percentOfTotalEvents, source_slug, source_name}}
+            If a source appears under multiple tracking plans, eventCount and
+            uniqueEventCount are summed and percentOfTotalEvents is taken from
+            the first appearance (per-plan percentages don't sum meaningfully).
+        """
+        query = """
+        query GetSourceViolationCounts($workspaceSlug: Slug!, $startTime: Date!, $endTime: Date!) {
+          workspace(slug: $workspaceSlug) {
+            id
+            trackingPlans {
+              id
+              schema {
+                id
+                children {
+                  resource {
+                    ... on Source {
+                      id
+                      name
+                      slug
+                      violationCounts(startTime: $startTime, endTime: $endTime) {
+                        eventCount
+                        uniqueEventCount
+                        percentOfTotalEvents
+                        __typename
+                      }
+                      __typename
+                    }
+                    __typename
+                  }
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+
+        variables = {
+            "workspaceSlug": self.workspace_slug,
+            "startTime": start_time,
+            "endTime": end_time
+        }
+
+        data = self._execute_query(query, variables)
+        plans = ((data.get('workspace') or {}).get('trackingPlans') or [])
+
+        by_source = {}
+        for plan in plans:
+            children = ((plan.get('schema') or {}).get('children') or [])
+            for child in children:
+                resource = child.get('resource') or {}
+                # __typename filter — the fragment matches Source only, but be defensive
+                if resource.get('__typename') and resource.get('__typename') != 'Source':
+                    continue
+                sid = resource.get('id')
+                if not sid:
+                    continue
+                counts = resource.get('violationCounts') or {}
+                event_count = counts.get('eventCount') or 0
+                unique_count = counts.get('uniqueEventCount') or 0
+                pct = counts.get('percentOfTotalEvents')
+
+                if sid in by_source:
+                    by_source[sid]['eventCount'] += event_count
+                    by_source[sid]['uniqueEventCount'] += unique_count
+                    # Keep the first non-null percent; per-plan percents don't sum meaningfully
+                    if by_source[sid]['percentOfTotalEvents'] is None:
+                        by_source[sid]['percentOfTotalEvents'] = pct
+                else:
+                    by_source[sid] = {
+                        'eventCount': event_count,
+                        'uniqueEventCount': unique_count,
+                        'percentOfTotalEvents': pct,
+                        'source_slug': resource.get('slug', ''),
+                        'source_name': resource.get('name', '')
+                    }
+        return by_source
+
+    def get_source_event_violations(self, source_slug, start_time, end_time):
+        """Fetch per-event violation counts for a single source.
+
+        Loops through all 5 event types and paginates each until exhausted.
+        Only call this for sources known to have at least one violation —
+        clean sources still cost 5 GraphQL calls otherwise.
+
+        Returns:
+            dict {event_name: {type, eventCount, uniqueViolationCount, percentOfEvents, lastSeen}}
+        """
+        query = """
+        query GetSourceEventViolations($workspaceSlug: Slug!, $sourceSlug: String!, $startTime: Date!, $endTime: Date!, $count: Int, $cursor: String, $eventType: EventType, $searchFilter: String) {
+          workspace(slug: $workspaceSlug) {
+            id
+            source(slug: $sourceSlug) {
+              id
+              eventViolationsV2(startTime: $startTime, endTime: $endTime, count: $count, cursor: $cursor, eventType: $eventType, searchFilter: $searchFilter) {
+                counts {
+                  type
+                  name
+                  violationCounts {
+                    eventCount
+                    percentOfEvents
+                    uniqueViolationCount
+                    lastSeen
+                    __typename
+                  }
+                  __typename
+                }
+                pagination {
+                  current
+                  next
+                  previous
+                  __typename
+                }
+                __typename
+              }
+              __typename
+            }
+            __typename
+          }
+        }
+        """
+        event_types = ['TRACK', 'IDENTIFY', 'GROUP', 'PAGE', 'SCREEN']
+        result = {}
+        for event_type in event_types:
+            cursor = 'MA=='  # base64 '0' — start of pagination
+            while True:
+                variables = {
+                    'workspaceSlug': self.workspace_slug,
+                    'sourceSlug': source_slug,
+                    'startTime': start_time,
+                    'endTime': end_time,
+                    'count': 100,
+                    'cursor': cursor,
+                    'eventType': event_type,
+                    'searchFilter': ''
+                }
+                data = self._execute_query(query, variables)
+                source_node = ((data.get('workspace') or {}).get('source') or {})
+                violations_node = source_node.get('eventViolationsV2') or {}
+                counts_list = violations_node.get('counts') or []
+                for entry in counts_list:
+                    name = entry.get('name')
+                    if not name:
+                        continue
+                    vc = entry.get('violationCounts') or {}
+                    event_count = vc.get('eventCount') or 0
+                    unique_count = vc.get('uniqueViolationCount') or 0
+                    if name in result:
+                        result[name]['eventCount'] += event_count
+                        result[name]['uniqueViolationCount'] += unique_count
+                    else:
+                        result[name] = {
+                            'type': entry.get('type') or event_type,
+                            'eventCount': event_count,
+                            'uniqueViolationCount': unique_count,
+                            'percentOfEvents': vc.get('percentOfEvents'),
+                            'lastSeen': vc.get('lastSeen', '')
+                        }
+                next_cursor = (violations_node.get('pagination') or {}).get('next')
+                if not next_cursor or next_cursor == cursor:
+                    break
+                cursor = next_cursor
+        return result
+
     def get_audience_definition(self, space_id, audience_id):
         """Get audience definition"""
         query = """
@@ -2213,6 +2392,7 @@ def start_audit():
         collect_options = data.get('collect_options', {
             'sources': True,
             'schemas': True,
+            'violations': True,
             'destinations': True,
             'mappings': False,
             'audiences': True,
@@ -2259,6 +2439,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         collect_options = {
             'sources': True,
             'schemas': True,
+            'violations': True,
             'destinations': True,
             'mappings': False,
             'audiences': True,
@@ -2363,6 +2544,59 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
             # Get workspace connections
             status['message'] = 'Fetching source-destination connections...'
             connections = client.get_workspace_connections()
+
+            # Fetch tracking-plan violation counts (single workspace-wide query, 7d window)
+            if collect_options.get('violations', True) and sources:
+                try:
+                    import time as _v_time
+                    from datetime import timedelta as _v_td, datetime as _v_dt, timezone as _v_tz
+                    end_dt = _v_dt.now(_v_tz.utc)
+                    start_dt = end_dt - _v_td(days=7)
+                    start_iso = start_dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    end_iso = end_dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    status['message'] = 'Fetching violation counts...'
+                    set_module('violations', 'active')
+                    print(f"\n=== FETCHING VIOLATION COUNTS ({start_iso} → {end_iso}) ===")
+                    violation_map = client.get_source_violation_counts(start_iso, end_iso)
+                    print(f"  -> Sources with tracking-plan violations: {len(violation_map)}")
+                    for src in sources:
+                        v = violation_map.get(src.get('id'))
+                        if v:
+                            src['violations'] = {
+                                'eventCount': v['eventCount'],
+                                'uniqueEventCount': v['uniqueEventCount'],
+                                'percentOfTotalEvents': v['percentOfTotalEvents'],
+                                'window': '7_days'
+                            }
+                        else:
+                            src['violations'] = None
+                    set_module('violations', 'done',
+                               done=len([s for s in sources if s.get('violations')]),
+                               total=len(sources))
+                    _v_time.sleep(1)
+
+                    # Per-event violation breakdown for sources that have any violations
+                    sources_with_v = [
+                        s for s in sources
+                        if (s.get('violations') or {}).get('eventCount', 0) > 0
+                    ]
+                    if sources_with_v:
+                        print(f"  -> Fetching per-event violation breakdown for {len(sources_with_v)} source(s)")
+                        set_module('violations', 'active', done=0, total=len(sources_with_v))
+                        for v_idx, src in enumerate(sources_with_v):
+                            status['message'] = f'Fetching violation details for {src.get("name", "source")} ({v_idx + 1}/{len(sources_with_v)})...'
+                            set_module('violations', 'active', done=v_idx, total=len(sources_with_v))
+                            try:
+                                src['event_violations'] = client.get_source_event_violations(
+                                    src.get('slug', ''), start_iso, end_iso
+                                )
+                            except Exception as e:
+                                print(f"     -> Failed for {src.get('slug', '')}: {e}")
+                                src['event_violations'] = {}
+                        set_module('violations', 'done',
+                                   done=len(sources_with_v), total=len(sources_with_v))
+                except Exception as e:
+                    print(f"  -> ERROR fetching violation counts: {e}")
         else:
             print("Skipping sources collection")
 
@@ -2821,7 +3055,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         # Save sources CSV with traits and event count
         if sources:
             with open(DATA_DIR / 'gateway_sources.csv', 'w', newline='', encoding='utf-8') as f:
-                fieldnames = ['Workspace', 'ID', 'Name', 'Slug', 'Status', 'Type', 'Technical Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Destination Types', 'Connected Warehouses', 'Warehouse Types', 'Identify Traits', 'Event Count']
+                fieldnames = ['Workspace', 'ID', 'Name', 'Slug', 'Status', 'Type', 'Technical Type', 'Category', 'Created At', 'Labels', 'Connected Destinations', 'Destination Types', 'Connected Warehouses', 'Warehouse Types', 'Identify Traits', 'Event Count', 'Violation Events (7d)', 'Unique Violations (7d)', 'Violation % of Total (7d)']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
 
@@ -2923,7 +3157,10 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         'Connected Warehouses': warehouses_csv_str,  # Full "Name (Type)" for CSV
                         'Warehouse Types': warehouses_types_str,  # Just "Type" for UI
                         'Identify Traits': traits_str,
-                        'Event Count': event_count
+                        'Event Count': event_count,
+                        'Violation Events (7d)': (source.get('violations') or {}).get('eventCount', ''),
+                        'Unique Violations (7d)': (source.get('violations') or {}).get('uniqueEventCount', ''),
+                        'Violation % of Total (7d)': (source.get('violations') or {}).get('percentOfTotalEvents', '')
                     })
 
             if collect_options.get('schemas', True):
@@ -3898,7 +4135,7 @@ def serve_data(filename):
 
 @app.route('/api/source-schema/<source_slug>')
 def get_source_schema_api(source_slug):
-    """Get source event schema via Gateway API"""
+    """Get source event schema via Gateway API. Merges cached per-event violations from the last audit."""
     try:
         gateway_token = session.get('gateway_token')
         workspace_slug = session.get('workspace_slug')
@@ -3908,6 +4145,20 @@ def get_source_schema_api(source_slug):
 
         client = GatewayAPIClient(gateway_token, workspace_slug)
         schema_data = client.get_source_schema(source_slug)
+
+        # Merge per-event violations from the cached audit data
+        DATA_DIR = get_session_data_dir()
+        if DATA_DIR:
+            sources_file = DATA_DIR / 'gateway_sources.json'
+            if sources_file.exists():
+                try:
+                    with open(sources_file, 'r') as f:
+                        cached_sources = json.load(f)
+                    match = next((s for s in cached_sources if s.get('slug') == source_slug), None)
+                    if match:
+                        schema_data['event_violations'] = match.get('event_violations') or {}
+                except Exception as e:
+                    print(f"Could not merge cached violations for {source_slug}: {e}")
 
         return jsonify(schema_data)
 
