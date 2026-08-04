@@ -140,15 +140,15 @@
                         <span class="tb-type-label">Type:</span>
                         <label class="tb-type-option">
                             <input type="checkbox" class="type-checkbox" value="Audience" checked>
-                            <span>Batch</span>
+                            <span>Batch (Classic)</span>
                         </label>
                         <label class="tb-type-option">
                             <input type="checkbox" class="type-checkbox" value="RealtimeAudience" checked>
-                            <span>Realtime</span>
+                            <span>Realtime (Classic)</span>
                         </label>
                         <label class="tb-type-option">
                             <input type="checkbox" class="type-checkbox" value="RetlAudience" checked>
-                            <span>Retl</span>
+                            <span>Linked</span>
                         </label>
                     </div>
                     <select id="sortBy" class="tb-control tb-select">
@@ -212,9 +212,9 @@
         const pageSize = 50;
 
         const TYPE_LABELS = {
-            'Audience': 'Batch',
-            'RealtimeAudience': 'Realtime',
-            'RetlAudience': 'Retl'
+            'Audience': 'Batch (Classic)',
+            'RealtimeAudience': 'Realtime (Classic)',
+            'RetlAudience': 'Linked'
         };
         const TYPE_COLORS = {
             'Audience': '#4a5568',
