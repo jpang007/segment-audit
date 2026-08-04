@@ -5,6 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ customer_name }} - Audiences (Gateway API)</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .audiences-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tb-control {
+            box-sizing: border-box;
+            padding: 8px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            background: white;
+            min-height: 40px;
+        }
+        .tb-search {
+            flex: 2 1 220px;
+            min-width: 180px;
+            max-width: 360px;
+            transition: border-color 0.2s;
+        }
+        .tb-select {
+            flex: 1 1 140px;
+            min-width: 130px;
+            cursor: pointer;
+        }
+        .tb-type {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 4px 12px;
+            font-size: 0.85rem;
+            flex: 1 1 auto;
+        }
+        .tb-type-label {
+            color: #4a5568;
+            font-weight: 600;
+        }
+        .tb-type-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .tb-export {
+            margin-left: auto;
+            white-space: nowrap;
+        }
+        @media (max-width: 720px) {
+            .audiences-toolbar {
+                gap: 8px;
+            }
+            .tb-search,
+            .tb-select,
+            .tb-type,
+            .tb-export {
+                flex: 1 1 100%;
+                max-width: none;
+                margin-left: 0;
+            }
+        }
+    </style>
 </head>
 <body>
 <div class="app-layout">
@@ -62,28 +128,40 @@
 
             <!-- Audiences Table -->
             <div class="chart-section">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2>All Audiences</h2>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                        <input type="text" id="searchBox" placeholder="🔍 Search audiences..." style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; width: 250px; transition: border-color 0.2s;" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
-                        <select id="spaceFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
-                            <option value="">All Spaces</option>
-                        </select>
-                        <select id="folderFilter" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
-                            <option value="">All Folders</option>
-                        </select>
-                        <select id="sortBy" style="padding: 8px 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer;">
-                            <option value="name-asc">Name (A-Z)</option>
-                            <option value="name-desc">Name (Z-A)</option>
-                            <option value="size-desc">Size (High-Low)</option>
-                            <option value="size-asc">Size (Low-High)</option>
-                            <option value="dest-desc">Dest Count (High-Low)</option>
-                            <option value="dest-asc">Dest Count (Low-High)</option>
-                        </select>
-                        <button onclick="exportToCSV()" class="btn btn-secondary btn-sm">
-                            📥 Export CSV
-                        </button>
+                <div class="audiences-toolbar">
+                    <input type="text" id="searchBox" placeholder="🔍 Search audiences..." class="tb-control tb-search" onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                    <select id="spaceFilter" class="tb-control tb-select">
+                        <option value="">All Spaces</option>
+                    </select>
+                    <select id="folderFilter" class="tb-control tb-select">
+                        <option value="">All Folders</option>
+                    </select>
+                    <div id="typeFilter" class="tb-control tb-type">
+                        <span class="tb-type-label">Type:</span>
+                        <label class="tb-type-option">
+                            <input type="checkbox" class="type-checkbox" value="Audience" checked>
+                            <span>Batch</span>
+                        </label>
+                        <label class="tb-type-option">
+                            <input type="checkbox" class="type-checkbox" value="RealtimeAudience" checked>
+                            <span>Realtime</span>
+                        </label>
+                        <label class="tb-type-option">
+                            <input type="checkbox" class="type-checkbox" value="RetlAudience" checked>
+                            <span>Retl</span>
+                        </label>
                     </div>
+                    <select id="sortBy" class="tb-control tb-select">
+                        <option value="name-asc">Name (A-Z)</option>
+                        <option value="name-desc">Name (Z-A)</option>
+                        <option value="size-desc">Size (High-Low)</option>
+                        <option value="size-asc">Size (Low-High)</option>
+                        <option value="dest-desc">Dest Count (High-Low)</option>
+                        <option value="dest-asc">Dest Count (Low-High)</option>
+                    </select>
+                    <button onclick="exportToCSV()" class="btn btn-secondary btn-sm tb-export">
+                        📥 Export CSV
+                    </button>
                 </div>
                 <div class="table-container">
                     <table>
@@ -132,6 +210,29 @@
         let filteredAudiences = [];
         let currentPage = 1;
         const pageSize = 50;
+
+        const TYPE_LABELS = {
+            'Audience': 'Batch',
+            'RealtimeAudience': 'Realtime',
+            'RetlAudience': 'Retl'
+        };
+        const TYPE_COLORS = {
+            'Audience': '#4a5568',
+            'RealtimeAudience': '#3182ce',
+            'RetlAudience': '#805ad5'
+        };
+
+        function typeBadge(typename) {
+            const label = TYPE_LABELS[typename] || typename || '—';
+            const color = TYPE_COLORS[typename] || '#a0aec0';
+            return `<span style="background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; margin-left: 8px; vertical-align: middle;">${label}</span>`;
+        }
+
+        function selectedTypes() {
+            return Array.from(document.querySelectorAll('.type-checkbox'))
+                .filter(cb => cb.checked)
+                .map(cb => cb.value);
+        }
 
         function toggleNavDropdown() {
             const menu = document.getElementById('navDropdownMenu');
@@ -281,7 +382,7 @@
 
                 row.innerHTML = `
                     <td>${statusBadge}</td>
-                    <td><strong>${aud['Name'] || ''}</strong></td>
+                    <td><strong>${aud['Name'] || ''}</strong>${typeBadge(aud['Type'])}</td>
                     <td style="text-align: right; font-weight: 600;">${size}</td>
                     <td style="text-align: center;"><span style="font-weight: 600; color: ${destCount > 0 ? '#667eea' : '#a0aec0'};">${destCount}</span></td>
                     <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${destinations}">${destDisplay}</td>
@@ -371,6 +472,7 @@
             const spaceFilter = document.getElementById('spaceFilter').value;
             const folderFilter = document.getElementById('folderFilter').value;
             const sortBy = document.getElementById('sortBy').value;
+            const activeTypes = selectedTypes();
 
             // Filter
             filteredAudiences = allAudiences.filter(aud => {
@@ -382,8 +484,10 @@
 
                 const matchesSpace = !spaceFilter || aud['Space'] === spaceFilter;
                 const matchesFolder = !folderFilter || aud['Folder'] === folderFilter;
+                const audType = aud['Type'] || '';
+                const matchesType = activeTypes.length === 0 || !audType || activeTypes.includes(audType);
 
-                return matchesSearch && matchesSpace && matchesFolder;
+                return matchesSearch && matchesSpace && matchesFolder && matchesType;
             });
 
             // Sort
@@ -426,6 +530,9 @@
         });
         document.getElementById('folderFilter').addEventListener('change', applyFiltersAndSort);
         document.getElementById('sortBy').addEventListener('change', applyFiltersAndSort);
+        document.querySelectorAll('.type-checkbox').forEach(cb => {
+            cb.addEventListener('change', applyFiltersAndSort);
+        });
 
         function extractReadableDefinition(definitionStr) {
             if (!definitionStr) return '';
@@ -602,7 +709,7 @@
 
             // Check if Definition column exists in the data
             const hasDefinitions = filteredAudiences.some(aud => aud['Definition'] !== undefined && aud['Definition'] !== '');
-            const headers = ['Status', 'Name', 'Size', 'Dest Count', 'Destinations', 'Folder', 'Space'];
+            const headers = ['Status', 'Name', 'Type', 'Size', 'Dest Count', 'Destinations', 'Folder', 'Space'];
             if (hasDefinitions) {
                 headers.push('Definition (Readable)');
                 headers.push('Definition (JSON)');
@@ -613,13 +720,16 @@
             filteredAudiences.forEach(aud => {
                 const status = aud['Enabled'] === 'True' ? 'Enabled' : 'Disabled';
                 const name = `"${(aud['Name'] || '').replace(/"/g, '""')}"`;
+                const typeRaw = aud['Type'] || '';
+                const typeLabel = TYPE_LABELS[typeRaw] || typeRaw;
+                const type = `"${typeLabel}"`;
                 const size = aud['Size'] || 0;
                 const destCount = aud['Destination Count'] || 0;
                 const destinations = `"${(aud['Destinations'] || '').replace(/"/g, '""')}"`;
                 const folder = `"${(aud['Folder'] || '').replace(/"/g, '""')}"`;
                 const space = `"${(aud['Space'] || '').replace(/"/g, '""')}"`;
 
-                const row = [status, name, size, destCount, destinations, folder, space];
+                const row = [status, name, type, size, destCount, destinations, folder, space];
                 if (hasDefinitions) {
                     const readable = extractReadableDefinition(aud['Definition']);
                     const readableEscaped = `"${readable.replace(/"/g, '""')}"`;

@@ -32,13 +32,18 @@ class ExportManager:
         # Default: assume everything was collected (for backwards compatibility)
         return {
             'sources': True,
+            'schemas': True,
+            'violations': True,
             'destinations': True,
+            'mappings': True,
             'audiences': True,
             'journeys': True,
             'profiles': True,
             'mtu': True,
             'audit_trail': True,
             'usage_data': True,
+            'retl': True,
+            'warehouses': True,
             'fetch_definitions': False
         }
 
@@ -747,191 +752,311 @@ class ExportManager:
 
         return output.getvalue()
 
+    def _load_workspace_slug(self) -> str:
+        summary_file = self.data_dir / 'gateway_summary.json'
+        if summary_file.exists():
+            try:
+                with open(summary_file) as f:
+                    slug = json.load(f).get('workspace_slug') or ''
+                if slug:
+                    return slug
+            except Exception:
+                pass
+        return 'workspace'
+
+    def export_retl_models_csv(self) -> str:
+        """CSV output matching /api/export-retl-csv."""
+        retl_file = self.data_dir / 'gateway_retl_models.json'
+        if not retl_file.exists():
+            raise FileNotFoundError('gateway_retl_models.json missing')
+
+        with open(retl_file, 'r') as f:
+            models = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = ['model_name', 'source_name', 'source_type', 'enabled', 'type',
+                      'destinations', 'queryIdentifierColumn', 'queryTimestampColumn',
+                      'schedule', 'description', 'query', 'model_id', 'createdAt', 'updatedAt']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for m in models:
+            dests = ', '.join(i.get('name', '') for i in (m.get('integrations') or []))
+            schedule = m.get('schedule')
+            writer.writerow({
+                'model_name': m.get('name', ''),
+                'source_name': m.get('source_name', ''),
+                'source_type': m.get('source_type', ''),
+                'enabled': m.get('enabled', ''),
+                'type': m.get('type', ''),
+                'destinations': dests,
+                'queryIdentifierColumn': m.get('queryIdentifierColumn', ''),
+                'queryTimestampColumn': m.get('queryTimestampColumn', ''),
+                'schedule': json.dumps(schedule) if schedule else '',
+                'description': m.get('description', '') or '',
+                'query': m.get('query', '') or '',
+                'model_id': m.get('id', ''),
+                'createdAt': m.get('createdAt', ''),
+                'updatedAt': m.get('updatedAt', ''),
+            })
+        return output.getvalue()
+
+    def export_warehouse_schemas_csv(self) -> str:
+        """CSV output matching /api/export-warehouse-schemas-csv."""
+        wh_file = self.data_dir / 'gateway_warehouses.json'
+        if not wh_file.exists():
+            raise FileNotFoundError('gateway_warehouses.json missing')
+
+        with open(wh_file, 'r') as f:
+            warehouses_data = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = [
+            'warehouse_name', 'warehouse_id', 'warehouse_type',
+            'source_name', 'source_slug', 'source_id',
+            'collection_name', 'row_type',
+            'name_or_key', 'data_type', 'enabled', 'archived',
+            'last_seen_at', 'created_at', 'is_planned'
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for wh in warehouses_data:
+            wh_name = wh.get('name', wh.get('id', ''))
+            wh_id = wh.get('id', '')
+            wh_type = wh.get('metadata', {}).get('name', '') if wh.get('metadata') else ''
+            for schema in wh.get('sourceSchemas', []):
+                src_name = schema.get('sourceName', '')
+                src_slug = schema.get('sourceSlug', '')
+                src_id = schema.get('sourceId', '')
+                for coll in schema.get('collections', []):
+                    coll_name = coll.get('name', '')
+                    for event in coll.get('events', []):
+                        writer.writerow({
+                            'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
+                            'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
+                            'collection_name': coll_name, 'row_type': 'event',
+                            'name_or_key': event.get('name', ''), 'data_type': '',
+                            'enabled': event.get('enabled', ''), 'archived': event.get('archived', ''),
+                            'last_seen_at': '', 'created_at': event.get('createdAt', ''),
+                            'is_planned': event.get('isPlanned', ''),
+                        })
+                    for prop in coll.get('objectProperties', []):
+                        writer.writerow({
+                            'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
+                            'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
+                            'collection_name': coll_name, 'row_type': 'property',
+                            'name_or_key': prop.get('key', ''), 'data_type': prop.get('type', ''),
+                            'enabled': prop.get('enabled', ''), 'archived': prop.get('archived', ''),
+                            'last_seen_at': prop.get('lastSeenAt', ''), 'created_at': prop.get('createdAt', ''),
+                            'is_planned': prop.get('isPlanned', ''),
+                        })
+        return output.getvalue()
+
+    def export_audit_trail_csv(self) -> str:
+        """CSV output matching /api/export-audit-trail-csv."""
+        audit_file = self.data_dir / 'gateway_audit_trail.json'
+        if not audit_file.exists():
+            raise FileNotFoundError('gateway_audit_trail.json missing')
+
+        with open(audit_file, 'r') as f:
+            audit_events = json.load(f)
+
+        output = io.StringIO()
+        fieldnames = ['timestamp', 'event_type', 'target', 'resource_type', 'user', 'user_email']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for e in audit_events:
+            subject = e.get('subject') or {}
+            user_obj = subject.get('user') or {}
+            token_obj = subject.get('token') or {}
+            resource = e.get('resource') or {}
+            writer.writerow({
+                'timestamp': e.get('timestamp', ''),
+                'event_type': e.get('type', ''),
+                'target': e.get('target', ''),
+                'resource_type': resource.get('type', ''),
+                'user': user_obj.get('name') or token_obj.get('description', ''),
+                'user_email': user_obj.get('email', ''),
+            })
+        return output.getvalue()
+
+    def export_profile_insights_xlsx(self) -> bytes:
+        """XLSX output matching /api/export-profile-insights-excel."""
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from io import BytesIO
+
+        identity_configs_file = self.data_dir / 'gateway_profile_insights.csv'
+        space_sources_file = self.data_dir / 'gateway_space_sources.csv'
+
+        if not identity_configs_file.exists():
+            raise FileNotFoundError('gateway_profile_insights.csv missing')
+
+        identity_configs = []
+        with open(identity_configs_file, 'r', encoding='utf-8') as f:
+            identity_configs = list(csv.DictReader(f))
+
+        space_sources = []
+        if space_sources_file.exists():
+            with open(space_sources_file, 'r', encoding='utf-8') as f:
+                space_sources = list(csv.DictReader(f))
+
+        wb = Workbook()
+        wb.remove(wb.active)
+        header_fill = PatternFill(start_color='667EEA', end_color='667EEA', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF')
+
+        def autosize(ws):
+            for col in ws.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                ws.column_dimensions[column].width = min(max_length + 2, 50)
+
+        ws_identity = wb.create_sheet('Identity Resolution')
+        identity_headers = ['Workspace', 'Space', 'Space ID', 'ID Type', 'Priority', 'Limit', 'Seen']
+        for col_idx, header in enumerate(identity_headers, 1):
+            cell = ws_identity.cell(row=1, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        for row_idx, config in enumerate(identity_configs, 2):
+            for col_idx, key in enumerate(identity_headers, 1):
+                ws_identity.cell(row=row_idx, column=col_idx, value=config.get(key, ''))
+        autosize(ws_identity)
+
+        if space_sources:
+            inbound_sources = [s for s in space_sources if s.get('Type', '') != 'Personas']
+            debugger_sources = [s for s in space_sources if s.get('Type', '') == 'Personas']
+
+            if inbound_sources:
+                ws_inbound = wb.create_sheet('Space Sources (Inbound)')
+                inbound_headers = ['Workspace', 'Space', 'Space ID', 'Source Name', 'Status', 'Type', 'Category', 'Destinations']
+                for col_idx, header in enumerate(inbound_headers, 1):
+                    cell = ws_inbound.cell(row=1, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                for row_idx, source in enumerate(inbound_sources, 2):
+                    for col_idx, key in enumerate(inbound_headers, 1):
+                        ws_inbound.cell(row=row_idx, column=col_idx, value=source.get(key, ''))
+                autosize(ws_inbound)
+
+            if debugger_sources:
+                ws_debugger = wb.create_sheet('Profile Debugger Sources')
+                debugger_headers = ['Workspace', 'Space', 'Space ID', 'Source Name', 'Status', 'Destinations']
+                for col_idx, header in enumerate(debugger_headers, 1):
+                    cell = ws_debugger.cell(row=1, column=col_idx, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                for row_idx, source in enumerate(debugger_sources, 2):
+                    for col_idx, key in enumerate(debugger_headers, 1):
+                        ws_debugger.cell(row=row_idx, column=col_idx, value=source.get(key, ''))
+                autosize(ws_debugger)
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output.read()
+
     def export_all_as_zip(self) -> bytes:
         """
-        Export all audit data as a comprehensive ZIP file
-        Includes all raw data files, processed CSVs, and JSON exports
-        Returns ZIP file as bytes
+        Export all audit data as a comprehensive ZIP.
+
+        Gating rule: a file is included iff its source data exists on disk. We
+        don't consult self.collection_options here — that dict is populated at
+        audit time and older audits may omit newer keys (retl, warehouses, ...).
+        The audit only writes source files for options the user selected, so
+        file existence is a truthful proxy for "the user asked for this."
         """
         import zipfile
         from io import BytesIO
 
+        workspace_slug = self._load_workspace_slug()
+        date_str = datetime.now().strftime('%Y-%m-%d')
         zip_buffer = BytesIO()
 
+        def safe_write(path: str, producer):
+            try:
+                zip_file.writestr(path, producer())
+            except FileNotFoundError:
+                pass
+            except Exception as ex:
+                print(f"Warning: Could not add {path}: {ex}")
+
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # ===== PROCESSED EXPORTS (Analysis-ready CSVs) =====
-            # Only include exports for data that was actually collected
+            # ===== PROCESSED EXPORTS =====
+            if (self.data_dir / 'gateway_sources.json').exists():
+                safe_write('processed/sources_with_destinations.csv',
+                           self.export_sources_with_destinations_csv)
+                safe_write('processed/top_events.csv', self.export_top_events_csv)
+            if (self.data_dir / 'gateway_audiences.csv').exists():
+                safe_write('processed/audiences_with_destinations.csv',
+                           self.export_audiences_with_destinations_csv)
 
-            # Sources with destinations (only if sources were collected)
-            if self.collection_options.get('sources', False):
-                try:
-                    zip_file.writestr(
-                        'processed/sources_with_destinations.csv',
-                        self.export_sources_with_destinations_csv()
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not export sources_with_destinations: {e}")
-
-            # Audiences with destinations (only if audiences were collected)
-            if self.collection_options.get('audiences', False):
-                try:
-                    zip_file.writestr(
-                        'processed/audiences_with_destinations.csv',
-                        self.export_audiences_with_destinations_csv()
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not export audiences_with_destinations: {e}")
-
-            # Top events (only if sources were collected - needs event schema)
-            if self.collection_options.get('sources', False):
-                try:
-                    zip_file.writestr(
-                        'processed/top_events.csv',
-                        self.export_top_events_csv()
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not export top_events: {e}")
-
-            # ===== RAW DATA FILES (Gateway API data for the checked collections only) =====
-
-            # (filename, collect_options key or None to always include).
-            # None means the file holds workspace-level metadata that isn't gated by
-            # any specific collection choice.
+            # ===== RAW DATA (verbatim Gateway API dumps) =====
             gateway_files = [
-                ('gateway_summary.json', None),
-                ('gateway_personas_entitlements.json', None),
-                ('gateway_sources.csv', 'sources'),
-                ('gateway_sources.json', 'sources'),
-                ('gateway_audiences.csv', 'audiences'),
-                ('gateway_space_sources.csv', 'audiences'),
-                ('gateway_journeys.csv', 'journeys'),
-                ('gateway_profile_insights.csv', 'profiles'),
-                ('gateway_destinations.json', 'destinations'),
-                ('gateway_data_flows.json', 'destinations'),
-                ('gateway_audit_trail.json', 'audit_trail'),
-                ('gateway_mtu.json', 'mtu'),
-                ('gateway_usage_data.json', 'usage_data'),
-                ('gateway_retl_models.json', 'retl'),
-                ('gateway_warehouses.json', 'warehouses'),
+                'gateway_summary.json',
+                'gateway_personas_entitlements.json',
+                'gateway_sources.csv',
+                'gateway_sources.json',
+                'gateway_audiences.csv',
+                'gateway_space_sources.csv',
+                'gateway_journeys.csv',
+                'gateway_profile_insights.csv',
+                'gateway_destinations.json',
+                'gateway_data_flows.json',
+                'gateway_audit_trail.json',
+                'gateway_mtu.json',
+                'gateway_usage_data.json',
+                'gateway_retl_models.json',
+                'gateway_warehouses.json',
             ]
-
-            for filename, option_key in gateway_files:
-                if option_key and not self.collection_options.get(option_key, False):
-                    continue
+            for filename in gateway_files:
                 file_path = self.data_dir / filename
                 if file_path.exists():
                     try:
                         with open(file_path, 'rb') as f:
                             zip_file.writestr(f'raw_data/{filename}', f.read())
-                    except Exception as e:
-                        print(f"Warning: Could not add {filename}: {e}")
+                    except Exception as ex:
+                        print(f"Warning: Could not add raw_data/{filename}: {ex}")
 
-            # Destinations Excel — matches the Destinations page's Export Excel output
-            if self.collection_options.get('destinations', False):
-                try:
-                    xlsx_bytes = self.export_destinations_xlsx()
-                    zip_file.writestr('raw_data/destinations.xlsx', xlsx_bytes)
-                except FileNotFoundError:
-                    pass
-                except Exception as e:
-                    print(f"Warning: Could not generate destinations xlsx: {e}")
-
-            # Sources Excel — matches the Sources page's Export Excel output
-            if self.collection_options.get('sources', False):
-                try:
-                    xlsx_bytes = self.export_sources_xlsx()
-                    zip_file.writestr('raw_data/sources.xlsx', xlsx_bytes)
-                except FileNotFoundError:
-                    pass
-                except Exception as e:
-                    print(f"Warning: Could not generate sources xlsx: {e}")
-
-            # ===== rETL MODELS CSV =====
-            retl_file = self.data_dir / 'gateway_retl_models.json'
-            if self.collection_options.get('retl', False) and retl_file.exists():
-                try:
-                    import csv as _csv, io as _io
-                    with open(retl_file, 'r') as f:
-                        models = json.load(f)
-                    out = _io.StringIO()
-                    fieldnames = ['model_name', 'source_name', 'source_type', 'enabled', 'type',
-                                  'destinations', 'queryIdentifierColumn', 'queryTimestampColumn',
-                                  'schedule', 'description', 'query', 'model_id', 'createdAt', 'updatedAt']
-                    writer = _csv.DictWriter(out, fieldnames=fieldnames)
-                    writer.writeheader()
-                    for m in models:
-                        dests = ', '.join(i.get('name', '') for i in (m.get('integrations') or []))
-                        schedule = m.get('schedule')
-                        writer.writerow({
-                            'model_name': m.get('name', ''),
-                            'source_name': m.get('source_name', ''),
-                            'source_type': m.get('source_type', ''),
-                            'enabled': m.get('enabled', ''),
-                            'type': m.get('type', ''),
-                            'destinations': dests,
-                            'queryIdentifierColumn': m.get('queryIdentifierColumn', ''),
-                            'queryTimestampColumn': m.get('queryTimestampColumn', ''),
-                            'schedule': json.dumps(schedule) if schedule else '',
-                            'description': m.get('description', '') or '',
-                            'query': m.get('query', '') or '',
-                            'model_id': m.get('id', ''),
-                            'createdAt': m.get('createdAt', ''),
-                            'updatedAt': m.get('updatedAt', ''),
-                        })
-                    zip_file.writestr('raw_data/gateway_retl_models.csv', out.getvalue())
-                except Exception as e:
-                    print(f"Warning: Could not generate rETL CSV: {e}")
-
-            # ===== WAREHOUSE SCHEMAS CSV =====
-            wh_file = self.data_dir / 'gateway_warehouses.json'
-            if self.collection_options.get('warehouses', False) and wh_file.exists():
-                try:
-                    import csv as _csv, io as _io
-                    with open(wh_file, 'r') as f:
-                        warehouses_data = json.load(f)
-                    out = _io.StringIO()
-                    fieldnames = [
-                        'warehouse_name', 'warehouse_id', 'warehouse_type',
-                        'source_name', 'source_slug', 'source_id',
-                        'collection_name', 'row_type',
-                        'name_or_key', 'data_type', 'enabled', 'archived',
-                        'last_seen_at', 'created_at', 'is_planned'
-                    ]
-                    writer = _csv.DictWriter(out, fieldnames=fieldnames)
-                    writer.writeheader()
-                    for wh in warehouses_data:
-                        wh_name = wh.get('name', wh.get('id', ''))
-                        wh_id = wh.get('id', '')
-                        wh_type = wh.get('metadata', {}).get('name', '') if wh.get('metadata') else ''
-                        for schema in wh.get('sourceSchemas', []):
-                            src_name = schema.get('sourceName', '')
-                            src_slug = schema.get('sourceSlug', '')
-                            src_id = schema.get('sourceId', '')
-                            for coll in schema.get('collections', []):
-                                coll_name = coll.get('name', '')
-                                for event in coll.get('events', []):
-                                    writer.writerow({
-                                        'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
-                                        'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
-                                        'collection_name': coll_name, 'row_type': 'event',
-                                        'name_or_key': event.get('name', ''), 'data_type': '',
-                                        'enabled': event.get('enabled', ''), 'archived': event.get('archived', ''),
-                                        'last_seen_at': '', 'created_at': event.get('createdAt', ''),
-                                        'is_planned': event.get('isPlanned', ''),
-                                    })
-                                for prop in coll.get('objectProperties', []):
-                                    writer.writerow({
-                                        'warehouse_name': wh_name, 'warehouse_id': wh_id, 'warehouse_type': wh_type,
-                                        'source_name': src_name, 'source_slug': src_slug, 'source_id': src_id,
-                                        'collection_name': coll_name, 'row_type': 'property',
-                                        'name_or_key': prop.get('key', ''), 'data_type': prop.get('type', ''),
-                                        'enabled': prop.get('enabled', ''), 'archived': prop.get('archived', ''),
-                                        'last_seen_at': prop.get('lastSeenAt', ''), 'created_at': prop.get('createdAt', ''),
-                                        'is_planned': prop.get('isPlanned', ''),
-                                    })
-                    zip_file.writestr('raw_data/gateway_warehouse_schemas.csv', out.getvalue())
-                except Exception as e:
-                    print(f"Warning: Could not generate warehouse schemas CSV: {e}")
+            # ===== PER-TAB EXPORTS =====
+            # Same filenames the individual tab-download buttons produce.
+            # Kept in raw_data/ alongside the Gateway API dumps — the slug-
+            # prefixed names don't collide with the gateway_* raw files.
+            if (self.data_dir / 'gateway_sources.json').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_sources_llm_optimized_{date_str}.xlsx',
+                    lambda: self.export_sources_xlsx(workspace_slug=workspace_slug),
+                )
+            if (self.data_dir / 'gateway_destinations.json').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_destinations_{date_str}.xlsx',
+                    self.export_destinations_xlsx,
+                )
+            if (self.data_dir / 'gateway_retl_models.json').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_retl_models.csv',
+                    self.export_retl_models_csv,
+                )
+            if (self.data_dir / 'gateway_warehouses.json').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_warehouse_schemas.csv',
+                    self.export_warehouse_schemas_csv,
+                )
+            if (self.data_dir / 'gateway_audit_trail.json').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_audit_trail.csv',
+                    self.export_audit_trail_csv,
+                )
+            if (self.data_dir / 'gateway_profile_insights.csv').exists():
+                safe_write(
+                    f'raw_data/{workspace_slug}_profile_insights_{date_str}.xlsx',
+                    self.export_profile_insights_xlsx,
+                )
 
             # ===== GEM ANALYSIS FILES (formatted for Gemini Gems) =====
 

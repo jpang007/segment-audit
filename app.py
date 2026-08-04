@@ -3174,7 +3174,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
         if all_audiences:
             with open(DATA_DIR / 'gateway_audiences.csv', 'w', newline='', encoding='utf-8') as f:
                 # Include Definition column if definitions were fetched
-                fieldnames = ['Workspace', 'ID', 'Name', 'Key', 'Enabled', 'Size', 'Space', 'Space ID', 'Folder', 'Destinations', 'Destination Count']
+                fieldnames = ['Workspace', 'ID', 'Name', 'Key', 'Type', 'Enabled', 'Size', 'Space', 'Space ID', 'Folder', 'Destinations', 'Destination Count']
                 if fetch_definitions:
                     fieldnames.append('Definition')
 
@@ -3187,6 +3187,7 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
                         'ID': aud.get('id', ''),
                         'Name': aud.get('name', ''),
                         'Key': aud.get('key', ''),
+                        'Type': aud.get('type', ''),
                         'Enabled': aud.get('enabled', False),
                         'Size': aud.get('size', 0),
                         'Space': aud.get('space_name', ''),
@@ -3360,13 +3361,18 @@ def run_audit(audit_id, gateway_token, workspace_slug, customer_name, fetch_defi
             'spaces_count': len(spaces),
             'collection_options': {
                 'sources': collect_options.get('sources', False),
+                'schemas': collect_options.get('schemas', False),
+                'violations': collect_options.get('violations', False),
                 'destinations': collect_options.get('destinations', False),
+                'mappings': collect_options.get('mappings', False),
                 'audiences': collect_options.get('audiences', False),
                 'journeys': collect_options.get('journeys', False),
                 'profiles': collect_options.get('profiles', False),
                 'mtu': collect_options.get('mtu', False),
                 'audit_trail': collect_options.get('audit_trail', False),
                 'usage_data': collect_options.get('usage_data', False),
+                'retl': collect_options.get('retl', False),
+                'warehouses': collect_options.get('warehouses', False),
                 'fetch_definitions': fetch_definitions
             }
         }
